@@ -479,6 +479,8 @@ Return ONLY a raw JSON array — no markdown, no explanation:
     // ─── Soft Entity Filter ───────────────────────────────────────────────────
     // Penalises results with no anchor entity match instead of hard-removing them,
     // so sources using synonyms (e.g. "working dog" for "German Shepherd") survive.
+    // Also detects acronym collisions (e.g. "Dog" in "Dog-IQA") and penalises those
+    // separately — they appear to match an anchor but don't actually cover the topic.
 
     _softEntityFilter(results, entities) {
         if (!entities.anchors.length) return results;
@@ -487,14 +489,52 @@ Return ONLY a raw JSON array — no markdown, no explanation:
         return results
             .map(r => {
                 const text = `${r.title} ${r.snippet}`.toLowerCase();
+
+                // Check for acronym collision first: anchor appears only as part of a
+                // hyphenated compound or all-caps token (e.g. "Dog-IQA", "DOG"), not as
+                // a natural subject noun. These score +10 from Tier 1 domains but are
+                // topically irrelevant — the -6 drops them below the academic floor (6).
+                const isAcronymCollision = anchorTerms.some(a => this._isAcronymCollision(r.title, a));
+                if (isAcronymCollision) {
+                    console.log(`[Search] ⚠ Acronym collision: "${r.title.substring(0, 60)}"`);
+                    return { ...r, _score: (r._score || 0) - 6, _acronymCollision: true };
+                }
+
                 const hasAnchor = anchorTerms.some(a => text.includes(a));
                 if (!hasAnchor) {
                     console.log(`[Search] ⚠ No anchor: "${r.title.substring(0, 60)}"`);
                     return { ...r, _score: (r._score || 0) - 2, _anchorMiss: true };
                 }
+
                 return r;
             })
             .sort((a, b) => b._score - a._score);
+    },
+
+    // Detects when an anchor term appears in a title only as part of a hyphenated
+    // compound (e.g. "Dog-IQA") or all-caps acronym token, not as a standalone noun.
+    // Returns true if the anchor matches ONLY in acronym position, false otherwise.
+    _isAcronymCollision(title, anchor) {
+        if (!title || !anchor) return false;
+
+        // Find all hyphenated compound tokens in the title (e.g. "Dog-IQA", "SAR-Net")
+        const hyphenatedTokens = [...title.matchAll(/\b([A-Za-z]+)-([A-Za-z]+)\b/g)]
+            .map(m => m[0]);
+
+        // Check if the anchor appears inside any hyphenated token
+        const anchorInHyphenated = hyphenatedTokens.some(token =>
+            token.toLowerCase().includes(anchor.toLowerCase())
+        );
+
+        if (!anchorInHyphenated) return false; // anchor doesn't appear in any compound
+
+        // Now check if the anchor ALSO appears as a plain standalone word
+        // (strip out all hyphenated tokens before checking)
+        const titleWithoutCompounds = title.replace(/\b[A-Za-z]+-[A-Za-z]+\b/g, ' ');
+        const plainMatch = new RegExp(`\\b${anchor}\\b`, 'i').test(titleWithoutCompounds);
+
+        // Collision only if the anchor appears in a compound but NOT as a plain noun
+        return !plainMatch;
     },
 
     // ─── LLM Relevance Filter ─────────────────────────────────────────────────
@@ -529,6 +569,9 @@ REJECT if it:
 - Matches only surface keywords without topical alignment
 - Covers a different species, event, or application
 - Is about an off-scope topic: ${entities.exclude.join(', ') || 'none'}
+- Contains an anchor entity ONLY as part of an acronym or model name
+  (e.g. "Dog-IQA" where "Dog" is a model abbreviation, not the animal;
+   "SAR-Net" where "SAR" is an architecture name, not search-and-rescue)
 
 Return ONLY a raw JSON array of kept indices, e.g. [0, 2, 5]:`;
 
