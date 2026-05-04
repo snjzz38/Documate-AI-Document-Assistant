@@ -1,10 +1,9 @@
 // api/utils/googleSearch.js
-// Academic Search — Humanities/Literature Optimized (v4.1)
-// Same API. Fixed for literary analysis queries.
+// Academic Search — Flexible Relevance Architecture (v5)
+// Same API. No hardcoded domain lists. LLM-driven relevance when available.
 
 import { GroqAPI } from './groqAPI.js';
 
-// ─── Configuration ───────────────────────────────────────────────────────────
 const CONFIG = {
   instances: [
     'https://priv.au', 'https://search.sapti.me', 'https://searx.tiekoetter.com',
@@ -12,55 +11,40 @@ const CONFIG = {
     'https://searxng.site', 'https://paulgo.io',
   ],
   
-  // ❌ BAN essay mills & low-quality sources
+  // 🚫 ONLY ban truly toxic sources (not "non-preferred")
   bannedDomains: new Set([
-    'reddit.com','quora.com','stackoverflow.com','youtube.com','tiktok.com',
-    'instagram.com','facebook.com','twitter.com','x.com','amazon.com','ebay.com',
-    // Essay mills & student paper sites
+    'reddit.com','quora.com','youtube.com','tiktok.com','instagram.com',
+    'facebook.com','twitter.com','x.com','amazon.com','ebay.com',
+    // Essay mills & student paper resellers
     '123helpme.com','scribd.com','ukessays.com','kibin.com','studycorgi.com',
-    'coursehero.com','chegg.com','bartleby.com','ipl.org','prezi.com',
-    'aithor.com','essaypro.com','paperdue.com','studymode.com',
+    'coursehero.com','chegg.com','bartleby.com','essaypro.com','aithor.com',
   ]),
   
-  bannedExts: new Set(['.jpg','.jpeg','.png','.gif','.webp','.svg','.mp4','.mp3','.pdf']),
+  bannedExts: new Set(['.jpg','.jpeg','.png','.gif','.webp','.svg','.mp4','.mp3']),
   
-  // ✅ ACADEMIC DOMAINS — Humanities-focused
-  academicDomains: {
-    tier1: [
-      // Literary/Humanities databases
-      'jstor.org','projectmuse.edu','mla.org','cambridge.org','oup.com',
-      'tandfonline.com','sagepub.com','wiley.com','springer.com','palgrave.com',
-      // University presses
-      'upenn.edu','press.uchicago.edu','hup.harvard.edu','yalebooks.yale.edu',
-      // Literature-specific
-      'literature.org','poetryfoundation.org','modernlanguages.org',
-      // General academic (keep some science for cross-disciplinary)
-      'arxiv.org','semanticscholar.org','crossref.org','researchgate.net',
-    ],
-    tier2: [
-      'wikipedia.org','britannica.com','plato.stanford.edu','iep.utm.edu',
-      'poets.org','theparisreview.org','newyorker.com','lrb.co.uk',
-    ],
-  },
+  // ✅ SOFT domain signals (bonus, not requirement)
+  academicSignals: [
+    'jstor.org','projectmuse','cambridge.org','oup.com','tandfonline.com',
+    'sagepub.com','wiley.com','springer.com','arxiv.org','semanticscholar.org',
+    'crossref.org','researchgate.net','academia.edu','mla.org',
+  ],
   
   blogSignals: ['blog','wordpress','medium.com','substack','wixsite'],
   academicEngines: 'google,bing,duckduckgo,brave,semantic_scholar,crossref',
   
-  // ✅ LITERARY CONCEPT MAP — maps surface terms → academic literary terms
+  // 🎭 Context-agnostic concept expansion (works for any subject)
   conceptMap: [
-    [/\btension\b|\bconflict\b/i, 'dramatic tension character conflict'],
-    [/\bcontempt\b|\bdegrading\b/i, 'power dynamics patriarchal critique'],
-    [/\bmetaphor\b|\bsymbolism\b/i, 'literary symbolism thematic imagery'],
-    [/\birony\b|\bdramatic irony\b/i, 'dramatic irony theatrical device'],
-    [/\bdiction\b|\bword choice\b/i, 'linguistic register stylistic diction'],
-    [/\bfreedom\b|\bautonomy\b/i, 'female agency self-determination'],
-    [/\bdomestic\b|\bhousehold\b/i, 'domestic sphere gender roles'],
-    [/\babandon\b|\bdeparture\b/i, 'narrative resolution character arc'],
-    [/\bconstruct\b|\bportray\b/i, 'authorial technique narrative strategy'],
+    [/\b(tension|conflict)\b/i, 'dramatic tension thematic conflict'],
+    [/\b(contempt|degrading)\b/i, 'power dynamics critical perspective'],
+    [/\b(metaphor|symbolism)\b/i, 'literary symbolism figurative language'],
+    [/\b(irony|dramatic)\b/i, 'dramatic irony narrative technique'],
+    [/\b(diction|word choice)\b/i, 'linguistic register stylistic choice'],
+    [/\b(freedom|autonomy)\b/i, 'agency self-determination thematic'],
+    [/\b(domestic|household)\b/i, 'domestic sphere social context'],
+    [/\b(construct|portray)\b/i, 'authorial technique narrative strategy'],
   ],
 };
 
-// ─── Public API (unchanged) ──────────────────────────────────────────────────
 export const GoogleSearchAPI = {
 
   async search(query, _apiKey, _cx, groqKey = null, opts = {}) {
@@ -72,30 +56,38 @@ export const GoogleSearchAPI = {
         ? await this._extractEntities(query, groqKey) 
         : this._simpleExtract(query);
       
-      // 2. Build queries tuned for literary analysis
+      // 2. Build queries (LLM or fallback)
       const queries = groqKey
         ? await this._buildQueries(query, entities, groqKey)
         : [this._fallbackQuery(query, entities)];
       
-      // 3. Fetch results
+      // 3. Fetch broadly from SearXNG
       const raw = await this._fetchAll(queries, { timeRange });
       
-      // 4. Score & filter with humanities-aware ranking
-      return this._rankResults(raw, entities);
+      // 4. Score with lightweight heuristics (always runs)
+      const scored = this._scoreResults(raw, entities);
+      
+      // 5. OPTIONAL: LLM relevance pass (only if groqKey + enough results)
+      if (groqKey && scored.length >= 5) {
+        const filtered = await this._llmRelevance(scored, query, entities, groqKey);
+        // Safety: never return fewer than 3
+        return filtered.length >= 3 ? filtered : scored.slice(0, Math.max(filtered.length, 3));
+      }
+      
+      // 6. Return heuristic-scored results (fallback path)
+      return scored.slice(0, 12);
       
     } catch (err) {
-      console.error('[Search] Error:', err.message);
-      return [];
+      console.error('[Search] Fatal:', err.message);
+      return []; // Always return valid array
     }
   },
 
-  // ─── Entity Extraction (simplified for literary text) ──────────────────────
+  // ─── Entity Extraction (context-agnostic) ─────────────────────────────────
   
   async _extractEntities(text, groqKey) {
-    const prompt = `Extract key literary analysis entities. Return JSON:
-{"anchors":[2-4: character names, author, play title, key themes],
- "concepts":[3-6: literary devices, critical frameworks],
- "exclude":[1-2: off-topic terms]}
+    const prompt = `Extract key entities for academic search. Return JSON:
+{"anchors":[2-4: specific names, works, concepts],"concepts":[3-6: analytical terms],"exclude":[1-2: off-topic]}
 
 Text: ${text.substring(0, 600)}`;
 
@@ -114,7 +106,6 @@ Text: ${text.substring(0, 600)}`;
   },
 
   _simpleExtract(text) {
-    // Extract: capitalized proper nouns (characters, authors) + literary terms
     const anchors = [...new Set(
       (text.match(/\b[A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*\b/g) || [])
         .filter(w => !['The','This','That','However','In','By','And'].includes(w))
@@ -129,27 +120,24 @@ Text: ${text.substring(0, 600)}`;
     return { anchors, concepts, exclude: [] };
   },
 
-  // ─── Query Generation for Literary Analysis ────────────────────────────────
+  // ─── Query Generation (flexible structure) ────────────────────────────────
   
   async _buildQueries(text, entities, groqKey) {
-    // Expand with academic literary terms
     let expanded = text.substring(0, 1200);
     for (const [re, term] of CONFIG.conceptMap) {
       expanded = expanded.replace(re, `$& [${term}]`);
     }
 
-    const prompt = `Generate 4 academic search queries for literary analysis.
-Format: [work/author] + [literary device/theme] + [critical framework]
+    const prompt = `Generate 4 academic search queries. Format: [topic] + [analytical lens] + [context]
 
-Key terms: ${[...entities.anchors, ...entities.concepts].join(', ') || 'literary analysis'}
+Key terms: ${[...entities.anchors, ...entities.concepts].join(', ') || 'academic analysis'}
 Avoid: ${entities.exclude.join(', ') || 'nothing'}
 
 Text: ${expanded}
 
 Return JSON array of 4 queries, 5-8 words each. Examples:
 ["Ibsen Doll's House dramatic irony feminist reading",
- "Nora Helmer agency domestic sphere criticism",
- "A Doll's House diction power dynamics analysis"]`;
+ "Nora Helmer agency domestic sphere criticism"]`;
 
     try {
       const res = await GroqAPI.chat([{role:'user', content:prompt}], groqKey, false);
@@ -165,23 +153,21 @@ Return JSON array of 4 queries, 5-8 words each. Examples:
   },
 
   _fallbackQuery(text, entities) {
-    // Build query from anchors + concepts
     const parts = [...(entities.anchors || []), ...(entities.concepts || [])]
       .filter(p => p && p.length > 2)
       .slice(0, 5);
     
-    if (parts.length >= 2) return parts.join(' ') + ' literary criticism';
+    if (parts.length >= 2) return parts.join(' ') + ' academic analysis';
     
-    // Fallback: grab key terms from text
     const words = text.toLowerCase().match(/\b[a-z]{5,}\b/g) || [];
     const meaningful = [...new Set(words)].filter(w => 
-      !['people','things','often','very','just','make','take','get','used','house','play'].includes(w)
+      !['people','things','often','very','just','make','take','get','used'].includes(w)
     ).slice(0, 4);
     
-    return (meaningful.join(' ') || text.slice(0, 40)) + ' academic analysis';
+    return (meaningful.join(' ') || text.slice(0, 40)) + ' scholarly source';
   },
 
-  // ─── Fetching (unchanged from simplified version) ──────────────────────────
+  // ─── Fetching (minimal filtering) ─────────────────────────────────────────
   
   async _fetchAll(queries, opts) {
     const results = [];
@@ -197,7 +183,7 @@ Return JSON array of 4 queries, 5-8 words each. Examples:
               seen.add(r.link);
             }
           }
-          if (batch.length > 2) break; // Stop after first good instance
+          if (batch.length >= 3) break; // Stop after first decent instance
         } catch { continue; }
       }
     }
@@ -236,13 +222,12 @@ Return JSON array of 4 queries, 5-8 words each. Examples:
     const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
     if (CONFIG.bannedDomains.has(domain)) return false;
     
-    // Bonus: prefer .edu, .ac.uk, known academic TLDs
-    return true;
+    return true; // Allow everything else through — LLM will filter
   },
 
-  // ─── Humanities-Aware Scoring ──────────────────────────────────────────────
+  // ─── Lightweight Heuristic Scoring (no LLM) ───────────────────────────────
   
-  _rankResults(results, entities) {
+  _scoreResults(results, entities) {
     const domainCounts = new Map();
     
     return results
@@ -251,43 +236,107 @@ Return JSON array of 4 queries, 5-8 words each. Examples:
         const text = `${r.title} ${r.snippet}`.toLowerCase();
         const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
         
-        // Domain bonuses — humanities-focused
-        if (CONFIG.academicDomains.tier1.some(p => domain.includes(p))) score += 12;
-        else if (CONFIG.academicDomains.tier2.some(p => domain.includes(p))) score += 7;
-        else if (/\.(edu|ac\.uk|edu\.au|edu\.ca)$/i.test(domain)) score += 9;
-        else if (domain.endsWith('.org')) score += 3;
+        // 🎯 SOFT academic bonus (not requirement)
+        if (CONFIG.academicSignals.some(p => domain.includes(p))) score += 8;
+        else if (/\.(edu|ac\.uk|edu\.au|edu\.ca)$/i.test(domain)) score += 6;
+        else if (domain.endsWith('.org')) score += 2;
         
-        // Penalties
-        if (CONFIG.blogSignals.some(s => domain.includes(s))) score -= 5;
-        if (r.title.toLowerCase().includes('essay') || r.title.toLowerCase().includes('help')) score -= 4;
-        if (r.title.length < 10) score -= 3;
+        // 🚫 Penalties for low-quality signals
+        if (CONFIG.blogSignals.some(s => domain.includes(s))) score -= 4;
+        if (/\b(essay|help|free|sample|download)\b/i.test(r.title)) score -= 3;
+        if (r.title.length < 8) score -= 2;
         
-        // Entity matching (critical for literary queries)
+        // 🎯 Entity matching (critical for relevance)
         const anchorMatches = entities.anchors?.filter(a => 
           text.includes(a.toLowerCase())
         ).length || 0;
-        score += anchorMatches * 4; // Higher weight for literary precision
+        score += anchorMatches * 3;
         
-        // Off-topic penalty
+        // 🎯 Concept alignment bonus
+        const conceptMatches = entities.concepts?.filter(c => 
+          text.includes(c.split(' ')[0]) // Check first word of concept
+        ).length || 0;
+        score += conceptMatches * 2;
+        
+        // 🚫 Off-topic penalty
         const excludeMatches = entities.exclude?.filter(e => 
           text.includes(e.toLowerCase())
         ).length || 0;
-        score -= excludeMatches * 5;
+        score -= excludeMatches * 4;
         
         return { ...r, _score: score + (r.score || 0) };
       })
-      // Dedupe with domain limits
+      // Dedupe with soft domain limits
       .filter(r => {
         const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-        const isTier1 = CONFIG.academicDomains.tier1.some(p => domain.includes(p));
-        const limit = isTier1 ? 4 : 2;
+        const isAcademic = CONFIG.academicSignals.some(p => domain.includes(p)) || 
+                          /\.(edu|ac\.uk)$/i.test(domain);
+        const limit = isAcademic ? 3 : 1;
         const count = domainCounts.get(domain) || 0;
         if (count >= limit) return false;
         domainCounts.set(domain, count + 1);
         return true;
       })
       .sort((a, b) => b._score - a._score)
-      .slice(0, 12)
+      .slice(0, 15) // Keep top 15 for potential LLM filtering
       .map(({ _score, ...r }) => r);
+  },
+
+  // ─── LLM Relevance Pass (the smart filter) ────────────────────────────────
+  
+  async _llmRelevance(results, query, entities, groqKey) {
+    if (!groqKey || results.length === 0) return results;
+    
+    // Format results for LLM: concise but informative
+    const summaries = results.map((r, i) => 
+      `[${i}] "${r.title}"\n    ${(r.snippet||'').slice(0,160)}\n    Source: ${new URL(r.link).hostname}`
+    ).join('\n\n');
+    
+    const prompt = `You are an academic research assistant. Filter these search results for relevance to the essay query.
+
+ESSAY QUERY:
+"""
+${query.substring(0, 500)}
+"""
+
+KEY ENTITIES: ${entities.anchors.join(', ') || 'N/A'}
+ANALYTICAL CONCEPTS: ${entities.concepts.join(', ') || 'N/A'}
+OFF-TOPIC: ${entities.exclude.join(', ') || 'N/A'}
+
+SEARCH RESULTS:
+${summaries}
+
+INSTRUCTIONS:
+Return a JSON array of indices to KEEP. Keep a result ONLY if:
+✓ It directly addresses a claim, entity, or analytical concept from the query
+✓ It could plausibly be cited as an academic source for this essay
+✓ It provides substantive analysis, not just summary or opinion
+
+Reject if:
+✗ It matches keywords but misses the analytical focus
+✗ It covers a different work, author, or context
+✗ It is generic study help, essay mill content, or non-academic commentary
+✗ The anchor entities appear only in acronyms or unrelated contexts
+
+Return ONLY a raw JSON array of indices, e.g. [0, 2, 4]:`;
+
+    try {
+      const res = await GroqAPI.chat([{role:'user', content:prompt}], groqKey, false);
+      const arr = res.match(/\[[\s\S]*\]/)?.[0];
+      const indices = JSON.parse(arr);
+      
+      if (!Array.isArray(indices)) throw new Error('Invalid response');
+      
+      const kept = indices
+        .filter(i => Number.isInteger(i) && i >= 0 && i < results.length)
+        .map(i => results[i]);
+      
+      // Safety: never return fewer than 3 results
+      return kept.length >= 3 ? kept : results.slice(0, Math.max(kept.length, 3));
+      
+    } catch (e) {
+      console.warn('[Search] LLM filter failed:', e.message);
+      return results; // Fail open to heuristic results
+    }
   },
 };
