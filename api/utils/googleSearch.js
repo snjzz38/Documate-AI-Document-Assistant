@@ -1,30 +1,27 @@
-// api/utils/googleSearch.js — OPTIMIZED v8
-// Strategy: 3-4 queries, extract 50 results per query, try only 2-3 instances max
-// Result: 3-4 total requests instead of 32+
+// api/utils/googleSearch.js — SIMPLE v9
+// Strategy: Run queries sequentially through instances
+// For each query: try instance 1, if fails try instance 2, if fails try instance 3
+// Simple, clean, minimal requests
 
 import { GroqAPI } from './groqAPI.js';
 
 const _CFG = {
   searxng: {
-    url: process.env.SEARXNG_URL || 'https://search.yourdomain.com',
-    timeout: 6000,
-  },
-  bing: {
-    apiKey: process.env.BING_API_KEY,
-    endpoint: 'https://api.bing.microsoft.com/v7.0/search',
+    // List of instances to try in order
+    instances: [
+      'https://search.ononoki.org',
+      'https://baresearch.org',
+      'https://searx.party',
+      'https://search.2b9t.xyz',
+      'https://grep.vim.wtf',
+    ],
     timeout: 6000,
   },
 
-  // KEY OPTIMIZATION: Extract MORE results per query, use FEWER instances
-  maxResultsPerQuery: 50,     // Was 20, now 50 (get more in one request)
-  maxQueriesGenerated: 3,      // Was 4, now 3 (fewer queries = fewer requests)
-  maxInstancesPerQuery: 2,     // Try only 2 instances max per query
+  // Settings
+  maxResultsPerQuery: 50,     // Extract 50 results per query
+  maxQueriesGenerated: 3,      // 3 queries total
   
-  // TOTAL REQUEST MATH:
-  // 3 queries × 2 instances × 1 attempt = 6 requests max
-  // vs old: 4 queries × 8 instances × 3 retries = 96 requests worst case
-  // 16x fewer requests!
-
   hardBlock: new Set([
     'reddit.com', 'quora.com', 'stackoverflow.com', 'stackexchange.com',
     'youtube.com', 'tiktok.com', 'instagram.com', 'facebook.com',
@@ -45,6 +42,9 @@ const _CFG = {
 
 export const GoogleSearchAPI = {
 
+  /**
+   * Main search: Generate queries, fetch from instances sequentially
+   */
   async search(essay, _apiKey, _cx, groqKey = null, opts = {}) {
     if (!essay || typeof essay !== 'string' || essay.trim().length < 10) {
       console.error('[Search] Invalid essay');
@@ -52,10 +52,9 @@ export const GoogleSearchAPI = {
     }
 
     const essayText = essay.trim();
-    const requestLog = { started: new Date(), requests: [] };
 
     try {
-      // STEP 1: Generate 3 focused queries (minimal requests)
+      // STEP 1: Generate 3 queries
       const queries = groqKey
         ? await this._generateSmartQueries(essayText, groqKey)
         : this._generateFallbackQueries(essayText);
@@ -66,20 +65,18 @@ export const GoogleSearchAPI = {
       }
 
       console.log('[Search] Generated queries:', queries);
-      console.log(`[Search] Will make ~${queries.length * _CFG.maxInstancesPerQuery} requests total`);
 
-      // STEP 2: Fetch with minimal instances, maximum results per query
-      const raw = await this._fetchAllOptimized(queries, requestLog);
+      // STEP 2: Fetch using instance-first strategy
+      const raw = await this._fetchAllSequential(queries);
       
-      console.log(`[Search] Made ${requestLog.requests.length} actual requests to get ${raw.length} results`);
-      console.log('[Search] Requests:', requestLog.requests);
-
       if (raw.length === 0) {
         console.warn('[Search] No results');
         return [];
       }
 
-      // STEP 3: Filter
+      console.log(`[Search] Got ${raw.length} raw results`);
+
+      // STEP 3: Hard filter
       const hardFiltered = this._hardFilter(raw);
       console.log(`[Search] After hard filter: ${hardFiltered.length}`);
 
@@ -92,8 +89,6 @@ export const GoogleSearchAPI = {
         : hardFiltered;
 
       console.log(`[Search] Final results: ${final.length}`);
-      console.log(`[Search] Efficiency: ${final.length} results from ${requestLog.requests.length} requests = ${(final.length / requestLog.requests.length).toFixed(2)} results/request`);
-
       return this._structureForCitation(final);
 
     } catch (error) {
@@ -105,7 +100,7 @@ export const GoogleSearchAPI = {
   // ─── Query Generation ─────────────────────────────────────────────
 
   async _generateSmartQueries(essay, groqKey) {
-    const prompt = `Generate 3 focused, scholarly search queries (not 4).
+    const prompt = `Generate 3 focused, scholarly search queries.
 
 ESSAY (first 1200 chars):
 """
@@ -113,11 +108,11 @@ ${essay.substring(0, 1200)}
 """
 
 Requirements:
-- 3 queries total (not more)
-- 8-15 words each, specific
-- Different aspects
+- 3 queries total
+- 8-15 words each
+- Different aspects of essay
 - Academic focus
-- Return JSON: ["query 1", "query 2", "query 3"]`;
+- Return JSON only: ["query 1", "query 2", "query 3"]`;
 
     try {
       const response = await GroqAPI.chat(
@@ -132,11 +127,10 @@ Requirements:
       const parsed = JSON.parse(match[0]);
       if (!Array.isArray(parsed)) throw new Error('Not array');
 
-      // Force exactly 3 queries max
       return parsed
         .filter(q => typeof q === 'string' && q.trim().length >= 20)
         .map(q => q.trim())
-        .slice(0, 3); // Hard limit to 3
+        .slice(0, 3);
 
     } catch (error) {
       console.warn('[Search] Smart query gen failed:', error.message);
@@ -163,64 +157,64 @@ Requirements:
 
     if (sentences.length > 1) {
       const q = sentences[1].replace(/[.!?]/g, '').trim();
-      if (q.length >= 20) queries.push(q);
+      if (q.length >= 20 && q !== queries[0]) queries.push(q);
     }
 
-    return queries
-      .filter(q => q && q.length >= 15)
-      .slice(0, 3); // Hard limit to 3
+    return queries.filter(q => q && q.length >= 15).slice(0, 3);
   },
 
-  // ─── OPTIMIZED Fetch ──────────────────────────────────────────────
+  // ─── SEQUENTIAL Fetch (Instance by Instance) ──────────────────────
 
   /**
-   * KEY OPTIMIZATION:
-   * - For each query, try only 2 instances
-   * - Extract 50 results per query (not 20)
-   * - Stop as soon as we have enough
-   * - Total: 3 queries × 2 instances = 6 requests max
+   * For each query, try instances in order until one succeeds
+   * 
+   * Flow:
+   * Query 1 → Try instance 1 → Success → Next query
+   * Query 2 → Try instance 1 → Success → Next query
+   * Query 3 → Try instance 1 → Success → Done
+   * 
+   * If instance 1 fails for a query:
+   * Query 1 → Try instance 1 → Fails → Try instance 2 → Success → Next query
+   * 
+   * If all instances fail for a query:
+   * Query 1 → Try all instances → All fail → Log and continue to next query
    */
-  async _fetchAllOptimized(queries, requestLog) {
+  async _fetchAllSequential(queries) {
     const allResults = [];
     const seenUrls = new Set();
 
-    // Just 2 good instances to try (less load, less chance of 429)
-    const instances = [
-      'https://search.ononoki.org',
-      'https://baresearch.org',
-    ];
-
     for (const query of queries) {
-      let querySatisfied = false;
+      console.log(`[Search] Fetching: "${query.substring(0, 60)}..."`);
 
-      // Try only 2 instances per query
-      for (const instance of instances) {
-        if (querySatisfied) break;
+      let querySucceeded = false;
+
+      // Try each instance in order until one works
+      for (const instance of _CFG.searxng.instances) {
+        if (querySucceeded) break; // Already got results for this query
 
         try {
-          console.log(`[Search] Requesting: "${query.substring(0, 50)}..." from ${instance}`);
-          
           const results = await this._fetchFromInstance(instance, query);
-          requestLog.requests.push({ query: query.substring(0, 40), instance, results: results.length });
+          
+          if (results.length > 0) {
+            console.log(`[Search] ✓ ${results.length} results from ${instance}`);
+            querySucceeded = true;
 
-          // Collect results
-          for (const r of results) {
-            if (r.link && !seenUrls.has(r.link)) {
-              allResults.push(r);
-              seenUrls.add(r.link);
+            // Add to results (dedup)
+            for (const r of results) {
+              if (r.link && !seenUrls.has(r.link)) {
+                allResults.push(r);
+                seenUrls.add(r.link);
+              }
             }
           }
-
-          // If we got good results, mark as satisfied (don't try next instance)
-          if (results.length >= 30) {
-            querySatisfied = true;
-            console.log(`[Search] Query satisfied (${results.length} results)`);
-          }
-
         } catch (error) {
-          console.warn(`[Search] Failed on ${instance}: ${error.message}`);
-          requestLog.requests.push({ query: query.substring(0, 40), instance, error: error.message });
+          console.warn(`[Search] ✗ ${instance}: ${error.message}`);
+          // Try next instance
         }
+      }
+
+      if (!querySucceeded) {
+        console.warn(`[Search] ⚠️ No results for query: "${query.substring(0, 60)}..."`);
       }
     }
 
@@ -228,23 +222,19 @@ Requirements:
   },
 
   /**
-   * Fetch from a single instance, requesting 50 results instead of 20
+   * Fetch from single instance
    */
   async _fetchFromInstance(instanceUrl, query) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), _CFG.searxng.timeout);
 
     try {
-      // Request 50 results per query (not 20)
       const params = new URLSearchParams({
         q: query,
         format: 'json',
         categories: 'general,science',
         language: 'en',
         engines: 'google,bing,duckduckgo,brave,semantic_scholar,crossref',
-        pageno: '1',
-        // Some engines allow more results per page
-        results_on_page: '50', // Try to get more at once
       });
 
       const response = await fetch(`${instanceUrl}/search?${params}`, {
@@ -254,23 +244,28 @@ Requirements:
 
       clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const ct = response.headers.get('content-type') || '';
-      if (!ct.includes('json')) throw new Error('Not JSON');
+      if (!ct.includes('json')) {
+        throw new Error('Not JSON');
+      }
 
       const data = await response.json();
-      if (!data.results || !Array.isArray(data.results)) throw new Error('No results');
+      if (!data.results || !Array.isArray(data.results)) {
+        throw new Error('No results array');
+      }
 
-      // Return up to 50 results
+      // Extract up to 50 results
       return data.results
         .filter(r => r.url && r.title && r.title.length > 5)
-        .slice(0, 50)  // Extract 50 not 20
+        .slice(0, 50)
         .map(r => ({
           title: r.title.trim(),
           link: r.url,
           snippet: (r.content || r.snippet || '').trim(),
-          source: 'searxng',
         }));
 
     } catch (error) {
@@ -324,10 +319,7 @@ Requirements:
 
     const sourceList = sources
       .slice(0, 25)
-      .map(
-        (s, i) =>
-          `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}`
-      )
+      .map((s, i) => `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}`)
       .join('\n\n');
 
     const prompt = `Filter for relevance.
@@ -340,7 +332,7 @@ ${essay.substring(0, 900)}
 SOURCES:
 ${sourceList}
 
-Return: {"relevant_ids": [1, 3, 5]}
+Return JSON: {"relevant_ids": [1, 3, 5]}
 Keep 5-15, reject off-topic.`;
 
     try {
@@ -382,7 +374,7 @@ Keep 5-15, reject off-topic.`;
         siteName: this._getSiteName(s.link),
         isDOI: false,
       },
-      engine: s.source || 'search',
+      engine: 'searxng',
     }));
   },
 
