@@ -1,22 +1,49 @@
-// api/utils/googleSearch.js — SIMPLIFIED v5
-// Focus: Relevant queries only, aggressive filtering of junk results
+// api/utils/googleSearch.js — v6 FIXED
+// Now uses current healthy instances from searx.space status report
+// Includes rate-limit (429) backoff and better error recovery
 
 import { GroqAPI } from './groqAPI.js';
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const _CFG = {
+  // UPDATED: Healthy instances from searx.space status report (May 2026)
+  // Prioritized by uptime % and response time
   instances: [
-    'https://priv.au',
-    'https://search.sapti.me',
-    'https://searx.tiekoetter.com',
-    'https://search.bus-hit.me',
-    'https://searx.be',
+    'https://search.ononoki.org',           // 94%, 0.942s (DE/GB)
+    'https://searx.tiekoetter.com',         // 100%, 0.697s (DE)
+    'https://search.einfachzocken.eu',      // 100%, 0.831s (GB/DE)
+    'https://priv.au',                      // 100%, 0.513s (DE/US)
+    'https://searx.oloke.xyz',              // 100%, 0.551s (PL)
+    'https://searx.party',                  // 100%, 0.552s (US)
+    'https://searxng.canine.tools',         // 99%, 0.579s (US)
+    'https://searxng.website',              // 100%, 0.722s (DE)
+    'https://baresearch.org',               // 100%, 0.936s (US)
+    'https://search.2b9t.xyz',              // 100%, 0.963s (US)
+    'https://grep.vim.wtf',                 // 100%, 1.007s (DE)
+    'https://search.chocolate...53.com',    // 100%, 1.374s (US)
+    'https://search.url4irl.com',           // 100%, 0.747s (DE)
+    'https://search.pereira.is',            // 89%, 0.108s (FR)
+    'https://search.rowie.at',              // 100%, 0.307s (AT)
+    'https://search.seddens.net',           // 100%, 0.044s (DE)
+    'https://search.serpensin.com',         // 100%, 0.090s (DE)
+    'https://search.zina.dev',              // 100%, 0.058s (DE)
+    'https://searx.ankha.ac',               // 89%, 0.639s (US)
+    'https://searx.tuxcloud.net',           // 100%, 0.111s (CZ)
+    'https://seek.fyi',                     // 100%, 0.360s (US)
+    'https://search.unredacted.org',        // 99%, 0.417s (US)
+    'https://search.sapti.me',              // 99%, 0.133s (DE)
+    'https://copp.gg',                      // 99%, 0.421s (US)
+    'https://paulgo.io',                    // 100%, 0.046s (DE)
+    'https://search.im-in.space',           // 100%, 0.059s (DE)
   ],
-  timeout: 6000,
+  timeout: 5000,                            // 5s per instance
   maxQueriesGenerated: 4,
-  maxResultsPerQuery: 6,
+  maxResultsPerQuery: 5,
   maxTotalResults: 20,
-  // Hard block: Social media, forums, streaming, forums, email, help docs
+  
+  // Instance rate limit tracking
+  rateLimitTracker: new Map(),              // url -> { retryAfter: timestamp }
+  
   hardBlock: new Set([
     'reddit.com', 'quora.com', 'stackoverflow.com', 'stackexchange.com',
     'youtube.com', 'tiktok.com', 'instagram.com', 'facebook.com',
@@ -25,14 +52,14 @@ const _CFG = {
     'netflix.com', 'hulu.com', 'disneyplus.com', 'primevideo.com',
     'answers.microsoft.com', 'support.google.com', 'apple.com/support',
     'outlook.com', 'gmail.com', 'mail.google.com',
-    'github.com', 'gitlab.com', 'bitbucket.org', // Code hosting
+    'github.com', 'gitlab.com', 'bitbucket.org',
   ]),
-  // Junk/low-value domains
+  
   junkDomains: new Set([
-    'dokumen.pub', 'scribd.com', 'academia.edu', // PDF/doc mills
-    'wattpad.com', 'fanfiction.net', // Fan content
-    'grokipedia.com', 'wikipedia.com', // Non-authoritative
-    'chegg.com', 'brainly.com', 'coursehero.com', // Homework mills
+    'dokumen.pub', 'scribd.com', 'academia.edu',
+    'wattpad.com', 'fanfiction.net',
+    'grokipedia.com',
+    'chegg.com', 'brainly.com', 'coursehero.com',
   ]),
 };
 
@@ -41,26 +68,19 @@ export const GoogleSearchAPI = {
 
   /**
    * Main search entry point
-   * @param {string} essay - Essay text or query
-   * @param {string} _apiKey - Unused
-   * @param {string} _cx - Unused
-   * @param {string} groqKey - Groq API key (required for smart queries)
-   * @param {object} opts - { timeRange: 'day'|'month'|'year'|null }
-   * @returns {Promise<Array>} Filtered sources
    */
   async search(essay, _apiKey, _cx, groqKey = null, opts = {}) {
     const { timeRange = null } = opts;
 
-    // Input validation
     if (!essay || typeof essay !== 'string' || essay.trim().length < 10) {
-      console.error('[Search] Invalid essay: must be string, 10+ chars');
+      console.error('[Search] Invalid essay');
       return [];
     }
 
     const essayText = essay.trim();
 
     try {
-      // ── STEP 1: Generate 3-4 highly relevant queries ─────────────────
+      // ── STEP 1: Generate queries ────────────────────────────────────
       const queries = groqKey
         ? await this._generateSmartQueries(essayText, groqKey)
         : this._generateFallbackQueries(essayText);
@@ -72,8 +92,8 @@ export const GoogleSearchAPI = {
 
       console.log('[Search] Generated queries:', queries);
 
-      // ── STEP 2: Fetch + filter aggressively ─────────────────────────
-      const raw = await this._fetchAllQueries(queries, { timeRange });
+      // ── STEP 2: Fetch with retry logic ─────────────────────────────
+      const raw = await this._fetchAllQueriesWithRetry(queries, { timeRange });
       if (raw.length === 0) {
         console.warn('[Search] No results from any query');
         return [];
@@ -81,14 +101,14 @@ export const GoogleSearchAPI = {
 
       console.log(`[Search] Raw results: ${raw.length}`);
 
-      // ── STEP 3: Hard filter (remove junk) ───────────────────────────
+      // ── STEP 3: Hard filter ────────────────────────────────────────
       const hardFiltered = this._hardFilter(raw);
       console.log(`[Search] After hard filter: ${hardFiltered.length}`);
 
-      // ── STEP 4: Smart relevance filter with LLM ─────────────────────
+      // ── STEP 4: LLM relevance filter ───────────────────────────────
       const final = groqKey
         ? await this._relevanceFilter(hardFiltered, essayText, groqKey).catch(e => {
-            console.warn('[Search] Relevance filter failed, using hard-filtered:', e.message);
+            console.warn('[Search] Relevance filter failed, using hard-filtered');
             return hardFiltered;
           })
         : hardFiltered;
@@ -104,9 +124,6 @@ export const GoogleSearchAPI = {
 
   // ─── STEP 1: Query Generation ──────────────────────────────────────
 
-  /**
-   * Generate 3-4 focused, on-topic queries using LLM
-   */
   async _generateSmartQueries(essay, groqKey) {
     const prompt = `You are generating academic search queries for a scholarly essay.
 
@@ -115,27 +132,15 @@ ESSAY TEXT (first 1200 chars):
 ${essay.substring(0, 1200)}
 """
 
-TASK: Generate 3-4 focused, scholarly search queries that will find RELEVANT academic sources.
+TASK: Generate 3-4 focused, scholarly search queries.
 
 REQUIREMENTS:
-1. Each query must be 8-15 words (specific and detailed)
-2. Focus on MAIN CLAIMS, KEY CONCEPTS, and CENTRAL ARGUMENTS in the essay
-3. Each query must be about a DIFFERENT aspect or claim
-4. Avoid generic queries like "research" or "study"
-5. Queries should target academic databases, journals, books
-6. NO queries about unrelated topics or tangents
+1. Each query: 8-15 words, specific and detailed
+2. Focus on MAIN CLAIMS and DIFFERENT ASPECTS
+3. Avoid generic queries
+4. Target academic databases, journals, books
 
-EXAMPLES OF GOOD QUERIES:
-- "Modernism in Russian poetry early 20th century literary analysis"
-- "emotional expression aesthetic philosophy contemporary visual art"
-- "climate change impact marine ecosystems biodiversity conservation"
-
-EXAMPLES OF BAD QUERIES:
-- "research study" (too generic)
-- "Netflix streaming services" (if not in essay)
-- "help support guides" (off-topic)
-
-Return ONLY a JSON array of strings (no markdown, no explanations):
+Return ONLY a JSON array (no markdown):
 ["query 1", "query 2", "query 3"]`;
 
     try {
@@ -146,14 +151,13 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
       );
 
       const match = response.match(/\[[\s\S]*?\]/);
-      if (!match) throw new Error('No JSON array in response');
+      if (!match) throw new Error('No JSON array');
 
       const parsed = JSON.parse(match[0]);
       if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error('Empty query array');
+        throw new Error('Empty array');
       }
 
-      // Validate: must be strings, 8+ words, reasonable length
       const queries = parsed
         .filter(q => {
           if (typeof q !== 'string') return false;
@@ -164,66 +168,40 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
         .map(q => q.trim())
         .slice(0, _CFG.maxQueriesGenerated);
 
-      if (queries.length === 0) {
-        throw new Error('No valid queries after filtering');
-      }
-
-      return queries;
+      return queries.length > 0 ? queries : this._generateFallbackQueries(essay);
 
     } catch (error) {
-      console.warn('[Search] Smart query generation failed:', error.message);
+      console.warn('[Search] Smart query gen failed:', error.message);
       return this._generateFallbackQueries(essay);
     }
   },
 
-  /**
-   * Fallback: Generate queries from essay text directly
-   */
   _generateFallbackQueries(essay) {
     const queries = [];
-
-    // Extract main topic keywords
     const sentences = essay.match(/[^.!?]+[.!?]/g) || [essay];
     const stopWords = new Set([
       'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-      'of', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has',
-      'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
-      'might', 'must', 'can', 'this', 'that', 'these', 'those', 'it', 'its',
+      'of', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had',
     ]);
 
-    // Extract meaningful words (5+ chars, not stop words)
     const words = (essay.toLowerCase().match(/\b[a-z]{5,}\b/g) || [])
       .filter(w => !stopWords.has(w))
-      .filter((v, i, a) => a.indexOf(v) === i); // Dedup
+      .filter((v, i, a) => a.indexOf(v) === i);
 
-    // Extract named entities (capitalized words)
     const named = (essay.match(/\b[A-Z][a-z]{3,}(?:\s[A-Z][a-z]+)?\b/g) || [])
-      .filter((v, i, a) => a.indexOf(v) === i); // Dedup
+      .filter((v, i, a) => a.indexOf(v) === i);
 
-    // Query 1: First meaningful sentence
     if (sentences.length > 0) {
-      const q = sentences[0]
-        .replace(/[.!?]/g, '')
-        .trim()
-        .substring(0, 120);
+      const q = sentences[0].replace(/[.!?]/g, '').trim().substring(0, 120);
       if (q.length >= 20) queries.push(q);
     }
 
-    // Query 2: Named entities + keywords
     if (named.length >= 2 && words.length >= 2) {
-      queries.push(
-        `${named.slice(0, 2).join(' ')} ${words.slice(0, 2).join(' ')} research`
-      );
+      queries.push(`${named.slice(0, 2).join(' ')} ${words.slice(0, 2).join(' ')}`);
     }
 
-    // Query 3: Keywords from middle of essay
     if (words.length >= 3) {
       queries.push(words.slice(1, 4).join(' '));
-    }
-
-    // Query 4: Named entity alone (if strong)
-    if (named.length >= 1 && named[0].length >= 4) {
-      queries.push(`${named[0]} analysis literature`);
     }
 
     return queries
@@ -232,28 +210,44 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
       .map(q => q.trim().substring(0, 150));
   },
 
-  // ─── STEP 2: Fetch All Queries ────────────────────────────────────
+  // ─── STEP 2: Fetch with Intelligent Retry ─────────────────────────
 
   /**
-   * Fetch from multiple SearXNG instances for each query
+   * Fetch all queries with exponential backoff for rate limits
    */
-  async _fetchAllQueries(queries, { timeRange }) {
+  async _fetchAllQueriesWithRetry(queries, { timeRange }) {
     const allResults = [];
     const seenUrls = new Set();
 
     for (const query of queries) {
-      try {
-        const results = await this._fetchOneQuery(query, { timeRange });
-        
-        for (const r of results) {
-          if (r.link && !seenUrls.has(r.link)) {
-            allResults.push(r);
-            seenUrls.add(r.link);
-            if (allResults.length >= _CFG.maxTotalResults) break;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts && allResults.length < _CFG.maxTotalResults) {
+        try {
+          const results = await this._fetchOneQuery(query, { timeRange });
+          
+          for (const r of results) {
+            if (r.link && !seenUrls.has(r.link)) {
+              allResults.push(r);
+              seenUrls.add(r.link);
+            }
+          }
+
+          if (results.length > 0) break; // Success, move to next query
+          attempts++;
+
+        } catch (error) {
+          attempts++;
+          if (attempts >= maxAttempts) {
+            console.warn(`[Search] Query failed after ${maxAttempts} attempts: "${query}"`);
+          } else {
+            // Exponential backoff
+            const backoffMs = Math.pow(2, attempts - 1) * 500;
+            console.log(`[Search] Retry ${attempts}/${maxAttempts} for "${query}" after ${backoffMs}ms`);
+            await new Promise(r => setTimeout(r, backoffMs));
           }
         }
-      } catch (error) {
-        console.warn(`[Search] Query failed: "${query}" — ${error.message}`);
       }
 
       if (allResults.length >= _CFG.maxTotalResults) break;
@@ -266,9 +260,17 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
    * Fetch one query from best available instance
    */
   async _fetchOneQuery(query, { timeRange }) {
-    const instances = [..._CFG.instances].sort(() => Math.random() - 0.5);
+    // Shuffle instances but prioritize non-rate-limited ones
+    const now = Date.now();
+    const active = [..._CFG.instances].filter(url => {
+      const rateLimit = _CFG.rateLimitTracker.get(url);
+      return !rateLimit || rateLimit < now;
+    });
 
-    for (const instance of instances) {
+    const toTry = active.length > 0 ? active : _CFG.instances;
+    const shuffled = [...toTry].sort(() => Math.random() - 0.5);
+
+    for (const instance of shuffled.slice(0, 8)) { // Try top 8
       try {
         const results = await this._fetchFromInstance(instance, query, { timeRange });
         if (results.length > 0) {
@@ -276,7 +278,14 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
           return results;
         }
       } catch (error) {
-        console.warn(`[Search] ✗ ${instance}: ${error.message}`);
+        // Log specific error type
+        if (error.message.includes('429')) {
+          console.warn(`[Search] 🛑 ${instance}: Rate limited (429)`);
+          // Back off for 30 seconds
+          _CFG.rateLimitTracker.set(instance, now + 30000);
+        } else {
+          console.warn(`[Search] ✗ ${instance}: ${error.message}`);
+        }
       }
     }
 
@@ -284,7 +293,7 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
   },
 
   /**
-   * Fetch from single SearXNG instance with timeout
+   * Fetch from single instance with timeout
    */
   async _fetchFromInstance(instanceUrl, query, { timeRange }) {
     const controller = new AbortController();
@@ -306,6 +315,19 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
       });
 
       clearTimeout(timeout);
+
+      // Handle rate limit
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitSeconds = retryAfter ? parseInt(retryAfter) : 30;
+        const waitMs = waitSeconds * 1000;
+        _CFG.rateLimitTracker.set(instanceUrl, Date.now() + waitMs);
+        throw new Error(`429: Rate limited (retry after ${waitSeconds}s)`);
+      }
+
+      if (response.status === 403) {
+        throw new Error('HTTP 403: Access denied');
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -342,11 +364,8 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
     }
   },
 
-  // ─── STEP 3: Hard Filter (Remove Junk) ─────────────────────────────
+  // ─── STEP 3: Hard Filter ──────────────────────────────────────────
 
-  /**
-   * Remove blocked/junk domains before relevance check
-   */
   _hardFilter(results) {
     return results.filter(r => {
       if (!r.link || !r.title) return false;
@@ -355,33 +374,18 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
         const url = new URL(r.link);
         const domain = url.hostname.replace('www.', '').toLowerCase();
 
-        // Hard block: social, forums, streaming, support
-        if (_CFG.hardBlock.has(domain)) {
-          console.log(`[Filter] Hard blocked: ${domain}`);
-          return false;
-        }
+        if (_CFG.hardBlock.has(domain)) return false;
+        if (_CFG.junkDomains.has(domain)) return false;
 
-        // Junk domains: low-value sources
-        if (_CFG.junkDomains.has(domain)) {
-          console.log(`[Filter] Junk domain: ${domain}`);
-          return false;
-        }
-
-        // Image/media extensions
         const path = url.pathname.toLowerCase();
         if (['.jpg', '.jpeg', '.png', '.gif', '.mp4', '.mp3'].some(ext => path.endsWith(ext))) {
           return false;
         }
 
-        // Title quality checks
-        if (r.title.length < 5 || r.title.length > 300) {
-          return false;
-        }
+        if (r.title.length < 5 || r.title.length > 300) return false;
 
-        // Generic/help/support red flags
         const titleLower = r.title.toLowerCase();
         const snippetLower = (r.snippet || '').toLowerCase();
-        const urlLower = r.link.toLowerCase();
 
         const junkPatterns = [
           /^(how to|tutorial|guide:|step by step)/i,
@@ -393,13 +397,11 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
         ];
 
         if (junkPatterns.some(p => p.test(titleLower) && p.test(snippetLower))) {
-          console.log(`[Filter] Junk pattern in title: ${r.title.substring(0, 50)}`);
           return false;
         }
 
         return true;
       } catch (e) {
-        console.warn(`[Filter] Invalid URL: ${r.link}`);
         return false;
       }
     });
@@ -407,13 +409,8 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
 
   // ─── STEP 4: Relevance Filter (LLM) ───────────────────────────────
 
-  /**
-   * Use LLM to verify each source is actually relevant to the essay
-   */
   async _relevanceFilter(sources, essay, groqKey) {
-    if (sources.length < 3) {
-      return sources; // Too few to filter
-    }
+    if (sources.length < 3) return sources;
 
     const sourceList = sources
       .slice(0, 25)
@@ -423,24 +420,18 @@ Return ONLY a JSON array of strings (no markdown, no explanations):
       )
       .join('\n\n');
 
-    const prompt = `You are a research librarian. Evaluate these sources for RELEVANCE to the essay topic.
+    const prompt = `Filter sources for RELEVANCE to this essay topic.
 
 ESSAY (first 900 chars):
 """
 ${essay.substring(0, 900)}
 """
 
-SOURCES TO EVALUATE:
+SOURCES:
 ${sourceList}
 
-TASK: Return ONLY a JSON object with:
-- "relevant_ids": array of source IDs that are DIRECTLY relevant to the essay topic
-- Keep 5-15 sources
-- REJECT: off-topic sources, help docs, streaming services, social media, forums
-- ACCEPT: academic papers, books, reputable articles on the topic
-- If unsure, be STRICT — better to reject doubtful sources
-
-Format: {"relevant_ids": [1, 3, 5, 7]}`;
+Return ONLY JSON: {"relevant_ids": [1, 3, 5]}
+Keep 5-15 sources. Reject off-topic, help docs, forums.`;
 
     try {
       const response = await GroqAPI.chat(
@@ -450,28 +441,24 @@ Format: {"relevant_ids": [1, 3, 5, 7]}`;
       );
 
       const match = response.match(/\{[\s\S]*?\}/);
-      if (!match) throw new Error('No JSON in response');
+      if (!match) throw new Error('No JSON');
 
       const parsed = JSON.parse(match[0]);
       if (!Array.isArray(parsed.relevant_ids) || parsed.relevant_ids.length === 0) {
-        throw new Error('No relevant sources found by LLM');
+        throw new Error('No relevant IDs');
       }
 
       const relevant = sources.filter((_, i) => parsed.relevant_ids.includes(i + 1));
       return relevant.length > 0 ? relevant : sources.slice(0, 10);
 
     } catch (error) {
-      console.warn('[Search] LLM relevance filter failed:', error.message);
-      // Return all sources if LLM fails
+      console.warn('[Search] LLM filter failed:', error.message);
       return sources;
     }
   },
 
-  // ─── STEP 5: Structure for Citation ───────────────────────────────
+  // ─── STEP 5: Structure ────────────────────────────────────────────
 
-  /**
-   * Convert to citation.js format
-   */
   _structureForCitation(sources) {
     return sources.map((s, i) => ({
       id: i + 1,
@@ -514,7 +501,6 @@ Format: {"relevant_ids": [1, 3, 5, 7]}`;
   _extractDOI(url, snippet = '') {
     const urlMatch = url.match(/doi\.org\/(10\.\d{4,}\/[^\s"'?#]+)/i);
     if (urlMatch) return urlMatch[1];
-
     const snippetMatch = snippet?.match(/\b(10\.\d{4,}\/[^\s"'<>\]]+)\b/);
     return snippetMatch ? snippetMatch[1] : null;
   },
