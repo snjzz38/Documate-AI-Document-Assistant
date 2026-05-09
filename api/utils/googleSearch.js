@@ -307,26 +307,47 @@ Requirements:
 
   // ─── LLM Relevance Filter ────────────────────────────────────────
 
+  /**
+   * Two-stage LLM filtering:
+   * 1. Filter by relevance to essay topic
+   * 2. Remove obvious irrelevant sources (satellite imagery, machine learning, etc.)
+   */
   async _relevanceFilter(sources, essay, groqKey) {
     if (sources.length < 3) return sources;
 
     const sourceList = sources
       .slice(0, 25)
-      .map((s, i) => `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}`)
+      .map((s, i) => `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}\n    Domain: ${new URL(s.link).hostname}`)
       .join('\n\n');
 
-    const prompt = `Filter for relevance.
+    const prompt = `You are filtering academic sources. Remove OBVIOUSLY IRRELEVANT sources.
 
-ESSAY (first 900 chars):
+ESSAY TOPIC (first 900 chars):
 """
 ${essay.substring(0, 900)}
 """
 
-SOURCES:
+SOURCES TO FILTER:
 ${sourceList}
 
-Return JSON: {"relevant_ids": [1, 3, 5]}
-Keep 5-15, reject off-topic.`;
+TASK: Return a JSON array of source IDs to REMOVE (not keep).
+
+Remove sources that are:
+- About satellite imagery, machine learning, or computer vision
+- About power systems, physics, or chaos theory
+- Completely unrelated to the topic
+- Generic study guides with no depth
+
+Keep sources about:
+- Anna Akhmatova and Requiem
+- Russian poetry, literature, or history
+- Elegiac poetry and themes
+- Women in literature
+- Yezhovshchina or Soviet repression
+- Literary analysis of Requiem
+
+Return ONLY JSON (no markdown, no explanation):
+{"remove_ids": [8, 10, 12, 13, 14, 15, 18, 19, 20]}`;
 
     try {
       const response = await GroqAPI.chat(
@@ -339,13 +360,15 @@ Keep 5-15, reject off-topic.`;
       if (!match) throw new Error('No JSON');
 
       const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed.relevant_ids)) throw new Error('No IDs');
+      if (!Array.isArray(parsed.remove_ids)) throw new Error('No IDs');
 
-      const relevant = sources.filter((_, i) => parsed.relevant_ids.includes(i + 1));
+      console.log(`[Search] LLM removing ${parsed.remove_ids.length} irrelevant sources:`, parsed.remove_ids);
+
+      const relevant = sources.filter((_, i) => !parsed.remove_ids.includes(i + 1));
       return relevant.length > 0 ? relevant : sources.slice(0, 10);
 
     } catch (error) {
-      console.warn('[Search] LLM filter failed');
+      console.warn('[Search] LLM filter failed:', error.message);
       return sources;
     }
   },
