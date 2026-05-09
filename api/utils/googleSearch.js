@@ -1,27 +1,29 @@
-// api/utils/googleSearch.js — SIMPLE v9
-// Strategy: Run queries sequentially through instances
-// For each query: try instance 1, if fails try instance 2, if fails try instance 3
-// Simple, clean, minimal requests
+// api/utils/googleSearch.js — v9+ IMPROVED
+// Now checks which instances are actually working before trying them
+// Removes 403/429 instances from rotation
 
 import { GroqAPI } from './groqAPI.js';
 
 const _CFG = {
   searxng: {
-    // List of instances to try in order
     instances: [
-      'https://search.ononoki.org',
-      'https://baresearch.org',
       'https://searx.party',
       'https://search.2b9t.xyz',
       'https://grep.vim.wtf',
+      'https://search.chocolate53.com',
+      'https://baresearch.org',
+      'https://search.ononoki.org',
     ],
     timeout: 6000,
   },
 
-  // Settings
-  maxResultsPerQuery: 50,     // Extract 50 results per query
-  maxQueriesGenerated: 3,      // 3 queries total
+  maxResultsPerQuery: 50,
+  maxQueriesGenerated: 3,
   
+  // Track which instances are working
+  workingInstances: [],
+  brokenInstances: new Set(),
+
   hardBlock: new Set([
     'reddit.com', 'quora.com', 'stackoverflow.com', 'stackexchange.com',
     'youtube.com', 'tiktok.com', 'instagram.com', 'facebook.com',
@@ -43,8 +45,60 @@ const _CFG = {
 export const GoogleSearchAPI = {
 
   /**
-   * Main search: Generate queries, fetch from instances sequentially
+   * Check which instances are actually working
    */
+  async _checkWorkingInstances() {
+    if (_CFG.workingInstances.length > 0) {
+      // Use previously detected working instances
+      return _CFG.workingInstances;
+    }
+
+    console.log('[Search] Checking which instances are working...');
+    
+    const working = [];
+    
+    for (const instance of _CFG.searxng.instances) {
+      // Skip if we know it's broken
+      if (_CFG.brokenInstances.has(instance)) {
+        continue;
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const response = await fetch(
+          `${instance}/search?q=test&format=json`,
+          {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          console.log(`[Search] ✓ ${instance} is working`);
+          working.push(instance);
+        } else {
+          console.log(`[Search] ✗ ${instance} returned HTTP ${response.status}`);
+          _CFG.brokenInstances.add(instance);
+        }
+      } catch (error) {
+        console.log(`[Search] ✗ ${instance} failed: ${error.message}`);
+        _CFG.brokenInstances.add(instance);
+      }
+    }
+
+    if (working.length === 0) {
+      console.warn('[Search] No working instances found, will try all');
+      return _CFG.searxng.instances;
+    }
+
+    _CFG.workingInstances = working;
+    return working;
+  },
+
   async search(essay, _apiKey, _cx, groqKey = null, opts = {}) {
     if (!essay || typeof essay !== 'string' || essay.trim().length < 10) {
       console.error('[Search] Invalid essay');
@@ -54,7 +108,11 @@ export const GoogleSearchAPI = {
     const essayText = essay.trim();
 
     try {
-      // STEP 1: Generate 3 queries
+      // Check which instances are working
+      const workingInstances = await this._checkWorkingInstances();
+      console.log(`[Search] Using ${workingInstances.length} working instances`);
+
+      // STEP 1: Generate queries
       const queries = groqKey
         ? await this._generateSmartQueries(essayText, groqKey)
         : this._generateFallbackQueries(essayText);
@@ -66,8 +124,8 @@ export const GoogleSearchAPI = {
 
       console.log('[Search] Generated queries:', queries);
 
-      // STEP 2: Fetch using instance-first strategy
-      const raw = await this._fetchAllSequential(queries);
+      // STEP 2: Fetch using working instances
+      const raw = await this._fetchAllSequential(queries, workingInstances);
       
       if (raw.length === 0) {
         console.warn('[Search] No results');
@@ -163,34 +221,25 @@ Requirements:
     return queries.filter(q => q && q.length >= 15).slice(0, 3);
   },
 
-  // ─── SEQUENTIAL Fetch (Instance by Instance) ──────────────────────
+  // ─── SEQUENTIAL Fetch with Working Instances ──────────────────────
 
-  /**
-   * For each query, try instances in order until one succeeds
-   * 
-   * Flow:
-   * Query 1 → Try instance 1 → Success → Next query
-   * Query 2 → Try instance 1 → Success → Next query
-   * Query 3 → Try instance 1 → Success → Done
-   * 
-   * If instance 1 fails for a query:
-   * Query 1 → Try instance 1 → Fails → Try instance 2 → Success → Next query
-   * 
-   * If all instances fail for a query:
-   * Query 1 → Try all instances → All fail → Log and continue to next query
-   */
-  async _fetchAllSequential(queries) {
+  async _fetchAllSequential(queries, workingInstances) {
     const allResults = [];
     const seenUrls = new Set();
+
+    // If no working instances, try all
+    const instancesToTry = workingInstances.length > 0 
+      ? workingInstances 
+      : _CFG.searxng.instances;
 
     for (const query of queries) {
       console.log(`[Search] Fetching: "${query.substring(0, 60)}..."`);
 
       let querySucceeded = false;
 
-      // Try each instance in order until one works
-      for (const instance of _CFG.searxng.instances) {
-        if (querySucceeded) break; // Already got results for this query
+      // Try each instance in order
+      for (const instance of instancesToTry) {
+        if (querySucceeded) break;
 
         try {
           const results = await this._fetchFromInstance(instance, query);
@@ -209,6 +258,12 @@ Requirements:
           }
         } catch (error) {
           console.warn(`[Search] ✗ ${instance}: ${error.message}`);
+          
+          // Mark as broken if 403/429
+          if (error.message.includes('403') || error.message.includes('429')) {
+            _CFG.brokenInstances.add(instance);
+          }
+          
           // Try next instance
         }
       }
@@ -258,7 +313,6 @@ Requirements:
         throw new Error('No results array');
       }
 
-      // Extract up to 50 results
       return data.results
         .filter(r => r.url && r.title && r.title.length > 5)
         .slice(0, 50)
