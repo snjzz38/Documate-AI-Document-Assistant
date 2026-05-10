@@ -97,19 +97,21 @@ export const GoogleSearchAPI = {
   // ─── Query Generation ─────────────────────────────────────────────
 
   async _generateSmartQueries(essay, groqKey) {
-    const prompt = `Generate 3 focused, scholarly search queries.
+    const prompt = `You are generating 3 academic search queries from this text.
 
-ESSAY (first 1200 chars):
+TEXT (first 1500 chars):
 """
-${essay.substring(0, 1200)}
+${essay.substring(0, 1500)}
 """
 
-Requirements:
-- 3 queries total
-- 8-15 words each
-- Different aspects of essay
-- Academic focus
-- Return JSON only: ["query 1", "query 2", "query 3"]`;
+Generate 3 different search queries. Each query should:
+- Be 5-12 words long
+- Focus on a different key topic from the text
+- Be specific enough to find relevant sources
+- Use academic/research terms
+
+Return ONLY a JSON array with exactly 3 strings, nothing else:
+["query one", "query two", "query three"]`;
 
     try {
       const response = await GroqAPI.chat(
@@ -119,15 +121,30 @@ Requirements:
       );
 
       const match = response.match(/\[[\s\S]*?\]/);
-      if (!match) throw new Error('No JSON');
+      if (!match) {
+        console.warn('[Search] No JSON array found in response');
+        throw new Error('No JSON');
+      }
 
       const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed)) throw new Error('Not array');
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        throw new Error('Not valid array');
+      }
 
-      return parsed
-        .filter(q => typeof q === 'string' && q.trim().length >= 20)
+      // Validate and clean queries
+      const queries = parsed
+        .filter(q => typeof q === 'string')
         .map(q => q.trim())
+        .filter(q => q.length >= 10 && q.length <= 150)
         .slice(0, 3);
+
+      if (queries.length < 2) {
+        console.warn('[Search] Not enough valid queries from LLM');
+        throw new Error('Not enough queries');
+      }
+
+      console.log('[Search] Generated', queries.length, 'queries from LLM');
+      return queries;
 
     } catch (error) {
       console.warn('[Search] Smart query gen failed:', error.message);
@@ -137,27 +154,55 @@ Requirements:
 
   _generateFallbackQueries(essay) {
     const queries = [];
+    
+    // Extract key phrases and sentences
     const sentences = essay.match(/[^.!?]+[.!?]/g) || [essay];
-    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'is', 'are']);
-    const words = (essay.toLowerCase().match(/\b[a-z]{5,}\b/g) || [])
+    
+    const stopWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'is', 'are', 'was', 'were',
+      'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+      'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'it', 'its'
+    ]);
+    
+    // Get meaningful words
+    const words = (essay.toLowerCase().match(/\b[a-z]{4,}\b/g) || [])
       .filter(w => !stopWords.has(w))
-      .filter((v, i, a) => a.indexOf(v) === i);
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 20);
 
+    // Query 1: First substantive sentence
     if (sentences.length > 0) {
-      const q = sentences[0].replace(/[.!?]/g, '').trim();
-      if (q.length >= 20) queries.push(q);
+      const firstSentence = sentences[0].replace(/[.!?]/g, '').trim();
+      if (firstSentence.length >= 20 && firstSentence.length <= 120) {
+        queries.push(firstSentence);
+      }
     }
 
-    if (words.length >= 3) {
-      queries.push(words.slice(0, 3).join(' '));
+    // Query 2: Key words combination
+    if (words.length >= 4) {
+      const keyWords = [words[0], words[1], words[2], words[3]];
+      const q = keyWords.join(' ');
+      if (q.length >= 15) queries.push(q);
     }
 
+    // Query 3: Different aspect (second sentence or different keywords)
     if (sentences.length > 1) {
-      const q = sentences[1].replace(/[.!?]/g, '').trim();
-      if (q.length >= 20 && q !== queries[0]) queries.push(q);
+      const secondSentence = sentences[1].replace(/[.!?]/g, '').trim();
+      if (secondSentence.length >= 20 && secondSentence.length <= 120 && secondSentence !== queries[0]) {
+        queries.push(secondSentence);
+      }
+    } else if (words.length >= 8 && queries.length < 3) {
+      const q = words.slice(4, 8).join(' ');
+      if (q.length >= 15) queries.push(q);
     }
 
-    return queries.filter(q => q && q.length >= 15).slice(0, 3);
+    // Ensure we have at least 2-3 queries
+    const validQueries = queries
+      .filter(q => q && q.length >= 12 && q.length <= 150)
+      .slice(0, 3);
+
+    console.log('[Search] Fallback generated', validQueries.length, 'queries from text extraction');
+    return validQueries;
   },
 
   // ─── SEQUENTIAL Fetch ─────────────────────────────────────────────
