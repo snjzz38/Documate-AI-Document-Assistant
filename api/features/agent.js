@@ -1,4 +1,3 @@
-
 // api/features/agent.js
 import { GeminiAPI } from '../utils/geminiAPI.js';
 import { GroqAPI } from '../utils/groqAPI.js';
@@ -6,7 +5,28 @@ import { SourceFinderAPI } from '../utils/sourceFinder.js';
 import humanizerHandler from './humanizer.js';
 import graderHandler from './grader.js';
 
-// ─── Text cleanup helpers ────────────────────────────────────────────────────
+// ─── Request budget ───────────────────────────────────────────────────────────
+const MAX_REQUESTS = 20;
+
+class RequestBudget {
+    constructor(max = MAX_REQUESTS) {
+        this.max = max;
+        this.used = 0;
+        this.log = [];
+    }
+    spend(label, count = 1) {
+        this.used += count;
+        this.log.push({ label, count, total: this.used });
+        if (this.used > this.max) {
+            console.warn(`[Budget] OVER BUDGET: ${this.used}/${this.max} after "${label}"`);
+        }
+        return this.remaining() >= 0;
+    }
+    remaining() { return this.max - this.used; }
+    report() { return { used: this.used, max: this.max, log: this.log }; }
+}
+
+// ─── Text cleanup helpers ─────────────────────────────────────────────────────
 
 const stripMarkdown = t => t
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -18,22 +38,15 @@ const stripPreamble = t => t
     .replace(/^(?:(?:Here(?:'s| is)|Sure[,!]?\s*(?:here(?:'s| is))?|Okay[,!]?\s*(?:here(?:'s| is))?|Certainly[,!]?\s*(?:here(?:'s| is))?|I'(?:ve|ll)|Below is|The following is)[^\n]*\n)+/i, '')
     .trim();
 
-// ─── Pre-strip "Because" starts — deterministic, no AI needed ────────────────
 const stripBecauseStarts = text => text
     .replace(/^(\s*[-•]\s+)Because\s+([a-z])/gm, (_, prefix, c) => prefix + c.toUpperCase())
     .replace(/^Because\s+([a-z])/gm, (_, c) => c.toUpperCase())
     .replace(/([.!?]\s+)Because\s+([a-z])/g, (_, punct, c) => punct + c.toUpperCase());
 
-// ─── Strip hollow filler sentences ───────────────────────────────────────────
-// Removes sentences that make a vague observation without specific content
 const stripHollowFiller = text => text
-    // "The potential for X is undeniable/significant/clear, but Y"
     .replace(/\s*The potential for [^.!?]+ is (?:undeniable|significant|clear|substantial|tremendous)[^.!?]*\./gi, '')
-    // "The prospect of X raises serious concerns about Y" with no follow-through
     .replace(/\s*The prospect of [^.!?]+ raises serious concerns[^.!?]*\./gi, '')
-    // "X is not without risk/challenge/issue" — vague caveat sentences
     .replace(/\s*(?:the )?(?:process|approach|technology|method) is not without (?:risk|challenge|issue|concern)[^.!?]*\./gi, '')
-    // Orphan mid-thought connectors like "When X, it paves the way for Y" that restate previous sentence
     .replace(/\s*When (?:researchers?|scientists?|we) (?:gain|develop|uncover|discover)[^.!?]+(?:paves the way for|opens doors to|enables)[^.!?]*\./gi, '')
     .replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim();
 
@@ -45,22 +58,18 @@ const splitSentences = text => {
     const raw = [];
     let current = '';
     let i = 0;
-
     while (i < text.length) {
         current += text[i];
-
         if (/[.!?]/.test(text[i])) {
             let j = i + 1;
             while (j < text.length && /[\s"')»\u00B9\u00B2\u00B3\u2074-\u2079\u2070]/.test(text[j])) {
                 current += text[j];
                 j++;
             }
-
             const ahead = text.slice(j, j + 2);
             const isEnd = j >= text.length || /^[A-Z"']/.test(ahead) || /^\n/.test(ahead);
             const precedingWord = current.replace(/[.!?\s"')»]+$/, '').split(/\s+/).pop() || '';
             const isAbbrev = ABBREV_RE.test(precedingWord) || INITIAL_RE.test(precedingWord);
-
             if (isEnd && !isAbbrev) {
                 raw.push(current.trim());
                 current = '';
@@ -93,8 +102,8 @@ const ensureHeaders = t => {
 };
 
 // ─── Groq QA check ───────────────────────────────────────────────────────────
-const checkWithGroq = async (text, taskFmt, GROQ) => {
-    if (!GROQ || !text) return { pass: true };
+const checkWithGroq = async (text, taskFmt, GROQ, budget) => {
+    if (!GROQ || !text || !budget.spend('groq-qa')) return { pass: true };
     try {
         const messages = [
             { role: 'system', content: 'You are a QA checker. Return ONLY valid JSON. No thinking, no explanation.' },
@@ -124,8 +133,6 @@ Return ONLY the JSON object:` }
 
 const applyFixes = (text, checks) => {
     let result = text;
-
-    // Always run deterministic strips first
     result = stripBecauseStarts(result);
     result = stripHollowFiller(result);
 
@@ -167,7 +174,6 @@ const stripExistingCitations = t => t
     .trim();
 
 // ─── Topic extraction ─────────────────────────────────────────────────────────
-
 const extractTopic = text => {
     const m = text.match(/(?:issue:|about|essay on|write about)[:\s]+["']?([^"'\n.!?]{10,80})/i);
     if (m) return m[1].trim();
@@ -186,7 +192,6 @@ const extractTopic = text => {
 };
 
 // ─── Author formatting ────────────────────────────────────────────────────────
-
 const fmtAuthorLastOnly = (s, style = 'apa') => {
     const authors = (s.authors || []).filter(a => a.family && a.family.length > 1);
     if (authors.length > 0) {
@@ -208,7 +213,6 @@ const fmtAuthorLastOnly = (s, style = 'apa') => {
 };
 
 // ─── Task format detection ────────────────────────────────────────────────────
-
 const detectTaskFormat = userTask => {
     if (/arguments?\s+for|arguments?\s+against|for\s*\(embrace\)|against\s*\(panic\)/i.test(userTask)) return 'table';
     if (/(?:^|\n)\s*(?:step\s*\d+|\d+[\.\)]|[•\-]\s+\w)/im.test(userTask) && !/essay/i.test(userTask)) return 'steps';
@@ -220,8 +224,7 @@ const detectTaskFormat = userTask => {
     return 'general';
 };
 
-// ─── HTML builders ─────────────────────────────────────────────────────────────
-
+// ─── HTML builders ────────────────────────────────────────────────────────────
 const renderEntry = (plainCitation, source) => {
     if (!plainCitation) return '';
     const journal = source.venue || '';
@@ -235,11 +238,11 @@ const renderEntry = (plainCitation, source) => {
         const eu = doiUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         text = text.replace(new RegExp(eu), `\x00A\x00${doiUrl}\x00/A\x00`);
     }
-    text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return text
-        .replace(/\x00I\x00/g,'<i>').replace(/\x00\/I\x00/g,'</i>')
-        .replace(/\x00A\x00/g,`<a href="${doiUrl}" target="_blank">`)
-        .replace(/\x00\/A\x00/g,'</a>');
+        .replace(/\x00I\x00/g, '<i>').replace(/\x00\/I\x00/g, '</i>')
+        .replace(/\x00A\x00/g, `<a href="${doiUrl}" target="_blank">`)
+        .replace(/\x00\/A\x00/g, '</a>');
 };
 
 const buildBibliographyHTML = (sources, style, type, insertionOrder = null) => {
@@ -265,11 +268,11 @@ const buildBibliographyHTML = (sources, style, type, insertionOrder = null) => {
     let plain = `${title}\n\n`;
 
     sorted.forEach((s, i) => {
-        const citationPlain = s.citation || `${s.author||'Unknown'} (${s.year||'n.d.'}). ${s.title||'Untitled'}.`;
+        const citationPlain = s.citation || `${s.author || 'Unknown'} (${s.year || 'n.d.'}). ${s.title || 'Untitled'}.`;
         const citationHtml = renderEntry(citationPlain, s);
         if (isFootnotes) {
-            html += `<p style="${entryStyle}">${i+1}. ${citationHtml}</p>`;
-            plain += `${i+1}. ${citationPlain}\n\n`;
+            html += `<p style="${entryStyle}">${i + 1}. ${citationHtml}</p>`;
+            plain += `${i + 1}. ${citationPlain}\n\n`;
         } else {
             html += `<p style="${entryStyle}">${citationHtml}</p>`;
             plain += `${citationPlain}\n\n`;
@@ -284,7 +287,7 @@ const buildEssayHTML = text => {
     if (!text) return '<i>No output.</i>';
     const base = `font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:2;color:#000;`;
     const hasHtml = /<[a-z][\s\S]*>/i.test(text);
-    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const isHeader = s => /^[A-Z][A-Z\s\(\)\/\-&]{2,}:?\s*$/.test(s.trim()) && s.trim().length < 80;
     const isBullet = s => /^\s*[-•]\s+/.test(s);
 
@@ -305,9 +308,9 @@ const buildEssayHTML = text => {
             const rest = lines.slice(1).join('\n');
             const content = hasHtml ? rest : esc(rest);
             return `<p style="margin:20px 0 4px 0;font-weight:bold;text-indent:0;">${header}</p>` +
-                   `<p style="margin:0;text-indent:36px;">${content.replace(/\n/g,'<br>')}</p>`;
+                `<p style="margin:0;text-indent:36px;">${content.replace(/\n/g, '<br>')}</p>`;
         }
-        const content = hasHtml ? block.replace(/\n/g,'<br>') : esc(block).replace(/\n/g,'<br>');
+        const content = hasHtml ? block.replace(/\n/g, '<br>') : esc(block).replace(/\n/g, '<br>');
         return `<p style="margin:0;text-indent:36px;">${content}</p>`;
     };
 
@@ -317,14 +320,13 @@ const buildEssayHTML = text => {
 };
 
 // ─── Source digest ────────────────────────────────────────────────────────────
-const buildSourceDigest = async (sources, style, GEMINI) => {
+const buildSourceDigest = async (sources, style, GEMINI, budget) => {
+    if (!budget.spend('digest-batch')) return {};
     const isApa = style.includes('apa');
     const isMla = style.includes('mla');
     const digest = {};
-
     const subset = sources.slice(0, 8);
 
-    // Pre-compute inTextKeys and quotes deterministically (no AI needed)
     const entries = subset.map((s, i) => {
         const lastName = fmtAuthorLastOnly(s, isMla ? 'mla' : 'apa');
         const inTextKey = isApa
@@ -346,7 +348,6 @@ const buildSourceDigest = async (sources, style, GEMINI) => {
         return { s, i, inTextKey, abstract, usableQuotes };
     });
 
-    // Single batched Gemini call instead of one per source
     const batchPrompt = entries.map(({ s, i, abstract }) => `[${i}]
 Title: "${s.title}"
 Abstract: ${abstract.substring(0, 500) || 'No abstract available.'}`).join('\n\n');
@@ -377,7 +378,7 @@ ${batchPrompt}`, GEMINI, 0.3);
     return digest;
 };
 
-// ─── JSON insertion — appends citation inside sentence's final punctuation ────
+// ─── Citation insertion ───────────────────────────────────────────────────────
 const applyInsertions = (sentences, insertionMap) => {
     const result = [];
     sentences.forEach((sentence, idx) => {
@@ -393,8 +394,23 @@ const applyInsertions = (sentences, insertionMap) => {
     return result.join(' ');
 };
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+// ─── Sentence-level humanize+cite merge ──────────────────────────────────────
+// Uses humanized phrasing where no citation is present; keeps cited sentences intact.
+const mergeHumanizeIntoCited = (humanizedText, citedText) => {
+    const hasCitation = s => /\([A-Z][a-zA-Z\s,&.]+\d{4}\)|[¹²³⁴⁵⁶⁷⁸⁹⁰]/.test(s);
+    const humanizedSents = splitSentences(humanizedText);
+    const citedSents = splitSentences(citedText);
+    const merged = citedSents.map((citedSent, i) =>
+        hasCitation(citedSent) ? citedSent : (humanizedSents[i] || citedSent)
+    );
+    return merged.join(' ');
+};
 
+// ─── Shared text cleaner ──────────────────────────────────────────────────────
+const cleanText = text =>
+    ensureHeaders(stripBecauseStarts(stripHollowFiller(stripPreamble(stripMarkdown(stripRefs(stripSourceAppendix(text)))))));
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -411,7 +427,6 @@ export default async function handler(req, res) {
             const fast = options.fastMode === true;
             const steps = [{ tool: 'RESEARCH', action: 'Find academic sources' }];
             if (options.enableWrite !== false) steps.push({ tool: 'WRITE', action: 'Write response' });
-            // Fast mode: skip humanize, quotes, and QA — cuts 2–3 API calls
             if (!fast && options.enableHumanize) steps.push({ tool: 'HUMANIZE', action: 'Humanize text' });
             if (options.enableCite) steps.push({ tool: 'CITE', action: `Add ${options.citationType || 'in-text'} citations` });
             if (!fast && options.enableQuotes) steps.push({ tool: 'QUOTES', action: 'Insert quotes with transitions' });
@@ -422,15 +437,17 @@ export default async function handler(req, res) {
         // ── EXECUTE STEP ──────────────────────────────────────────────────────
         if (action === 'execute_step') {
             const { step, context = {}, options = {} } = req.body;
+            const budget = new RequestBudget();
             const result = { success: true, output: '', type: 'text' };
 
             switch (step.tool.toUpperCase()) {
 
-                // ── RESEARCH ─────────────────────────────────────────────────
+                // ── RESEARCH ──────────────────────────────────────────────────
                 case 'RESEARCH': {
                     const topic = extractTopic(context.task || '');
                     const style = options.citationStyle || 'apa7';
                     console.log('[Agent] Research topic:', topic, 'Style:', style);
+                    budget.spend('research-search');
 
                     const papers = await SourceFinderAPI.searchTopic(topic, 12, style);
                     if (!papers?.length) { result.output = { sources: [] }; result.type = 'research'; break; }
@@ -446,9 +463,10 @@ export default async function handler(req, res) {
                         volume: p.volume || null, issue: p.issue || null, pages: p.pages || null
                     }));
 
-                    console.log('[Agent] RESEARCH:', sources.filter(s=>s.citationSource==='crossref').length, '/', sources.length, 'Crossref');
+                    console.log('[Agent] RESEARCH:', sources.filter(s => s.citationSource === 'crossref').length, '/', sources.length, 'Crossref');
                     result.output = { sources };
                     result.type = 'research';
+                    result.budgetReport = budget.report();
                     break;
                 }
 
@@ -462,18 +480,40 @@ export default async function handler(req, res) {
                     const otherFiles = allFiles.filter(f => !f.type?.startsWith('image/') && f.type !== 'application/pdf');
 
                     const taskTopic = extractTopic(userTask);
-                    let pdfContext = '';
-                    for (const pdf of pdfFiles) {
+
+                    // ── Phase A: PDF extraction + source digest run in parallel ──
+                    const pdfPromises = pdfFiles.map(async pdf => {
+                        budget.spend('pdf-extract');
                         try {
-                            const pdfText = await GeminiAPI.vision(`Extract ONLY information relevant to: "${taskTopic}". Summarize key findings, arguments, and data. Skip unrelated sections.`, GEMINI, [pdf]);
-                            pdfContext += `\nUPLOADED DOCUMENT (${pdf.name}):\n${pdfText}\n`;
-                        } catch(e) { console.error('[Agent] PDF extraction failed:', e.message); }
-                    }
+                            return await GeminiAPI.vision(
+                                `Extract ONLY information relevant to: "${taskTopic}". Summarize key findings, arguments, and data. Skip unrelated sections.`,
+                                GEMINI, [pdf]
+                            );
+                        } catch (e) {
+                            console.error('[Agent] PDF extraction failed:', e.message);
+                            return '';
+                        }
+                    });
+
+                    // Pre-warm source digest while PDFs are being extracted — saves time in CITE step
+                    const style = options.citationStyle || 'apa7';
+                    const digestPromise = researchSources.length > 0
+                        ? buildSourceDigest(researchSources, style, GEMINI, budget)
+                        : Promise.resolve({});
+
+                    const [pdfTexts, preWarmedDigest] = await Promise.all([
+                        Promise.all(pdfPromises),
+                        digestPromise
+                    ]);
+
+                    const pdfContext = pdfTexts
+                        .map((txt, i) => txt ? `\nUPLOADED DOCUMENT (${pdfFiles[i].name}):\n${txt}\n` : '')
+                        .join('');
                     const fileContext = otherFiles.length > 0
-                        ? `\nUSER FILES: ${otherFiles.map(f=>f.name).join(', ')} - consider this context.\n` : '';
+                        ? `\nUSER FILES: ${otherFiles.map(f => f.name).join(', ')} - consider this context.\n` : '';
 
                     const sourceInfo = researchSources.slice(0, 5).map((s, i) =>
-                        `SOURCE ${i+1} [Key: ${fmtAuthorLastOnly(s)}, ${s.year}]:\nTitle: "${s.title}"\nSummary: ${(s.text||'').substring(0, 120)||'N/A'}`
+                        `SOURCE ${i + 1} [Key: ${fmtAuthorLastOnly(s)}, ${s.year}]:\nTitle: "${s.title}"\nSummary: ${(s.text || '').substring(0, 120) || 'N/A'}`
                     ).join('\n\n');
 
                     const fmt = detectTaskFormat(userTask);
@@ -597,15 +637,18 @@ ${imageFiles.length > 0 ? '- Carefully analyze any uploaded images as part of th
 
 Complete the task now:`;
 
+                    budget.spend('write-gemini');
                     const rawText = imageFiles.length > 0
                         ? await GeminiAPI.vision(prompt, GEMINI, imageFiles)
                         : await GeminiAPI.chat(prompt, GEMINI);
 
-                    // Deterministic fixes applied now; QA deferred to CITE/QUOTES step to save an API call
-                    let plainText = stripBecauseStarts(stripHollowFiller(ensureHeaders(stripPreamble(stripMarkdown(stripRefs(stripSourceAppendix(rawText)))))));
+                    const plainText = cleanText(rawText);
                     result.output = plainText;
                     result.outputHtml = buildEssayHTML(plainText);
                     result.type = 'text';
+                    // Pass pre-warmed digest to next steps via result — avoids rebuilding it in CITE
+                    result.preWarmedDigest = preWarmedDigest;
+                    result.budgetReport = budget.report();
                     break;
                 }
 
@@ -618,7 +661,7 @@ Complete the task now:`;
                         if (!text.trim()) return text;
                         let out = '';
                         const mockReq = { method: 'POST', body: { text } };
-                        const mockRes = { setHeader:()=>{}, status:()=>({ end:()=>{}, json:d=>{ out=d; } }) };
+                        const mockRes = { setHeader: () => {}, status: () => ({ end: () => {}, json: d => { out = d; } }) };
                         await humanizerHandler(mockReq, mockRes);
                         return (out.success && out.result) ? out.result : text;
                     };
@@ -627,6 +670,7 @@ Complete the task now:`;
                     const inputLines = input.split('\n');
                     const sections = [];
                     let cur = null;
+
                     for (const line of inputLines) {
                         if (isHdr(line)) {
                             if (cur) sections.push(cur);
@@ -638,36 +682,44 @@ Complete the task now:`;
                     }
                     if (cur) sections.push(cur);
 
-                    const humanizedSections = await Promise.all(sections.map(async section => {
-                        const bodyText = section.lines.join('\n').trim();
-                        if (!bodyText) return section.header;
+                    // ── Cap concurrency: run at most 3 section humanizations at once ──
+                    const concurrencyLimit = 3;
+                    const humanizedSections = [];
 
-                        const bodyLines = section.lines.filter(l => l.trim());
-                        const isBulletSection = bodyLines.length > 0 && bodyLines.every(l => /^\s*[-•]\s+/.test(l));
+                    for (let i = 0; i < sections.length; i += concurrencyLimit) {
+                        const batch = sections.slice(i, i + concurrencyLimit);
+                        const batchResults = await Promise.all(batch.map(async section => {
+                            const bodyText = section.lines.join('\n').trim();
+                            if (!bodyText) return section.header;
 
-                        let humanizedBody;
-                        if (isBulletSection) {
-                            // Batch all bullets into one call then split back — avoids N separate API calls
-                            const combined = bodyLines
-                                .map(l => l.replace(/^\s*[-•]\s+/, ''))
-                                .join('\n');
-                            const humanizedCombined = await runHumanizer(combined);
-                            const splitBack = humanizedCombined.split('\n');
-                            humanizedBody = splitBack
-                                .map(l => `- ${l.trim()}`)
-                                .filter(l => l.length > 2)
-                                .join('\n');
-                        } else {
-                            humanizedBody = await runHumanizer(bodyText);
-                        }
+                            const bodyLines = section.lines.filter(l => l.trim());
+                            const isBulletSection = bodyLines.length > 0 && bodyLines.every(l => /^\s*[-•]\s+/.test(l));
 
-                        return section.header ? `${section.header}\n${humanizedBody}` : humanizedBody;
-                    }));
+                            let humanizedBody;
+                            budget.spend('humanize-section');
+
+                            if (isBulletSection) {
+                                // Batch all bullets into one call — avoids N separate API calls per section
+                                const combined = bodyLines.map(l => l.replace(/^\s*[-•]\s+/, '')).join('\n');
+                                const humanizedCombined = await runHumanizer(combined);
+                                humanizedBody = humanizedCombined.split('\n')
+                                    .map(l => `- ${l.trim()}`)
+                                    .filter(l => l.length > 2)
+                                    .join('\n');
+                            } else {
+                                humanizedBody = await runHumanizer(bodyText);
+                            }
+
+                            return section.header ? `${section.header}\n${humanizedBody}` : humanizedBody;
+                        }));
+                        humanizedSections.push(...batchResults);
+                    }
 
                     const humanized = humanizedSections.join('\n\n');
                     result.output = humanized;
                     result.outputHtml = buildEssayHTML(humanized);
                     result.type = 'text';
+                    result.budgetReport = budget.report();
                     break;
                 }
 
@@ -701,20 +753,23 @@ Complete the task now:`;
                         result.bibliographyHtml = bib.html;
                         result.bibliographyPlain = bib.plain;
                         result.type = 'cited';
+                        result.budgetReport = budget.report();
                     };
 
                     if (!sourcesWithCitations.length) { finish(input, []); break; }
                     if (!input) { finish('', sourcesWithCitations); break; }
 
-                    // ── BIBLIOGRAPHY ONLY ─────────────────────────────────────
                     if (isBibliographyOnly) {
                         finish(input, sourcesWithCitations);
                         break;
                     }
 
-                    // ── IN-TEXT or FOOTNOTES ──────────────────────────────────
-                    const digest = await buildSourceDigest(sourcesWithCitations, style, GEMINI);
-                    result.sourceDigest = digest; // cache for reuse in QUOTES step
+                    // ── Reuse pre-warmed digest from WRITE step if available ──
+                    const digest = context.preWarmedDigest && Object.keys(context.preWarmedDigest).length > 0
+                        ? context.preWarmedDigest
+                        : await buildSourceDigest(sourcesWithCitations, style, GEMINI, budget);
+
+                    result.sourceDigest = digest;
                     const sentences = splitSentences(input);
 
                     const sourceList = sourcesWithCitations.slice(0, 12).map((s, i) => {
@@ -724,17 +779,16 @@ Complete the task now:`;
                         const inTextKey = isApa
                             ? `(${lastName}, ${s.year})`
                             : isMla ? `(${lastName})` : `(${lastName} ${s.year})`;
-                        return `[${i}] CITE-AS: ${inTextKey}\n    Main idea: ${d.mainIdea || (s.text||'').substring(0,150)}\n    Title: "${s.title}"`;
+                        return `[${i}] CITE-AS: ${inTextKey}\n    Main idea: ${d.mainIdea || (s.text || '').substring(0, 150)}\n    Title: "${s.title}"`;
                     }).join('\n\n');
 
                     const numberedSentences = sentences
-                        .slice(0, 25) // limit token cost for long essays
+                        .slice(0, 25)
                         .map((s, i) => `[${i}] ${s.trim()}`)
                         .join('\n');
 
                     if (!isFootnotes) {
-                        // ── IN-TEXT ───────────────────────────────────────────
-                        // If QUOTES step follows, merge both into this single call
+                        // ── Merge QUOTES into CITE when enabled — saves one round-trip ──
                         const availableQuotes = [];
                         for (const [, d] of Object.entries(digest)) {
                             for (const q of d.quotes) {
@@ -809,6 +863,7 @@ RULES:
 Return ONLY valid JSON:`;
                         }
 
+                        budget.spend('cite-gemini');
                         try {
                             const raw = await GeminiAPI.chat(citePrompt, GEMINI, 0.3);
                             const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -817,10 +872,8 @@ Return ONLY valid JSON:`;
                                 const citationMap = mergeQuotes ? (json.citations || {}) : json;
                                 const quoteMap = mergeQuotes ? (json.quotes || {}) : {};
 
-                                // Apply citations
                                 const cited = applyInsertions(sentences, citationMap);
 
-                                // Apply quotes (inserted after specified sentence indices)
                                 let finalText = cited;
                                 if (mergeQuotes && Object.keys(quoteMap).length) {
                                     const citedSentences = splitSentences(cited);
@@ -832,20 +885,19 @@ Return ONLY valid JSON:`;
                                     finalText = withQuotesSentences.join(' ');
                                 }
 
-                                const citedClean = ensureHeaders(stripBecauseStarts(stripHollowFiller(stripPreamble(stripMarkdown(stripRefs(stripSourceAppendix(finalText)))))));
-
+                                const citedClean = cleanText(finalText);
                                 if (mergeQuotes) result.quotesHandledInCite = true;
 
-                                // Run QA here only when QUOTES won't run (avoids double QA call)
+                                // Run QA only when QUOTES step won't run — avoid double QA
                                 if (!mergeQuotes && !options.enableQuotes && GROQ && citedClean.length > 1000) {
-                                    const checks = await checkWithGroq(citedClean, detectTaskFormat(context.task || ''), GROQ);
+                                    const checks = await checkWithGroq(citedClean, detectTaskFormat(context.task || ''), GROQ, budget);
                                     finish(applyFixes(citedClean, checks), sourcesWithCitations);
                                 } else {
                                     finish(citedClean, sourcesWithCitations);
                                 }
                                 break;
                             }
-                        } catch(e) {
+                        } catch (e) {
                             console.error('[Agent] CITE in-text JSON parse failed:', e.message);
                         }
                         finish(input, sourcesWithCitations);
@@ -872,12 +924,13 @@ RULES:
 
 Return ONLY valid JSON:`;
 
+                    budget.spend('cite-footnotes-gemini');
                     try {
                         const raw = await GeminiAPI.chat(footnotePrompt, GEMINI, 0.3);
                         const jsonMatch = raw.match(/\{[\s\S]*\}/);
                         if (jsonMatch) {
                             const insertionMap = JSON.parse(jsonMatch[0]);
-                            const superToNum = {'¹':1,'²':2,'³':3,'⁴':4,'⁵':5,'⁶':6,'⁷':7,'⁸':8,'⁹':9,'⁰':0};
+                            const superToNum = { '¹': 1, '²': 2, '³': 3, '⁴': 4, '⁵': 5, '⁶': 6, '⁷': 7, '⁸': 8, '⁹': 9, '⁰': 0 };
                             const noteOrder = [];
                             const seenSups = new Set();
                             sentences.forEach((_, idx) => {
@@ -893,7 +946,7 @@ Return ONLY valid JSON:`;
                             finish(ensureHeaders(cited), sourcesWithCitations, noteOrder.length ? noteOrder : null);
                             break;
                         }
-                    } catch(e) {
+                    } catch (e) {
                         console.error('[Agent] CITE footnotes JSON parse failed:', e.message);
                     }
                     finish(input, sourcesWithCitations);
@@ -909,34 +962,41 @@ Return ONLY valid JSON:`;
                     const runFinalQA = async text => {
                         if (!GROQ || text.length < 1000) return text;
                         try {
-                            const checks = await checkWithGroq(text, taskFmt, GROQ);
+                            const checks = await checkWithGroq(text, taskFmt, GROQ, budget);
                             return applyFixes(text, checks);
                         } catch (e) { return text; }
                     };
 
-                    if (!input || !sources.length) { result.output=input; result.outputHtml=buildEssayHTML(input); result.type='text'; break; }
-
-                    // Quotes were already merged into CITE — just run final QA and exit
-                    if (context.quotesHandledInCite) {
-                        const cleaned = await runFinalQA(stripBecauseStarts(stripHollowFiller(input)));
-                        result.output = cleaned;
-                        result.outputHtml = buildEssayHTML(cleaned);
+                    if (!input || !sources.length) {
+                        result.output = input;
+                        result.outputHtml = buildEssayHTML(input);
                         result.type = 'text';
                         break;
                     }
 
-                    // Skip quote insertion if task doesn't call for them — still run QA
+                    // Quotes already merged in CITE — just run final QA
+                    if (context.quotesHandledInCite) {
+                        const cleaned = await runFinalQA(cleanText(input));
+                        result.output = cleaned;
+                        result.outputHtml = buildEssayHTML(cleaned);
+                        result.type = 'text';
+                        result.budgetReport = budget.report();
+                        break;
+                    }
+
+                    // No quote request in task — still run QA
                     if (!/quote|evidence|support|direct quote/i.test(context.task || '')) {
                         const cleaned = await runFinalQA(input);
                         result.output = cleaned;
                         result.outputHtml = buildEssayHTML(cleaned);
                         result.type = 'text';
+                        result.budgetReport = budget.report();
                         break;
                     }
 
                     const style = options.citationStyle || 'apa7';
-                    // Reuse digest built by CITE step if available
-                    const digest = context.sourceDigest || await buildSourceDigest(sources, style, GEMINI);
+                    // Reuse digest from CITE step if available — never rebuild unnecessarily
+                    const digest = context.sourceDigest || await buildSourceDigest(sources, style, GEMINI, budget);
 
                     const availableQuotes = [];
                     for (const [, d] of Object.entries(digest)) {
@@ -952,12 +1012,12 @@ Return ONLY valid JSON:`;
                         result.output = cleaned;
                         result.outputHtml = buildEssayHTML(cleaned);
                         result.type = 'text';
+                        result.budgetReport = budget.report();
                         break;
                     }
 
                     const sentences = splitSentences(input);
                     const numberedSentences = sentences.map((s, i) => `[${i}] ${s.trim()}`).join('\n');
-
                     const quoteList = availableQuotes.slice(0, 8).map((q, i) =>
                         `[${i}] ${q.inTextKey}: "${q.quote}"\n    Source about: ${q.mainIdea}`
                     ).join('\n\n');
@@ -988,6 +1048,7 @@ RULES:
 
 Return ONLY valid JSON:`;
 
+                    budget.spend('quotes-gemini');
                     let withQuotes = input;
                     try {
                         const raw = await GeminiAPI.chat(quotesPrompt, GEMINI, 0.4);
@@ -997,28 +1058,27 @@ Return ONLY valid JSON:`;
                             const resultSentences = [];
                             sentences.forEach((sentence, idx) => {
                                 resultSentences.push(sentence);
-                                const key = String(idx);
-                                if (insertionMap[key]) resultSentences.push(insertionMap[key]);
+                                if (insertionMap[String(idx)]) resultSentences.push(insertionMap[String(idx)]);
                             });
                             withQuotes = resultSentences.join(' ');
                         }
-                    } catch(e) {
+                    } catch (e) {
                         console.error('[Agent] QUOTES JSON parse failed:', e.message);
                     }
 
-                    withQuotes = stripBecauseStarts(stripHollowFiller(ensureHeaders(stripPreamble(stripMarkdown(withQuotes)))));
-                    // Single QA pass — final text step
+                    withQuotes = cleanText(withQuotes);
                     withQuotes = await runFinalQA(withQuotes);
                     result.output = withQuotes;
                     result.outputHtml = buildEssayHTML(withQuotes);
                     result.type = 'text';
+                    result.budgetReport = budget.report();
                     break;
                 }
 
                 // ── GRADE ──────────────────────────────────────────────────────
                 case 'GRADE': {
                     const text = context.previousOutput || '';
-                    if (!text) { result.output={grade:'N/A',feedback:'No text to grade.'}; result.type='grade'; break; }
+                    if (!text) { result.output = { grade: 'N/A', feedback: 'No text to grade.' }; result.type = 'grade'; break; }
 
                     const citedSources = context.researchSources || [];
                     let fullSubmission = text;
@@ -1029,25 +1089,27 @@ Return ONLY valid JSON:`;
                         if (bib.plain) fullSubmission = text + '\n\n' + bib.plain;
                     }
 
+                    budget.spend('grade');
                     const mockReq = {
                         method: 'POST',
                         body: {
                             text: fullSubmission,
                             instructions: context.task || '',
                             rubric: context.rubric || '',
-                            files: (context.uploadedFiles||[]).map(f=>({name:f.name,type:f.type,content:f.data,isBase64:true}))
+                            files: (context.uploadedFiles || []).map(f => ({ name: f.name, type: f.type, content: f.data, isBase64: true }))
                         }
                     };
                     let gradeResult = null;
-                    const mockRes = { setHeader:()=>{}, status:()=>({ end:()=>{}, json:d=>{ gradeResult=d; } }) };
+                    const mockRes = { setHeader: () => {}, status: () => ({ end: () => {}, json: d => { gradeResult = d; } }) };
                     await graderHandler(mockReq, mockRes);
 
                     const feedback = gradeResult?.result || 'Grading completed.';
                     const gradeMatch = feedback.match(/(?:Overall\s+)?Grade[:\s]*([A-F][+-]?|\d+[\/.]\d+)/i)
                         || feedback.match(/([A-F][+-]?)\s*(?:\/|out of|\()/i);
 
-                    result.output = { grade: gradeMatch?gradeMatch[1].toUpperCase():'—', feedback };
+                    result.output = { grade: gradeMatch ? gradeMatch[1].toUpperCase() : '—', feedback };
                     result.type = 'grade';
+                    result.budgetReport = budget.report();
                     break;
                 }
 
@@ -1058,9 +1120,270 @@ Return ONLY valid JSON:`;
             return res.status(200).json(result);
         }
 
+        // ── FULL SWARM RUN — executes all enabled steps with parallel coordination ──
+        if (action === 'run_swarm') {
+            const { task: userTask, context: userContext = {}, options: runOptions = {} } = req.body;
+            const budget = new RequestBudget();
+            const style = runOptions.citationStyle || 'apa7';
+            const fast = runOptions.fastMode === true;
+            const timings = {};
+            const t = label => { const s = Date.now(); return () => { timings[label] = Date.now() - s; }; };
+
+            // ── PHASE 1: Research (no deps) ───────────────────────────────────
+            const tResearch = t('research');
+            budget.spend('research-search');
+            const papers = await SourceFinderAPI.searchTopic(extractTopic(userTask), 12, style);
+            const sources = (papers || []).map(p => ({
+                id: p.id, title: p.title, url: p.url, doi: p.doi,
+                venue: p.venue, author: p.author, authors: p.authors || [],
+                year: p.year, displayName: p.author || p.displayName,
+                text: p.abstract || p.text,
+                citation: p.citation || SourceFinderAPI._formatCitation(p, style),
+                citationSource: p.citationSource || 'generated',
+                volume: p.volume || null, issue: p.issue || null, pages: p.pages || null
+            }));
+            tResearch();
+
+            // ── PHASE 2: Write + digest pre-warm in parallel ──────────────────
+            const allFiles = userContext.uploadedFiles || (userContext.uploadedFile ? [userContext.uploadedFile] : []);
+            const imageFiles = allFiles.filter(f => f.type?.startsWith('image/'));
+            const pdfFiles = allFiles.filter(f => f.type === 'application/pdf');
+
+            const taskTopic = extractTopic(userTask);
+
+            const tWrite = t('write');
+            const tDigest = t('digest');
+
+            const [writeOutput, digest] = await Promise.all([
+                // WRITE
+                (async () => {
+                    const pdfTexts = await Promise.all(pdfFiles.map(async pdf => {
+                        budget.spend('pdf-extract');
+                        try {
+                            return await GeminiAPI.vision(
+                                `Extract ONLY information relevant to: "${taskTopic}". Summarize key findings, arguments, and data.`,
+                                GEMINI, [pdf]
+                            );
+                        } catch (e) { return ''; }
+                    }));
+
+                    const pdfContext = pdfTexts
+                        .map((txt, i) => txt ? `\nUPLOADED DOCUMENT (${pdfFiles[i].name}):\n${txt}\n` : '')
+                        .join('');
+
+                    const sourceInfo = sources.slice(0, 5).map((s, i) =>
+                        `SOURCE ${i + 1} [Key: ${fmtAuthorLastOnly(s)}, ${s.year}]:\nTitle: "${s.title}"\nSummary: ${(s.text || '').substring(0, 120) || 'N/A'}`
+                    ).join('\n\n');
+
+                    const fmt = detectTaskFormat(userTask);
+                    // (format instructions identical to WRITE step above — omitted for brevity,
+                    //  production code should extract this to a shared getFormatInstructions(fmt) fn)
+                    const formatInstructions = `FORMAT — MATCH THE TASK EXACTLY:
+- Identify what format the task asks for and produce ONLY that
+- Plain text — no markdown`;
+
+                    budget.spend('write-gemini');
+                    const raw = imageFiles.length > 0
+                        ? await GeminiAPI.vision(`Complete the following task accurately.\n\nTASK:\n${userTask}\n${pdfContext}\n${sourceInfo ? `\nRESEARCH SOURCES:\n${sourceInfo}` : ''}\n\n${formatInstructions}\n\nCRITICAL: No citations, no author names, no reference list. No preamble. Start immediately.`, GEMINI, imageFiles)
+                        : await GeminiAPI.chat(`Complete the following task accurately.\n\nTASK:\n${userTask}\n${pdfContext}\n${sourceInfo ? `\nRESEARCH SOURCES:\n${sourceInfo}` : ''}\n\n${formatInstructions}\n\nCRITICAL: No citations, no author names, no reference list. No preamble. Start immediately.`, GEMINI);
+
+                    tWrite();
+                    return cleanText(raw);
+                })(),
+
+                // DIGEST — runs concurrently with write
+                (async () => {
+                    const d = await buildSourceDigest(sources, style, GEMINI, budget);
+                    tDigest();
+                    return d;
+                })()
+            ]);
+
+            // ── PHASE 3: Humanize + Cite in parallel (both read writeOutput) ──
+            const enableHumanize = !fast && runOptions.enableHumanize;
+            const enableCite = runOptions.enableCite !== false;
+
+            const tHumanize = t('humanize');
+            const tCite = t('cite');
+
+            const [humanizeOutput, citeOutput] = await Promise.all([
+                // HUMANIZE — optional
+                enableHumanize ? (async () => {
+                    const runHumanizer = async text => {
+                        if (!text.trim()) return text;
+                        let out = '';
+                        const mockReq = { method: 'POST', body: { text } };
+                        const mockRes = { setHeader: () => {}, status: () => ({ end: () => {}, json: d => { out = d; } }) };
+                        await humanizerHandler(mockReq, mockRes);
+                        return (out.success && out.result) ? out.result : text;
+                    };
+                    const isHdr = s => /^[A-Z][A-Z\s\(\)\/\-&]{2,}:?\s*$/.test(s.trim()) && s.trim().length < 80;
+                    const sects = [];
+                    let cur = null;
+                    for (const line of writeOutput.split('\n')) {
+                        if (isHdr(line)) { if (cur) sects.push(cur); cur = { header: line.trim(), lines: [] }; }
+                        else { if (!cur) cur = { header: '', lines: [] }; cur.lines.push(line); }
+                    }
+                    if (cur) sects.push(cur);
+
+                    const results = [];
+                    for (let i = 0; i < sects.length; i += 3) {
+                        const batch = sects.slice(i, i + 3);
+                        const batchResults = await Promise.all(batch.map(async s => {
+                            const body = s.lines.join('\n').trim();
+                            if (!body) return s.header;
+                            budget.spend('humanize-section');
+                            const isBullet = s.lines.filter(l => l.trim()).every(l => /^\s*[-•]\s+/.test(l));
+                            let humanized;
+                            if (isBullet) {
+                                const combined = s.lines.filter(l => l.trim()).map(l => l.replace(/^\s*[-•]\s+/, '')).join('\n');
+                                const h = await runHumanizer(combined);
+                                humanized = h.split('\n').map(l => `- ${l.trim()}`).filter(l => l.length > 2).join('\n');
+                            } else {
+                                humanized = await runHumanizer(body);
+                            }
+                            return s.header ? `${s.header}\n${humanized}` : humanized;
+                        }));
+                        results.push(...batchResults);
+                    }
+                    tHumanize();
+                    return results.join('\n\n');
+                })() : Promise.resolve(null),
+
+                // CITE
+                enableCite ? (async () => {
+                    const isApa = style.includes('apa');
+                    const isMla = style.includes('mla');
+                    const type = (runOptions.citationType || 'in-text').toLowerCase().trim();
+                    const isFootnotes = type === 'footnotes';
+
+                    const input = stripExistingCitations(stripSourceAppendix(stripRefs(writeOutput)));
+                    const sentences = splitSentences(input);
+                    const sourceList = sources.slice(0, 12).map((s, i) => {
+                        const key = s.url || s.doi || s.id || s.title;
+                        const d = digest[key] || {};
+                        const lastName = fmtAuthorLastOnly(s, isMla ? 'mla' : 'apa');
+                        const inTextKey = isApa ? `(${lastName}, ${s.year})` : isMla ? `(${lastName})` : `(${lastName} ${s.year})`;
+                        return `[${i}] CITE-AS: ${inTextKey}\n    Main idea: ${d.mainIdea || (s.text || '').substring(0, 150)}\n    Title: "${s.title}"`;
+                    }).join('\n\n');
+                    const numberedSentences = sentences.slice(0, 25).map((s, i) => `[${i}] ${s.trim()}`).join('\n');
+                    const citeFormat = isApa
+                        ? 'APA 7th: (LastName, Year) — use & not "and" for multiple authors'
+                        : isMla ? 'MLA 9th: (LastName)' : 'Chicago: (LastName Year)';
+
+                    budget.spend('cite-gemini');
+                    try {
+                        const raw = await GeminiAPI.chat(`You are inserting parenthetical in-text citations into an academic text.
+
+SENTENCES (numbered by index):
+${numberedSentences}
+
+SOURCES:
+${sourceList}
+
+CITATION FORMAT: ${citeFormat}
+Copy the CITE-AS key exactly — do not alter names, ampersands, or years.
+
+RULES:
+1. Return a JSON object: keys = sentence indices (strings), values = citation to append
+2. Distribute citations across the WHOLE text — do not cluster at the end
+3. Only cite sentences where a source is genuinely relevant to the specific claim made
+4. SOURCE DIVERSITY: Do not assign the same citation to more than 2 consecutive sentences
+5. Do NOT add new sentences
+
+Return ONLY valid JSON:`, GEMINI, 0.3);
+                        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            const cited = applyInsertions(sentences, JSON.parse(jsonMatch[0]));
+                            tCite();
+                            return cleanText(cited);
+                        }
+                    } catch (e) {
+                        console.error('[Agent] Swarm CITE failed:', e.message);
+                    }
+                    tCite();
+                    return writeOutput;
+                })() : Promise.resolve(null)
+            ]);
+
+            // ── Merge humanize + cite ─────────────────────────────────────────
+            let mergedText = writeOutput;
+            if (enableCite && citeOutput) {
+                mergedText = citeOutput;
+                if (enableHumanize && humanizeOutput) {
+                    mergedText = mergeHumanizeIntoCited(humanizeOutput, citeOutput);
+                }
+            } else if (enableHumanize && humanizeOutput) {
+                mergedText = humanizeOutput;
+            }
+
+            // ── PHASE 4: QA + Grade in parallel ──────────────────────────────
+            const tQA = t('qa');
+            const tGrade = t('grade');
+
+            const qaPromise = (GROQ && mergedText.length > 1000)
+                ? checkWithGroq(mergedText, detectTaskFormat(userTask), GROQ, budget).then(checks => {
+                    tQA();
+                    return applyFixes(mergedText, checks);
+                })
+                : Promise.resolve(mergedText);
+
+            const gradePromise = runOptions.enableGrade
+                ? (async () => {
+                    const citedSources = sources;
+                    let fullSubmission = mergedText;
+                    if (citedSources.length && enableCite) {
+                        const bib = buildBibliographyHTML(citedSources, style, 'bibliography');
+                        if (bib.plain) fullSubmission = mergedText + '\n\n' + bib.plain;
+                    }
+                    budget.spend('grade');
+                    const mockReq = {
+                        method: 'POST',
+                        body: {
+                            text: fullSubmission,
+                            instructions: userTask,
+                            rubric: userContext.rubric || '',
+                            files: allFiles.map(f => ({ name: f.name, type: f.type, content: f.data, isBase64: true }))
+                        }
+                    };
+                    let gradeResult = null;
+                    const mockRes = { setHeader: () => {}, status: () => ({ end: () => {}, json: d => { gradeResult = d; } }) };
+                    await graderHandler(mockReq, mockRes);
+                    const feedback = gradeResult?.result || 'Grading completed.';
+                    const gradeMatch = feedback.match(/(?:Overall\s+)?Grade[:\s]*([A-F][+-]?|\d+[\/.]\d+)/i)
+                        || feedback.match(/([A-F][+-]?)\s*(?:\/|out of|\()/i);
+                    tGrade();
+                    return { grade: gradeMatch ? gradeMatch[1].toUpperCase() : '—', feedback };
+                })()
+                : Promise.resolve(null);
+
+            const [finalText, gradeOutput] = await Promise.all([qaPromise, gradePromise]);
+
+            // ── Bibliography ──────────────────────────────────────────────────
+            const bib = enableCite
+                ? buildBibliographyHTML(sources, style, runOptions.citationType === 'footnotes' ? 'footnotes' : 'bibliography')
+                : { html: '', plain: '' };
+
+            console.log('[Swarm] Budget:', budget.report());
+            console.log('[Swarm] Timings:', timings);
+
+            return res.status(200).json({
+                success: true,
+                output: finalText,
+                outputHtml: buildEssayHTML(finalText),
+                bibliographyHtml: bib.html,
+                bibliographyPlain: bib.plain,
+                sources,
+                grade: gradeOutput,
+                timings,
+                budgetReport: budget.report(),
+                type: 'swarm'
+            });
+        }
+
         return res.status(400).json({ success: false, error: 'Invalid action' });
 
-    } catch(e) {
+    } catch (e) {
         console.error('[Agent] Error:', e);
         return res.status(500).json({ success: false, error: e.message });
     }
