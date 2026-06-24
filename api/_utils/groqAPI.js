@@ -1,5 +1,5 @@
 
-// api/utils/groqAPI.js
+// api/_utils/groqAPI.js
 
 // NOTE: Smart quote fixed on the last line
 const GROQ_MODELS = [

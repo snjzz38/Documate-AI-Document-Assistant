@@ -1,5 +1,5 @@
 // api/features/grader.js
-import { GeminiAPI } from '../utils/geminiAPI.js';
+import { GeminiAPI } from '../_utils/geminiAPI.js';
 
 // ==========================================================================
 // RUBRIC PARSER - Extracts criteria from various rubric formats

@@ -1,4 +1,4 @@
-// api/utils/budget.js
+// api/_utils/budget.js
 const MAX_REQUESTS = 20;
 
 export class RequestBudget {

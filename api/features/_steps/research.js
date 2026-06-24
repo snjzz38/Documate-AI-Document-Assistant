@@ -1,6 +1,6 @@
-// api/features/steps/research.js
-import { SourceFinderAPI } from '../../utils/sourceFinder.js';
-import { extractTopic } from '../../utils/textCleanup.js';
+// api/features/_steps/research.js
+import { SourceFinderAPI } from '../../_utils/sourceFinder.js';
+import { extractTopic } from '../../_utils/textCleanup.js';
 
 /**
  * Finds and normalizes academic sources for the given task.

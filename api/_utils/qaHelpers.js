@@ -1,4 +1,4 @@
-// api/utils/qaHelpers.js
+// api/_utils/qaHelpers.js
 import { GroqAPI } from './groqAPI.js';
 import { stripBecauseStarts, stripHollowFiller } from './textCleanup.js';
 

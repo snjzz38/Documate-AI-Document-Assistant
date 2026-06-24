@@ -1,4 +1,4 @@
-// api/features/steps/humanize.js
+// api/features/_steps/humanize.js
 import humanizerHandler from '../humanizer.js';
 
 const isHeaderLine = s => /^[A-Z][A-Z\s\(\)\/\-&]{2,}:?\s*$/.test(s.trim()) && s.trim().length < 80;

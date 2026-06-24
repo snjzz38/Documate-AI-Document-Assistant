@@ -1,6 +1,6 @@
-// api/features/steps/grade.js
+// api/features/_steps/grade.js
 import graderHandler from '../grader.js';
-import { buildBibliographyHTML } from '../../utils/htmlBuilders.js';
+import { buildBibliographyHTML } from '../../_utils/htmlBuilders.js';
 
 /**
  * Grades the final text submission, attaching a plaintext bibliography

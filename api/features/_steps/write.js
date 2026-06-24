@@ -1,8 +1,8 @@
-// api/features/steps/write.js
-import { GeminiAPI } from '../../utils/geminiAPI.js';
-import { extractTopic, detectTaskFormat, cleanText } from '../../utils/textCleanup.js';
-import { getFormatInstructions } from '../../utils/formatInstructions.js';
-import { fmtAuthorLastOnly } from '../../utils/citationHelpers.js';
+// api/features/_steps/write.js
+import { GeminiAPI } from '../../_utils/geminiAPI.js';
+import { extractTopic, detectTaskFormat, cleanText } from '../../_utils/textCleanup.js';
+import { getFormatInstructions } from '../../_utils/formatInstructions.js';
+import { fmtAuthorLastOnly } from '../../_utils/citationHelpers.js';
 
 /**
  * Writes the task response.

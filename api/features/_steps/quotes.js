@@ -1,9 +1,9 @@
-// api/features/steps/quotes.js
-import { GeminiAPI } from '../../utils/geminiAPI.js';
-import { splitSentences, cleanText, detectTaskFormat } from '../../utils/textCleanup.js';
-import { buildSourceDigest } from '../../utils/citationHelpers.js';
-import { buildEssayHTML } from '../../utils/htmlBuilders.js';
-import { runFinalQA } from '../../utils/qaHelpers.js';
+// api/features/_steps/quotes.js
+import { GeminiAPI } from '../../_utils/geminiAPI.js';
+import { splitSentences, cleanText, detectTaskFormat } from '../../_utils/textCleanup.js';
+import { buildSourceDigest } from '../../_utils/citationHelpers.js';
+import { buildEssayHTML } from '../../_utils/htmlBuilders.js';
+import { runFinalQA } from '../../_utils/qaHelpers.js';
 
 /**
  * Inserts 2–3 direct quotes into already-cited text.

@@ -1,5 +1,5 @@
 // api/features/humanizer.js
-import { GeminiAPI } from '../utils/geminiAPI.js';
+import { GeminiAPI } from '../_utils/geminiAPI.js';
 
 function getRandomTemperature() {
     return 0.7 + Math.random() * 0.6; // 0.7 to 1.3 — high enough for variety, low enough for grammar

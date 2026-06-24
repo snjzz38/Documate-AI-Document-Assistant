@@ -1,7 +1,7 @@
 // api/features/citation.js
-import { GoogleSearchAPI } from '../utils/googleSearch.js';
-import { ScraperAPI } from '../utils/scraper.js';
-import { GroqAPI } from '../utils/groqAPI.js';
+import { GoogleSearchAPI } from '../_utils/googleSearch.js';
+import { ScraperAPI } from '../_utils/scraper.js';
+import { GroqAPI } from '../_utils/groqAPI.js';
 
 const TODAY = () => new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 

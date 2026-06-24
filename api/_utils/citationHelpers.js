@@ -1,4 +1,4 @@
-// api/utils/citationHelpers.js
+// api/_utils/citationHelpers.js
 import { GeminiAPI } from './geminiAPI.js';
 import { stripPreamble, stripMarkdown } from './textCleanup.js';
 

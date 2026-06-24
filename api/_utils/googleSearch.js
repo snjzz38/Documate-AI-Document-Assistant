@@ -1,4 +1,4 @@
-// api/utils/googleSearch.js — v9 FINAL
+// api/_utils/googleSearch.js — v9 FINAL
 // Simple: try instances sequentially, wait between retries, let scraper do its best
 
 import { GroqAPI } from './groqAPI.js';
@@ -365,34 +365,35 @@ Return ONLY a JSON array with exactly 3 strings, nothing else:
       .map((s, i) => `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}\n    Domain: ${new URL(s.link).hostname}`)
       .join('\n\n');
 
-    const prompt = `You are filtering academic sources. Remove OBVIOUSLY IRRELEVANT sources.
+  const prompt = `You are filtering academic sources for an essay.
 
-ESSAY TOPIC (first 900 chars):
+ESSAY TOPIC:
 """
 ${essay.substring(0, 900)}
 """
 
-SOURCES TO FILTER:
+SOURCES:
 ${sourceList}
 
-TASK: Return a JSON array of source IDs to REMOVE (not keep).
+For each source:
+1. Determine whether it could reasonably help write the essay.
+2. Remove it only if it is clearly irrelevant or low-value.
 
-Remove sources that are:
-- About satellite imagery, machine learning, or computer vision
-- About power systems, physics, or chaos theory
-- Completely unrelated to the topic
-- Generic study guides with no depth
+REMOVE if:
+- The subject matter does not meaningfully overlap with the essay
+- The source belongs to an unrelated discipline or context
+- It is a generic study guide, glossary, or superficial summary
+- It is duplicate content
 
-Keep sources about:
-- Anna Akhmatova and Requiem
-- Russian poetry, literature, or history
-- Elegiac poetry and themes
-- Women in literature
-- Yezhovshchina or Soviet repression
-- Literary analysis of Requiem
+KEEP if:
+- It provides direct analysis
+- It provides historical, cultural, social, or theoretical context
+- It discusses related people, events, movements, themes, or concepts
+- Relevance is uncertain
 
-Return ONLY JSON (no markdown, no explanation):
-{"remove_ids": [8, 10, 12, 13, 14, 15, 18, 19, 20]}`;
+Output ONLY:
+{"remove_ids":[...]}
+`;
 
     try {
       const response = await GroqAPI.chat(

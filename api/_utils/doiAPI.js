@@ -1,4 +1,4 @@
-// api/utils/doiAPI.js
+// api/_utils/doiAPI.js
 // Fetches citation metadata from DOIs using Crossref API (free, no key needed)
 
 export const DoiAPI = {

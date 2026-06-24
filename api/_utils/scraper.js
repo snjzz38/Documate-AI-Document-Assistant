@@ -1,5 +1,5 @@
 
-// api/utils/scraper.js
+// api/_utils/scraper.js
 // Scrapes web pages for citation metadata, prioritizing DOI when available
 
 import { DoiAPI } from './doiAPI.js';

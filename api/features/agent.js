@@ -1,17 +1,17 @@
 // api/features/agent.js
-import { RequestBudget } from '../utils/budget.js';
-import { cleanText, detectTaskFormat } from '../utils/textCleanup.js';
-import { mergeHumanizeIntoCited } from '../utils/citationHelpers.js';
-import { buildBibliographyHTML, buildEssayHTML } from '../utils/htmlBuilders.js';
-import { checkWithGroq, applyFixes } from '../utils/qaHelpers.js';
-import { splitSentences } from '../utils/textCleanup.js';
+import { RequestBudget } from '../__utils/budget.js';
+import { cleanText, detectTaskFormat } from '../__utils/textCleanup.js';
+import { mergeHumanizeIntoCited } from '../__utils/citationHelpers.js';
+import { buildBibliographyHTML, buildEssayHTML } from '../__utils/htmlBuilders.js';
+import { checkWithGroq, applyFixes } from '../__utils/qaHelpers.js';
+import { splitSentences } from '../__utils/textCleanup.js';
 
-import { runResearch } from './steps/research.js';
-import { runWrite } from './steps/write.js';
-import { runHumanize } from './steps/humanize.js';
-import { runCite } from './steps/cite.js';
-import { runQuotes } from './steps/quotes.js';
-import { runGrade } from './steps/grade.js';
+import { runResearch } from './_steps/research.js';
+import { runWrite } from './_steps/write.js';
+import { runHumanize } from './_steps/humanize.js';
+import { runCite } from './_steps/cite.js';
+import { runQuotes } from './_steps/quotes.js';
+import { runGrade } from './_steps/grade.js';
 
 // ─── Plan builder ─────────────────────────────────────────────────────────────
 function buildPlan(options = {}) {
@@ -56,7 +56,7 @@ async function runSwarm(req, res) {
         const tWrite = startTimer('write');
         const tDigest = startTimer('digest');
 
-        const { buildSourceDigest } = await import('../utils/citationHelpers.js');
+        const { buildSourceDigest } = await import('../__utils/citationHelpers.js');
 
         const [writeOutput, digest] = await Promise.all([
             runWrite({ task, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)

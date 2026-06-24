@@ -1,15 +1,15 @@
-// api/features/steps/cite.js
-import { GeminiAPI } from '../../utils/geminiAPI.js';
-import { SourceFinderAPI } from '../../utils/sourceFinder.js';
+// api/features/_steps/cite.js
+import { GeminiAPI } from '../../_utils/geminiAPI.js';
+import { SourceFinderAPI } from '../../_utils/sourceFinder.js';
 import {
     splitSentences, stripExistingCitations, stripSourceAppendix, stripRefs,
     cleanText, detectTaskFormat
-} from '../../utils/textCleanup.js';
+} from '../../_utils/textCleanup.js';
 import {
     buildSourceDigest, buildSourceListBlock, applyInsertions
-} from '../../utils/citationHelpers.js';
-import { buildBibliographyHTML, buildEssayHTML } from '../../utils/htmlBuilders.js';
-import { checkWithGroq, applyFixes } from '../../utils/qaHelpers.js';
+} from '../../_utils/citationHelpers.js';
+import { buildBibliographyHTML, buildEssayHTML } from '../../_utils/htmlBuilders.js';
+import { checkWithGroq, applyFixes } from '../../_utils/qaHelpers.js';
 
 /**
  * Inserts citations (in-text, footnotes, or bibliography-only) into text.
