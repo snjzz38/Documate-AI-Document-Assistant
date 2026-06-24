@@ -1,10 +1,10 @@
 // api/features/agent.js
-import { RequestBudget } from '../__utils/budget.js';
-import { cleanText, detectTaskFormat } from '../__utils/textCleanup.js';
-import { mergeHumanizeIntoCited } from '../__utils/citationHelpers.js';
-import { buildBibliographyHTML, buildEssayHTML } from '../__utils/htmlBuilders.js';
-import { checkWithGroq, applyFixes } from '../__utils/qaHelpers.js';
-import { splitSentences } from '../__utils/textCleanup.js';
+import { RequestBudget } from '../_utils/budget.js';
+import { cleanText, detectTaskFormat } from '../_utils/textCleanup.js';
+import { mergeHumanizeIntoCited } from '../_utils/citationHelpers.js';
+import { buildBibliographyHTML, buildEssayHTML } from '../_utils/htmlBuilders.js';
+import { checkWithGroq, applyFixes } from '../_utils/qaHelpers.js';
+import { splitSentences } from '../_utils/textCleanup.js';
 
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
@@ -56,7 +56,7 @@ async function runSwarm(req, res) {
         const tWrite = startTimer('write');
         const tDigest = startTimer('digest');
 
-        const { buildSourceDigest } = await import('../__utils/citationHelpers.js');
+        const { buildSourceDigest } = await import('../_utils/citationHelpers.js');
 
         const [writeOutput, digest] = await Promise.all([
             runWrite({ task, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
