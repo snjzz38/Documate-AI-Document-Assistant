@@ -11,9 +11,9 @@
     }
   ],
   "functions": {
-    "api/features/agent.js": { "maxDuration": 1800 },
-    "api/features/citation.js": { "maxDuration": 30 },
-    "api/features/grader.js": { "maxDuration": 30 },
-    "api/features/humanizer.js": { "maxDuration": 90 }
+    "api/features/agent.js": { "maxDuration": 280 },
+    "api/features/citation.js": { "maxDuration": 60 },
+    "api/features/grader.js": { "maxDuration": 60 },
+    "api/features/humanizer.js": { "maxDuration": 120 }
   }
 }
