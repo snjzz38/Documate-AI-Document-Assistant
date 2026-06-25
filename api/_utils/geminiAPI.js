@@ -1,12 +1,18 @@
 // api/_utils/geminiAPI.js
+//
+// Model order matters: fastest/cheapest first. Gemma 4 models include a
+// mandatory "thinking" reasoning step (see Google's Gemma 4 docs) which
+// makes them meaningfully slower per call than plain Gemini Flash-Lite —
+// they're kept in rotation as capable fallbacks, just placed AFTER the
+// fast models so a slow Gemma call doesn't become every call's first attempt.
 const GEMINI_MODELS = [
-  'gemma-4-31b-it',
-  'gemma-4-26b-A4b-it',
   'gemini-3.1-flash-lite',
   'gemini-2.5-flash-lite',
   'gemini-2.5-flash',
   'gemini-3.5-flash',
   'gemini-2.5-pro',
+  'gemma-4-26b-a4b-it',
+  'gemma-4-31b-it',
   'gemini-3.1-pro-preview'
 ];
 
@@ -80,8 +86,6 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
 
             const data = await res.json();
             const elapsed = Date.now() - attemptStart;
-            // Diagnostic log: which model actually served this call, and how long it took.
-            // Check Vercel runtime logs to correlate slow grade/cite/etc calls with model choice.
             console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=success`);
             return parseCleanResponse(data);
 
