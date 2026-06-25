@@ -1,10 +1,9 @@
 // api/_utils/geminiAPI.js
 //
-// Model order matters: fastest/cheapest first. Gemma 4 models include a
-// mandatory "thinking" reasoning step (see Google's Gemma 4 docs) which
-// makes them meaningfully slower per call than plain Gemini Flash-Lite —
-// they're kept in rotation as capable fallbacks, just placed AFTER the
-// fast models so a slow Gemma call doesn't become every call's first attempt.
+// Model order: fastest first. Gemma 4 has a mandatory internal "thinking"
+// step with no public API toggle as of this writing, so it's kept as a
+// fallback rather than primary. Gemini 2.5 models support thinkingBudget=0
+// to disable thinking outright for tasks that don't need deep reasoning.
 const GEMINI_MODELS = [
   'gemini-3.1-flash-lite',
   'gemini-2.5-flash-lite',
@@ -16,22 +15,46 @@ const GEMINI_MODELS = [
   'gemini-3.1-pro-preview'
 ];
 
+const THINKING_BUDGET_MODELS = new Set([
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
+]);
+
 /**
- * Filters the API response to remove internal reasoning/thought parts.
- * This is more robust than regex because it uses the API's own metadata.
+ * Per-invocation model usage tracker. Reset at the start of each serverless
+ * invocation (each cold/warm function call gets a fresh module load in most
+ * cases, but since warm reuse can persist module state, callers should call
+ * resetModelUsage() at the start of a run_swarm request to guarantee a clean
+ * count for that specific request rather than accumulating across requests).
  */
+let modelUsage = {};
+
+export function resetModelUsage() {
+    modelUsage = {};
+}
+
+export function getModelUsage() {
+    return { ...modelUsage };
+}
+
+function recordUsage(model, status) {
+    if (!modelUsage[model]) {
+        modelUsage[model] = { success: 0, failed: 0 };
+    }
+    modelUsage[model][status]++;
+}
+
 const parseCleanResponse = (data) => {
     if (!data.candidates?.[0]?.content?.parts) {
         throw new Error("Invalid response structure from Gemini");
     }
-
     const parts = data.candidates[0].content.parts;
     const cleanText = parts
         .filter(part => !part.thought)
         .map(part => part.text || "")
         .join("")
         .trim();
-
     return cleanText;
 };
 
@@ -41,10 +64,6 @@ const SYSTEM_INSTRUCTION = {
     }]
 };
 
-/**
- * Shared, persistent model health ranking — see callGemini for the
- * snapshot-per-call rationale that avoids cross-call race conditions.
- */
 let modelRanking = [...GEMINI_MODELS];
 
 function snapshotRanking() {
@@ -59,7 +78,15 @@ function demoteModel(model) {
     }
 }
 
-async function callGemini(promptText, apiKey, temperature, contentParts) {
+function buildGenerationConfig(model, temperature, disableThinking) {
+    const config = { temperature, topP: 0.95 };
+    if (disableThinking && THINKING_BUDGET_MODELS.has(model)) {
+        config.thinkingConfig = { thinkingBudget: 0 };
+    }
+    return config;
+}
+
+async function callGemini(promptText, apiKey, temperature, contentParts, disableThinking) {
     if (!apiKey) throw new Error("Missing Gemini API Key");
 
     const attemptOrder = snapshotRanking();
@@ -75,7 +102,7 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
                 body: JSON.stringify({
                     system_instruction: SYSTEM_INSTRUCTION,
                     contents: [{ parts: contentParts }],
-                    generationConfig: { temperature, topP: 0.95 }
+                    generationConfig: buildGenerationConfig(model, temperature, disableThinking)
                 })
             });
 
@@ -86,11 +113,13 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
 
             const data = await res.json();
             const elapsed = Date.now() - attemptStart;
-            console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=success`);
+            recordUsage(model, 'success');
+            console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=success thinkingDisabled=${disableThinking && THINKING_BUDGET_MODELS.has(model)}`);
             return parseCleanResponse(data);
 
         } catch (e) {
             const elapsed = Date.now() - attemptStart;
+            recordUsage(model, 'failed');
             console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=failed error=${e.message}`);
             lastError = e;
             demoteModel(model);
@@ -100,17 +129,17 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
 }
 
 export const GeminiAPI = {
-    async chat(promptText, apiKey, temperature = 0.7) {
-        return callGemini(promptText, apiKey, temperature, [{ text: promptText }]);
+    async chat(promptText, apiKey, temperature = 0.7, disableThinking = true) {
+        return callGemini(promptText, apiKey, temperature, [{ text: promptText }], disableThinking);
     },
 
-    async vision(promptText, apiKey, files = [], temperature = 0.7) {
+    async vision(promptText, apiKey, files = [], temperature = 0.7, disableThinking = true) {
         const contentParts = [
             ...files.map(f => ({
                 inline_data: { mime_type: f.type, data: f.data }
             })),
             { text: promptText }
         ];
-        return callGemini(promptText, apiKey, temperature, contentParts);
+        return callGemini(promptText, apiKey, temperature, contentParts, disableThinking);
     }
 };
