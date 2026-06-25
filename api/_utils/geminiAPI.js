@@ -18,7 +18,7 @@ const parseCleanResponse = (data) => {
     if (!data.candidates?.[0]?.content?.parts) {
         throw new Error("Invalid response structure from Gemini");
     }
-    
+
     // Join only the parts that are NOT marked as 'thought'
     const parts = data.candidates[0].content.parts;
     const cleanText = parts
@@ -31,85 +31,90 @@ const parseCleanResponse = (data) => {
 };
 
 const SYSTEM_INSTRUCTION = {
-    parts: [{ 
-        text: "You are a direct assistant. NEVER include internal monologue, chain-of-thought, or narration of your reasoning. Respond only with the final output. Do not say 'The user said...' or 'I will now...'." 
+    parts: [{
+        text: "You are a direct assistant. NEVER include internal monologue, chain-of-thought, or narration of your reasoning. Respond only with the final output. Do not say 'The user said...' or 'I will now...'."
     }]
 };
 
+/**
+ * Shared, persistent model health ranking.
+ * Unlike a per-call local copy (which forgets failures the moment the call ends),
+ * this module-level ranking is intentionally persistent ACROSS calls within the
+ * same warm function instance — so a model that just failed moves to the back
+ * for everyone, and a model that keeps succeeding stays at the front.
+ *
+ * The bug this fixes: the OLD code mutated GEMINI_MODELS itself with .push/.shift,
+ * which had the same "shared across calls" effect but used the literal array
+ * Promise chains were reading from concurrently — under Promise.all() with several
+ * chat() calls in flight at once (e.g. digest's batched call racing against write's
+ * call), two calls could read GEMINI_MODELS mid-mutation by another call, causing
+ * inconsistent attempt order and double-counted rotations. This version takes an
+ * explicit LOCAL SNAPSHOT of the current ranking at the start of each call, so each
+ * call's retry loop is self-contained and deterministic regardless of what else is
+ * running concurrently. Failures still update the shared ranking for the NEXT call,
+ * just not for calls already in flight.
+ */
+let modelRanking = [...GEMINI_MODELS];
+
+function snapshotRanking() {
+    return [...modelRanking];
+}
+
+function demoteModel(model) {
+    const idx = modelRanking.indexOf(model);
+    if (idx !== -1) {
+        modelRanking.splice(idx, 1);
+        modelRanking.push(model);
+    }
+}
+
+async function callGemini(promptText, apiKey, temperature, contentParts) {
+    if (!apiKey) throw new Error("Missing Gemini API Key");
+
+    const attemptOrder = snapshotRanking();
+    let lastError = null;
+
+    for (const model of attemptOrder) {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    system_instruction: SYSTEM_INSTRUCTION,
+                    contents: [{ parts: contentParts }],
+                    generationConfig: { temperature, topP: 0.95 }
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error?.message || `Status ${res.status}`);
+            }
+
+            const data = await res.json();
+            return parseCleanResponse(data);
+
+        } catch (e) {
+            lastError = e;
+            demoteModel(model);
+        }
+    }
+    throw new Error(`All models failed. Last error: ${lastError?.message}`);
+}
+
 export const GeminiAPI = {
     async chat(promptText, apiKey, temperature = 0.7) {
-        if (!apiKey) throw new Error("Missing Gemini API Key");
-        let lastError = null;
-
-        for (let attempt = 0; attempt < GEMINI_MODELS.length; attempt++) {
-            const currentModel = GEMINI_MODELS[0];
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
-                const res = await fetch(url, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        system_instruction: SYSTEM_INSTRUCTION,
-                        contents: [{ parts: [{ text: promptText }] }],
-                        generationConfig: { temperature, topP: 0.95 }
-                    })
-                });
-
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    throw new Error(errData.error?.message || `Status ${res.status}`);
-                }
-
-                const data = await res.json();
-                return parseCleanResponse(data);
-
-            } catch (e) {
-                lastError = e;
-                // Move failed model to the end of the list
-                GEMINI_MODELS.push(GEMINI_MODELS.shift());
-            }
-        }
-        throw new Error(`All models failed. Last error: ${lastError?.message}`);
+        return callGemini(promptText, apiKey, temperature, [{ text: promptText }]);
     },
 
     async vision(promptText, apiKey, files = [], temperature = 0.7) {
-        if (!apiKey) throw new Error("Missing Gemini API Key");
-        let lastError = null;
-
         const contentParts = [
             ...files.map(f => ({
                 inline_data: { mime_type: f.type, data: f.data }
             })),
             { text: promptText }
         ];
-
-        for (let attempt = 0; attempt < GEMINI_MODELS.length; attempt++) {
-            const currentModel = GEMINI_MODELS[0];
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${apiKey}`;
-                const res = await fetch(url, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        system_instruction: SYSTEM_INSTRUCTION,
-                        contents: [{ parts: contentParts }],
-                        generationConfig: { temperature, topP: 0.95 }
-                    })
-                });
-
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    throw new Error(errData.error?.message || `Status ${res.status}`);
-                }
-
-                const data = await res.json();
-                return parseCleanResponse(data);
-
-            } catch (e) {
-                lastError = e;
-                GEMINI_MODELS.push(GEMINI_MODELS.shift());
-            }
-        }
-        throw new Error(`All models failed. Last error: ${lastError?.message}`);
+        return callGemini(promptText, apiKey, temperature, contentParts);
     }
 };
