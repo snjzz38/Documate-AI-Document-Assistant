@@ -14,6 +14,6 @@
     "api/features/agent.js": { "maxDuration": 60 },
     "api/features/citation.js": { "maxDuration": 30 },
     "api/features/grader.js": { "maxDuration": 30 },
-    "api/features/humanizer.js": { "maxDuration": 30 }
+    "api/features/humanizer.js": { "maxDuration": 90 }
   }
 }
