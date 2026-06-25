@@ -19,7 +19,6 @@ const parseCleanResponse = (data) => {
         throw new Error("Invalid response structure from Gemini");
     }
 
-    // Join only the parts that are NOT marked as 'thought'
     const parts = data.candidates[0].content.parts;
     const cleanText = parts
         .filter(part => !part.thought)
@@ -37,22 +36,8 @@ const SYSTEM_INSTRUCTION = {
 };
 
 /**
- * Shared, persistent model health ranking.
- * Unlike a per-call local copy (which forgets failures the moment the call ends),
- * this module-level ranking is intentionally persistent ACROSS calls within the
- * same warm function instance — so a model that just failed moves to the back
- * for everyone, and a model that keeps succeeding stays at the front.
- *
- * The bug this fixes: the OLD code mutated GEMINI_MODELS itself with .push/.shift,
- * which had the same "shared across calls" effect but used the literal array
- * Promise chains were reading from concurrently — under Promise.all() with several
- * chat() calls in flight at once (e.g. digest's batched call racing against write's
- * call), two calls could read GEMINI_MODELS mid-mutation by another call, causing
- * inconsistent attempt order and double-counted rotations. This version takes an
- * explicit LOCAL SNAPSHOT of the current ranking at the start of each call, so each
- * call's retry loop is self-contained and deterministic regardless of what else is
- * running concurrently. Failures still update the shared ranking for the NEXT call,
- * just not for calls already in flight.
+ * Shared, persistent model health ranking — see callGemini for the
+ * snapshot-per-call rationale that avoids cross-call race conditions.
  */
 let modelRanking = [...GEMINI_MODELS];
 
@@ -75,6 +60,7 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
     let lastError = null;
 
     for (const model of attemptOrder) {
+        const attemptStart = Date.now();
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
             const res = await fetch(url, {
@@ -93,9 +79,15 @@ async function callGemini(promptText, apiKey, temperature, contentParts) {
             }
 
             const data = await res.json();
+            const elapsed = Date.now() - attemptStart;
+            // Diagnostic log: which model actually served this call, and how long it took.
+            // Check Vercel runtime logs to correlate slow grade/cite/etc calls with model choice.
+            console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=success`);
             return parseCleanResponse(data);
 
         } catch (e) {
+            const elapsed = Date.now() - attemptStart;
+            console.log(`[GeminiAPI] model=${model} elapsed=${elapsed}ms status=failed error=${e.message}`);
             lastError = e;
             demoteModel(model);
         }
