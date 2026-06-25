@@ -5,6 +5,7 @@ import { mergeHumanizeIntoCited } from '../_utils/citationHelpers.js';
 import { buildBibliographyHTML, buildEssayHTML } from '../_utils/htmlBuilders.js';
 import { checkWithGroq, applyFixes } from '../_utils/qaHelpers.js';
 import { splitSentences } from '../_utils/textCleanup.js';
+import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
 
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
@@ -31,6 +32,7 @@ async function runSwarm(req, res) {
     const GEMINI = process.env.GEMINI_API_KEY;
     const GROQ = process.env.GROQ_API_KEY;
 
+    resetModelUsage();
     const budget = new RequestBudget();
     const style = options.citationStyle || 'apa7';
     const fast = options.fastMode === true;
@@ -151,6 +153,7 @@ async function runSwarm(req, res) {
 
         console.log('[Swarm] Budget:', budget.report());
         console.log('[Swarm] Timings:', timings);
+        console.log('[Swarm] Model usage:', getModelUsage());
 
         return res.status(200).json({
             success: true,
@@ -162,12 +165,13 @@ async function runSwarm(req, res) {
             grade: gradeOutput,
             timings,
             budgetReport: budget.report(),
+            modelUsage: getModelUsage(),
             type: 'swarm'
         });
 
     } catch (e) {
         console.error('[Swarm] Error:', e);
-        return res.status(500).json({ success: false, error: e.message, budgetReport: budget.report() });
+        return res.status(500).json({ success: false, error: e.message, budgetReport: budget.report(), modelUsage: getModelUsage() });
     }
 }
 
