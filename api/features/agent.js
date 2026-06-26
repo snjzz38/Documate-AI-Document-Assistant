@@ -49,7 +49,7 @@ async function runSwarm(req, res) {
     try {
         // ── PHASE 1: Research (no dependencies) ──────────────────────────────
         const tResearch = startTimer('research');
-        const { sources } = await runResearch({ task, citationStyle: style }, budget);
+        const { sources } = await runResearch({ task, citationStyle: style }, GROQ, budget);
         tResearch();
 
         // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
