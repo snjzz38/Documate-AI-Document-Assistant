@@ -1,12 +1,11 @@
 // api/features/agent.js
 import { RequestBudget } from '../_utils/budget.js';
-import { cleanText } from '../_utils/textCleanup.js';
 import { mergeHumanizeIntoCited } from '../_utils/citationHelpers.js';
 import { buildBibliographyHTML, buildEssayHTML } from '../_utils/htmlBuilders.js';
 import { checkWithGroq, applyFixes } from '../_utils/qaHelpers.js';
 import { splitSentences } from '../_utils/textCleanup.js';
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
-import { detectTaskFormatSmart } from '../_utils/formatDetector.js';
+import { planTask } from '../_utils/planner.js';
 
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
@@ -15,8 +14,10 @@ import { runCite } from './_steps/cite.js';
 import { runQuotes } from './_steps/quotes.js';
 import { runGrade } from './_steps/grade.js';
 
-// ─── Plan builder ─────────────────────────────────────────────────────────────
-function buildPlan(options = {}) {
+// ─── Cosmetic step list (shown in the UI before the swarm runs) ─────────────
+// Not the same thing as planTask() below — this just lists which tools will
+// run, for the progress UI. planTask() figures out WHAT to actually write.
+function buildStepList(options = {}) {
     const fast = options.fastMode === true;
     const steps = [{ tool: 'RESEARCH', action: 'Find academic sources' }];
     if (options.enableWrite !== false) steps.push({ tool: 'WRITE', action: 'Write response' });
@@ -48,16 +49,19 @@ async function runSwarm(req, res) {
     };
 
     try {
-        // ── PHASE 1: Research + format detection, in parallel (no deps) ──────
+        // ── PHASE 1: Research + content planning, in parallel (no deps) ──────
+        // planTask() reads the actual task and produces a concrete writing
+        // brief (required sections, specifics to invent, tone, length) —
+        // replaces the old rigid detectTaskFormat()/template-matching system.
         const tResearch = startTimer('research');
-        const tFormat = startTimer('formatDetect');
+        const tPlan = startTimer('plan');
 
-        const [{ sources }, taskFormat] = await Promise.all([
+        const [{ sources }, plan] = await Promise.all([
             runResearch({ task, citationStyle: style }, GROQ, budget).then(out => { tResearch(); return out; }),
-            detectTaskFormatSmart(task, GROQ, budget).then(fmt => { tFormat(); return fmt; })
+            planTask(task, GROQ, budget).then(p => { tPlan(); return p; })
         ]);
 
-        console.log('[Swarm] Detected task format:', taskFormat);
+        console.log('[Swarm] Plan:', plan);
 
         // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
         const allFiles = context.uploadedFiles || (context.uploadedFile ? [context.uploadedFile] : []);
@@ -68,7 +72,7 @@ async function runSwarm(req, res) {
         const { buildSourceDigest } = await import('../_utils/citationHelpers.js');
 
         const [writeOutput, digest] = await Promise.all([
-            runWrite({ task, taskFormat, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
+            runWrite({ task, plan, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
                 .then(out => { tWrite(); return out; }),
             (sources.length > 0
                 ? buildSourceDigest(sources, style, GEMINI, budget)
@@ -87,7 +91,6 @@ async function runSwarm(req, res) {
             enableCite
                 ? runCite({
                     task,
-                    taskFormat,
                     previousOutput: writeOutput,
                     researchSources: sources,
                     citationStyle: style,
@@ -120,7 +123,6 @@ async function runSwarm(req, res) {
             const tQuotes = startTimer('quotes');
             const quotesResult = await runQuotes({
                 task,
-                taskFormat,
                 previousOutput: mergedText,
                 researchSources: sources,
                 citationStyle: style,
@@ -136,7 +138,7 @@ async function runSwarm(req, res) {
         const tGrade = startTimer('grade');
 
         const qaPromise = (!enableQuotes && GROQ && finalText.length > 1000)
-            ? checkWithGroq(finalText, taskFormat, GROQ, budget)
+            ? checkWithGroq(finalText, GROQ, budget)
                 .then(checks => { tQA(); return applyFixes(finalText, checks); })
             : Promise.resolve(finalText).then(t => { tQA(); return t; });
 
@@ -172,7 +174,7 @@ async function runSwarm(req, res) {
             bibliographyPlain: citeResult?.bibliographyPlain || bib.plain,
             sources,
             grade: gradeOutput,
-            taskFormat,
+            plan,
             timings,
             budgetReport: budget.report(),
             modelUsage: getModelUsage(),
@@ -196,7 +198,7 @@ export default async function handler(req, res) {
         const { action, options = {} } = req.body;
 
         if (action === 'plan') {
-            return res.status(200).json({ success: true, plan: buildPlan(options) });
+            return res.status(200).json({ success: true, plan: buildStepList(options) });
         }
 
         if (action === 'run_swarm') {
