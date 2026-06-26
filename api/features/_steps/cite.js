@@ -16,15 +16,12 @@ import { checkWithGroq, applyFixes } from '../../_utils/qaHelpers.js';
  * Can optionally merge quote insertion into the same Gemini call when
  * enableQuotes is true and quotes are available — saves one round-trip.
  *
- * taskFormat is resolved once upstream (agent.js) via detectTaskFormatSmart
- * and passed in here, so every step agrees on the same classification.
  *
  * Returns: { text, citedSources, bibliographyHtml, bibliographyPlain,
  *            sourceDigest, quotesHandledInCite }
  */
 export async function runCite({
     task,
-    taskFormat,
     previousOutput,
     researchSources = [],
     citationStyle = 'apa7',
@@ -85,14 +82,14 @@ export async function runCite({
 
     return await citeInText({
         sentences, sourceList, numberedSentences, digest,
-        sourcesWithCitations, isApa, isMla, enableQuotes, taskFormat, finish
+        sourcesWithCitations, isApa, isMla, enableQuotes, finish
     }, GEMINI, GROQ, budget);
 }
 
 // ─── In-text citations (with optional merged quotes) ─────────────────────────
 async function citeInText({
     sentences, sourceList, numberedSentences, digest,
-    sourcesWithCitations, isApa, isMla, enableQuotes, taskFormat, finish
+    sourcesWithCitations, isApa, isMla, enableQuotes, finish
 }, GEMINI, GROQ, budget) {
     const availableQuotes = [];
     for (const [, d] of Object.entries(digest)) {
@@ -195,7 +192,7 @@ Return ONLY valid JSON:`;
 
             // Run QA here only when QUOTES step won't run separately — avoids double QA call
             if (!mergeQuotes && !enableQuotes && GROQ && citedClean.length > 1000) {
-                const checks = await checkWithGroq(citedClean, taskFormat || 'general', GROQ, budget);
+                const checks = await checkWithGroq(citedClean, GROQ, budget);
                 return finish(applyFixes(citedClean, checks), sourcesWithCitations, null, extra);
             }
             return finish(citedClean, sourcesWithCitations, null, extra);
