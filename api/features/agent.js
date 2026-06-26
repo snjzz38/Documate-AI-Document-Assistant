@@ -1,11 +1,12 @@
 // api/features/agent.js
 import { RequestBudget } from '../_utils/budget.js';
-import { cleanText, detectTaskFormat } from '../_utils/textCleanup.js';
+import { cleanText } from '../_utils/textCleanup.js';
 import { mergeHumanizeIntoCited } from '../_utils/citationHelpers.js';
 import { buildBibliographyHTML, buildEssayHTML } from '../_utils/htmlBuilders.js';
 import { checkWithGroq, applyFixes } from '../_utils/qaHelpers.js';
 import { splitSentences } from '../_utils/textCleanup.js';
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
+import { detectTaskFormatSmart } from '../_utils/formatDetector.js';
 
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
@@ -47,10 +48,16 @@ async function runSwarm(req, res) {
     };
 
     try {
-        // ── PHASE 1: Research (no dependencies) ──────────────────────────────
+        // ── PHASE 1: Research + format detection, in parallel (no deps) ──────
         const tResearch = startTimer('research');
-        const { sources } = await runResearch({ task, citationStyle: style }, GROQ, budget);
-        tResearch();
+        const tFormat = startTimer('formatDetect');
+
+        const [{ sources }, taskFormat] = await Promise.all([
+            runResearch({ task, citationStyle: style }, GROQ, budget).then(out => { tResearch(); return out; }),
+            detectTaskFormatSmart(task, GROQ, budget).then(fmt => { tFormat(); return fmt; })
+        ]);
+
+        console.log('[Swarm] Detected task format:', taskFormat);
 
         // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
         const allFiles = context.uploadedFiles || (context.uploadedFile ? [context.uploadedFile] : []);
@@ -61,7 +68,7 @@ async function runSwarm(req, res) {
         const { buildSourceDigest } = await import('../_utils/citationHelpers.js');
 
         const [writeOutput, digest] = await Promise.all([
-            runWrite({ task, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
+            runWrite({ task, taskFormat, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
                 .then(out => { tWrite(); return out; }),
             (sources.length > 0
                 ? buildSourceDigest(sources, style, GEMINI, budget)
@@ -80,6 +87,7 @@ async function runSwarm(req, res) {
             enableCite
                 ? runCite({
                     task,
+                    taskFormat,
                     previousOutput: writeOutput,
                     researchSources: sources,
                     citationStyle: style,
@@ -112,6 +120,7 @@ async function runSwarm(req, res) {
             const tQuotes = startTimer('quotes');
             const quotesResult = await runQuotes({
                 task,
+                taskFormat,
                 previousOutput: mergedText,
                 researchSources: sources,
                 citationStyle: style,
@@ -127,7 +136,7 @@ async function runSwarm(req, res) {
         const tGrade = startTimer('grade');
 
         const qaPromise = (!enableQuotes && GROQ && finalText.length > 1000)
-            ? checkWithGroq(finalText, detectTaskFormat(task), GROQ, budget)
+            ? checkWithGroq(finalText, taskFormat, GROQ, budget)
                 .then(checks => { tQA(); return applyFixes(finalText, checks); })
             : Promise.resolve(finalText).then(t => { tQA(); return t; });
 
@@ -163,6 +172,7 @@ async function runSwarm(req, res) {
             bibliographyPlain: citeResult?.bibliographyPlain || bib.plain,
             sources,
             grade: gradeOutput,
+            taskFormat,
             timings,
             budgetReport: budget.report(),
             modelUsage: getModelUsage(),
