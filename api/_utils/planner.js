@@ -4,7 +4,7 @@
 // actual assignment and specify exactly what the final deliverable must
 // contain — sections, required specifics, constraints, tone, and length.
 // This replaces rigid format-guessing with task-specific intelligence.
-import { GroqAPI } from './groqAPI.js';
+const { GroqAPI } = require('./groqAPI');
 
 const DEFAULT_PLAN = {
     summary: 'Complete the task as directly and completely as the instructions require.',
@@ -187,7 +187,7 @@ const TRUNCATION_WARN_THRESHOLD = 5500;
  * @param {object} budget - Budget tracker with spend(key) method
  * @returns {{ summary: string, instructions: string[], estimatedLength: string }}
  */
-export async function planTask(task, GROQ, budget) {
+async function planTask(task, GROQ, budget) {
     // Guard: need a substantive task
     if (!task || typeof task !== 'string' || task.trim().length < 10) {
         return DEFAULT_PLAN;
@@ -223,7 +223,7 @@ export async function planTask(task, GROQ, budget) {
     const messages2 = [
         { role: 'system', content: SYSTEM_MESSAGE },
         { role: 'user', content: buildUserPrompt(taskText) },
-        { role: 'assistant', content: '{' },  // seed the opening brace
+        { role: 'assistant', content: '{' },
         { role: 'user', content: buildRetryPrompt() }
     ];
     const result2 = await attemptPlan(messages2, GROQ, 'attempt 2');
@@ -300,7 +300,7 @@ async function attemptPlan(messages, GROQ, label) {
  * @param {{ summary: string, instructions: string[], estimatedLength: string }} plan
  * @returns {string}
  */
-export function formatPlanForPrompt(plan) {
+function formatPlanForPrompt(plan) {
     const bulletList = plan.instructions.map(i => `- ${i}`).join('\n');
     return `WRITING BRIEF — what this deliverable needs to be:
  ${plan.summary}
@@ -310,3 +310,5 @@ REQUIREMENTS:
 
 LENGTH: ${plan.estimatedLength}`;
 }
+
+module.exports = { planTask, formatPlanForPrompt };
