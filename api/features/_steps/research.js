@@ -1,13 +1,13 @@
-// api/features/_steps/research.js
+// api/features/steps/research.js
 import { SourceFinderAPI } from '../../_utils/sourceFinder.js';
-import { extractTopic } from '../../_utils/textCleanup.js';
+import { extractTopicSmart } from '../../_utils/topicExtractor.js';
 
 /**
  * Finds and normalizes academic sources for the given task.
  * No dependencies on other steps — always safe to run first / in parallel.
  */
-export async function runResearch({ task, citationStyle = 'apa7' }, budget) {
-    const topic = extractTopic(task || '');
+export async function runResearch({ task, citationStyle = 'apa7' }, GROQ, budget) {
+    const topic = await extractTopicSmart(task || '', GROQ, budget);
     console.log('[Research] Topic:', topic, 'Style:', citationStyle);
     budget.spend('research-search');
 
