@@ -1,15 +1,16 @@
-// api/features/_steps/write.js
+// api/features/steps/write.js
 import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { extractTopic, detectTaskFormat, cleanText } from '../../_utils/textCleanup.js';
+import { extractTopic, cleanText } from '../../_utils/textCleanup.js';
 import { getFormatInstructions } from '../../_utils/formatInstructions.js';
 import { fmtAuthorLastOnly } from '../../_utils/citationHelpers.js';
 
 /**
  * Writes the task response.
- * Extracts uploaded PDFs in parallel with whatever the caller is doing
- * concurrently (e.g. source digest pre-warm) — caller controls that via Promise.all.
+ * taskFormat is resolved once upstream (in agent.js, via detectTaskFormatSmart)
+ * and passed in here rather than re-detected, so write/cite/quotes/qa all
+ * agree on the same classification for a single task.
  */
-export async function runWrite({ task, researchSources = [], uploadedFiles = [] }, GEMINI, budget) {
+export async function runWrite({ task, taskFormat, researchSources = [], uploadedFiles = [] }, GEMINI, budget) {
     const imageFiles = uploadedFiles.filter(f => f.type?.startsWith('image/'));
     const pdfFiles = uploadedFiles.filter(f => f.type === 'application/pdf');
     const otherFiles = uploadedFiles.filter(f => !f.type?.startsWith('image/') && f.type !== 'application/pdf');
@@ -42,8 +43,7 @@ export async function runWrite({ task, researchSources = [], uploadedFiles = [] 
         `SOURCE ${i + 1} [Key: ${fmtAuthorLastOnly(s)}, ${s.year}]:\nTitle: "${s.title}"\nSummary: ${(s.text || '').substring(0, 120) || 'N/A'}`
     ).join('\n\n');
 
-    const fmt = detectTaskFormat(task);
-    const formatInstructions = getFormatInstructions(fmt);
+    const formatInstructions = getFormatInstructions(taskFormat);
 
     const prompt = `Complete the following task accurately.
 
