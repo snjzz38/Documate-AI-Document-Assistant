@@ -1,8 +1,8 @@
-// api/_utils/qaHelpers.js
+// api/utils/qaHelpers.js
 import { GroqAPI } from './groqAPI.js';
 import { stripBecauseStarts, stripHollowFiller } from './textCleanup.js';
 
-export const checkWithGroq = async (text, taskFmt, GROQ, budget) => {
+export const checkWithGroq = async (text, GROQ, budget) => {
     if (!GROQ || !text || !budget.spend('groq-qa')) return { pass: true };
     try {
         const messages = [
@@ -56,10 +56,10 @@ export const applyFixes = (text, checks) => {
     return result.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim();
 };
 
-export const runFinalQA = async (text, taskFmt, GROQ, budget) => {
+export const runFinalQA = async (text, GROQ, budget) => {
     if (!GROQ || text.length < 1000) return text;
     try {
-        const checks = await checkWithGroq(text, taskFmt, GROQ, budget);
+        const checks = await checkWithGroq(text, GROQ, budget);
         return applyFixes(text, checks);
     } catch (e) {
         return text;
