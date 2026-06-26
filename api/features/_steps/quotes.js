@@ -1,6 +1,6 @@
-// api/features/_steps/quotes.js
+// api/features/steps/quotes.js
 import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { splitSentences, cleanText, detectTaskFormat } from '../../_utils/textCleanup.js';
+import { splitSentences, cleanText } from '../../_utils/textCleanup.js';
 import { buildSourceDigest } from '../../_utils/citationHelpers.js';
 import { buildEssayHTML } from '../../_utils/htmlBuilders.js';
 import { runFinalQA } from '../../_utils/qaHelpers.js';
@@ -9,9 +9,12 @@ import { runFinalQA } from '../../_utils/qaHelpers.js';
  * Inserts 2–3 direct quotes into already-cited text.
  * If quotesHandledInCite is true (CITE already merged quotes in), this just
  * runs final QA and exits — no extra Gemini call.
+ *
+ * taskFormat is resolved once upstream (agent.js) via detectTaskFormatSmart.
  */
 export async function runQuotes({
     task,
+    taskFormat,
     previousOutput,
     researchSources = [],
     citationStyle = 'apa7',
@@ -19,7 +22,7 @@ export async function runQuotes({
     sourceDigest = null
 }, GEMINI, GROQ, budget) {
     const input = previousOutput || '';
-    const taskFmt = detectTaskFormat(task || '');
+    const taskFmt = taskFormat || 'general';
 
     if (!input || !researchSources.length) {
         return { text: input, outputHtml: buildEssayHTML(input) };
