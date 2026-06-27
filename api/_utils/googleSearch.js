@@ -1,452 +1,476 @@
-// api/_utils/googleSearch.js — v9 FINAL
-// Simple: try instances sequentially, wait between retries, let scraper do its best
-
+// api/utils/googleSearch.js
 import { GroqAPI } from './groqAPI.js';
 
-const _CFG = {
-  searxng: {
-    // Instances that actually return good sources when tested
-    instances: [
-      'https://searx.party',
-      'https://search.2b9t.xyz',
-      'https://grep.vim.wtf',
-      'https://baresearch.org',
-      'https://search.chocolate53.com',
-      'https://searx.oloke.xyz',
-    ],
-    timeout: 6000,
-    // Wait between retries (prevents 429)
-    retryWaitMs: 2000,
-  },
+const SEARX_INSTANCES = [
+    'https://search.sapti.me',
+    'https://searx.tiekoetter.com',
+    'https://search.bus-hit.me',
+    'https://searx.be',
+    'https://search.ononoki.org',
+    'https://priv.au'
+];
 
-  maxResultsPerQuery: 50,
-  maxQueriesGenerated: 3,
+// Domains that should NEVER appear as academic citations
+const BANNED_DOMAINS = [
+    // Social / UGC
+    'reddit', 'quora', 'stackoverflow', 'stackexchange',
+    'youtube', 'tiktok', 'instagram', 'facebook', 'twitter', 'pinterest',
+    // E-commerce
+    'amazon', 'ebay', 'etsy', 'alibaba',
+    // Dictionary / thesaurus (NOT academic sources — these were polluting your results)
+    'merriam-webster.com', 'dictionary.cambridge.org', 'wordreference',
+    'thesaurus.com', 'vocabulary.com', 'definitions.net', 'urbandictionary',
+    // Commercial / brand sites whose name matches common keywords
+    'impact.com', 'watchimpact.com', 'impactmobile', 'impacttest.com',
+    // Encyclopedic (use sparingly, not as primary citation)
+    'wikipedia.org', 'britannica.com', 'wikihow.com', 'investopedia.com'
+];
 
-  hardBlock: new Set([
-    'reddit.com', 'quora.com', 'stackoverflow.com', 'stackexchange.com',
-    'youtube.com', 'tiktok.com', 'instagram.com', 'facebook.com',
-    'twitter.com', 'x.com', 'pinterest.com', 'twitch.tv',
-    'amazon.com', 'ebay.com', 'etsy.com', 'alibaba.com',
-    'netflix.com', 'hulu.com', 'disneyplus.com', 'primevideo.com',
-    'answers.microsoft.com', 'support.google.com', 'apple.com/support',
-    'outlook.com', 'gmail.com', 'mail.google.com',
-    'github.com', 'gitlab.com', 'bitbucket.org',
-  ]),
+const BANNED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.mp4', '.mp3', '.pdf.jpg'];
 
-  junkDomains: new Set([
-    'dokumen.pub', 'scribd.com', 'academia.edu',
-    'wattpad.com', 'fanfiction.net', 'grokipedia.com',
-    'chegg.com', 'brainly.com', 'coursehero.com',
-  ]),
-};
+const PREFERRED_DOMAINS = [
+    'edu', 'gov', 'pubmed', 'ncbi.nlm.nih.gov', 'jstor',
+    'scholar.google', 'arxiv', 'nature.com', 'science.org',
+    'springer', 'wiley', 'tandfonline', 'sagepub', 'oup.com',
+    'cambridge.org/core', 'pnas.org', 'cell.com', 'bmj.com', 'thelancet.com',
+    'doi.org', 'sciencedirect', 'frontiersin', 'mdpi.com',
+    'taylorfrancis.com', 'worldscientific', 'eric.ed.gov', 'ssrn.com'
+];
+
+// Generic words that should NEVER be the primary search term.
+// These were polluting queries — "impact" alone returns the SaaS company, not academic sources.
+const GENERIC_WORDS = new Set([
+    'impact', 'importance', 'role', 'effect', 'affect', 'influence',
+    'benefit', 'advantage', 'disadvantage', 'cause', 'result',
+    'study', 'research', 'analysis', 'paper', 'article', 'review',
+    'overview', 'introduction', 'conclusion', 'summary', 'discussion',
+    'education', 'learning', 'development', 'growth', 'progress',
+    'personal', 'societal', 'social', 'economic', 'academic',
+    'main', 'three', 'one', 'two', 'first', 'second', 'third',
+    'pillar', 'foundation', 'key', 'tool'
+]);
 
 export const GoogleSearchAPI = {
 
-  async search(essay, _apiKey, _cx, groqKey = null, opts = {}) {
-    if (!essay || typeof essay !== 'string' || essay.trim().length < 10) {
-      console.error('[Search] Invalid essay');
-      return [];
-    }
+    async search(query, apiKey, cx, groqKey = null) {
+        // Step 1: Extract claim-specific queries via Groq
+        const queries = groqKey
+            ? await this._extractClaimQueries(query, groqKey)
+            : [this._buildFallbackQuery(query)];
 
-    const essayText = essay.trim();
+        console.log('[Search] Claim queries:', queries);
 
-    try {
-      // STEP 1: Generate queries
-      const queries = groqKey
-        ? await this._generateSmartQueries(essayText, groqKey)
-        : this._generateFallbackQueries(essayText);
+        // Step 2: Search OpenAlex FIRST (primary — real academic papers with DOIs)
+        const openAlexResults = await this._searchOpenAlex(queries);
+        console.log('[Search] OpenAlex results:', openAlexResults.length);
 
-      if (queries.length === 0) {
-        console.warn('[Search] No queries generated');
-        return [];
-      }
+        // Step 3: Search SearXNG IN PARALLEL (secondary — broader coverage)
+        const searxResultArrays = await Promise.all(
+            queries.map(q => this._searchSearx(q))
+        );
+        const searxResults = searxResultArrays.flat();
+        console.log('[Search] SearXNG results:', searxResults.length);
 
-      console.log('[Search] Generated queries:', queries);
+        // Step 4: Merge, filter, score, deduplicate
+        const allResults = [...openAlexResults, ...searxResults];
+        const filtered = this._filterAndScore(allResults);
+        console.log('[Search] After scoring:', filtered.length);
 
-      // STEP 2: Fetch sequentially through instances
-      const raw = await this._fetchAllSequential(queries);
-      
-      if (raw.length === 0) {
-        console.warn('[Search] No results');
-        return [];
-      }
+        // Step 5: Groq relevance filter — strict academic-only pass
+        const relevant = await this._filterByRelevance(filtered, query, groqKey);
+        console.log('[Search] After relevance filter:', relevant.length);
 
-      console.log(`[Search] Got ${raw.length} raw results`);
+        return relevant;
+    },
 
-      // STEP 3: Hard filter
-      const hardFiltered = this._hardFilter(raw);
-      console.log(`[Search] After hard filter: ${hardFiltered.length}`);
+    // ─── NEW: OpenAlex API ──────────────────────────────────────────────
+    // Free, no API key, returns real peer-reviewed papers with abstracts.
+    // This is the single biggest improvement — you stop searching the open
+    // web and start searching actual academic literature.
+    // ────────────────────────────────────────────────────────────────────
+    async _searchOpenAlex(queries) {
+        const allResults = [];
 
-      // STEP 4: LLM relevance filter
-      const final = groqKey
-        ? await this._relevanceFilter(hardFiltered, essayText, groqKey).catch(e => {
-            console.warn('[Search] LLM filter failed');
-            return hardFiltered;
-          })
-        : hardFiltered;
+        await Promise.all(queries.map(async (query) => {
+            try {
+                const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=8&mailto=research@example.com`;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
 
-      console.log(`[Search] Final results: ${final.length}`);
-      return this._structureForCitation(final);
+                const res = await fetch(url, {
+                    signal: controller.signal,
+                    headers: { 'User-Agent': 'AcademicCitationTool/1.0 (mailto:research@example.com)' }
+                });
+                clearTimeout(timeout);
 
-    } catch (error) {
-      console.error('[Search] Error:', error.message);
-      return [];
-    }
-  },
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
 
-  // ─── Query Generation ─────────────────────────────────────────────
+                for (const work of (data.results || [])) {
+                    const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
+                    const link = doi || work.id;
+                    const abstract = this._reconstructAbstract(work.abstract_inverted_index);
+                    const authors = (work.authorships || [])
+                        .map(a => a.author?.display_name)
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .join(', ');
 
-  async _generateSmartQueries(essay, groqKey) {
-    const prompt = `You are generating 3 academic search queries from this text.
+                    if (!work.title || !link) continue;
 
-TEXT (first 1500 chars):
-"""
-${essay.substring(0, 1500)}
-"""
-
-Generate 3 different search queries. Each query should:
-- Be 5-12 words long
-- Focus on a different key topic from the text
-- Be specific enough to find relevant sources
-- Use academic/research terms
-
-Return ONLY a JSON array with exactly 3 strings, nothing else:
-["query one", "query two", "query three"]`;
-
-    try {
-      const response = await GroqAPI.chat(
-        [{ role: 'user', content: prompt }],
-        groqKey,
-        false
-      );
-
-      const match = response.match(/\[[\s\S]*?\]/);
-      if (!match) {
-        console.warn('[Search] No JSON array found in response');
-        throw new Error('No JSON');
-      }
-
-      const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error('Not valid array');
-      }
-
-      // Validate and clean queries
-      const queries = parsed
-        .filter(q => typeof q === 'string')
-        .map(q => q.trim())
-        .filter(q => q.length >= 10 && q.length <= 150)
-        .slice(0, 3);
-
-      if (queries.length < 2) {
-        console.warn('[Search] Not enough valid queries from LLM');
-        throw new Error('Not enough queries');
-      }
-
-      console.log('[Search] Generated', queries.length, 'queries from LLM');
-      return queries;
-
-    } catch (error) {
-      console.warn('[Search] Smart query gen failed:', error.message);
-      return this._generateFallbackQueries(essay);
-    }
-  },
-
-  _generateFallbackQueries(essay) {
-    const queries = [];
-    
-    // Extract key phrases and sentences
-    const sentences = essay.match(/[^.!?]+[.!?]/g) || [essay];
-    
-    const stopWords = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'is', 'are', 'was', 'were',
-      'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-      'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'it', 'its'
-    ]);
-    
-    // Get meaningful words
-    const words = (essay.toLowerCase().match(/\b[a-z]{4,}\b/g) || [])
-      .filter(w => !stopWords.has(w))
-      .filter((v, i, a) => a.indexOf(v) === i)
-      .slice(0, 20);
-
-    // Query 1: First substantive sentence
-    if (sentences.length > 0) {
-      const firstSentence = sentences[0].replace(/[.!?]/g, '').trim();
-      if (firstSentence.length >= 20 && firstSentence.length <= 120) {
-        queries.push(firstSentence);
-      }
-    }
-
-    // Query 2: Key words combination
-    if (words.length >= 4) {
-      const keyWords = [words[0], words[1], words[2], words[3]];
-      const q = keyWords.join(' ');
-      if (q.length >= 15) queries.push(q);
-    }
-
-    // Query 3: Different aspect (second sentence or different keywords)
-    if (sentences.length > 1) {
-      const secondSentence = sentences[1].replace(/[.!?]/g, '').trim();
-      if (secondSentence.length >= 20 && secondSentence.length <= 120 && secondSentence !== queries[0]) {
-        queries.push(secondSentence);
-      }
-    } else if (words.length >= 8 && queries.length < 3) {
-      const q = words.slice(4, 8).join(' ');
-      if (q.length >= 15) queries.push(q);
-    }
-
-    // Ensure we have at least 2-3 queries
-    const validQueries = queries
-      .filter(q => q && q.length >= 12 && q.length <= 150)
-      .slice(0, 3);
-
-    console.log('[Search] Fallback generated', validQueries.length, 'queries from text extraction');
-    return validQueries;
-  },
-
-  // ─── SEQUENTIAL Fetch ─────────────────────────────────────────────
-
-  /**
-   * For each query, try instances in order until one succeeds
-   * If instance fails, wait a bit and try next instance
-   */
-  async _fetchAllSequential(queries) {
-    const allResults = [];
-    const seenUrls = new Set();
-
-    for (const query of queries) {
-      console.log(`[Search] Fetching: "${query.substring(0, 60)}..."`);
-
-      let querySucceeded = false;
-
-      // Try each instance in order
-      for (let i = 0; i < _CFG.searxng.instances.length; i++) {
-        if (querySucceeded) break;
-
-        const instance = _CFG.searxng.instances[i];
-
-        try {
-          const results = await this._fetchFromInstance(instance, query);
-          
-          if (results.length > 0) {
-            console.log(`[Search] ✓ ${results.length} results from ${instance}`);
-            querySucceeded = true;
-
-            // Add to results (dedup)
-            for (const r of results) {
-              if (r.link && !seenUrls.has(r.link)) {
-                allResults.push(r);
-                seenUrls.add(r.link);
-              }
+                    allResults.push({
+                        title: work.title,
+                        link,
+                        snippet: abstract || '',
+                        authors,
+                        year: work.publication_year,
+                        venue: work.primary_location?.source?.display_name || '',
+                        source: 'openalex',
+                        _score: 10  // heavy boost — these are real academic papers
+                    });
+                }
+            } catch (e) {
+                console.error('[Search] OpenAlex failed for query:', query, e.message);
             }
-          }
-        } catch (error) {
-          console.warn(`[Search] ✗ ${instance}: ${error.message}`);
-          
-          // Wait before trying next instance (prevents hammering)
-          if (i < _CFG.searxng.instances.length - 1) {
-            console.log(`[Search] Waiting ${_CFG.searxng.timeout / 1000}s before next instance...`);
-            await new Promise(resolve => setTimeout(resolve, _CFG.searxng.timeout / 1000));
-          }
-        }
-      }
-
-      if (!querySucceeded) {
-        console.warn(`[Search] ⚠️ No results for query: "${query.substring(0, 60)}..."`);
-      }
-    }
-
-    return allResults;
-  },
-
-  /**
-   * Fetch from single instance
-   */
-  async _fetchFromInstance(instanceUrl, query) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), _CFG.searxng.timeout);
-
-    try {
-      const params = new URLSearchParams({
-        q: query,
-        format: 'json',
-        categories: 'general,science',
-        language: 'en',
-        engines: 'google,bing,duckduckgo,brave,semantic_scholar,crossref',
-      });
-
-      const response = await fetch(`${instanceUrl}/search?${params}`, {
-        signal: controller.signal,
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const ct = response.headers.get('content-type') || '';
-      if (!ct.includes('json')) {
-        throw new Error('Not JSON');
-      }
-
-      const data = await response.json();
-      if (!data.results || !Array.isArray(data.results)) {
-        throw new Error('No results array');
-      }
-
-      return data.results
-        .filter(r => r.url && r.title && r.title.length > 5)
-        .slice(0, 50)
-        .map(r => ({
-          title: r.title.trim(),
-          link: r.url,
-          snippet: (r.content || r.snippet || '').trim(),
         }));
 
-    } catch (error) {
-      clearTimeout(timeoutId);
-      throw error;
-    }
-  },
+        return allResults;
+    },
 
-  // ─── Hard Filter ──────────────────────────────────────────────────
+    // OpenAlex returns abstracts as inverted indexes — reconstruct to plain text.
+    _reconstructAbstract(invertedIndex) {
+        if (!invertedIndex || typeof invertedIndex !== 'object') return '';
+        const positions = [];
+        for (const [word, idxs] of Object.entries(invertedIndex)) {
+            for (const i of idxs) positions.push([i, word]);
+        }
+        return positions
+            .sort((a, b) => a[0] - b[0])
+            .map(p => p[1])
+            .join(' ')
+            .substring(0, 400);
+    },
 
-  _hardFilter(results) {
-    return results.filter(r => {
-      if (!r.link || !r.title) return false;
+    // ─── Improved SearXNG search ────────────────────────────────────────
+    // Now requests JSON via &format=json — far more reliable than HTML scraping.
+    // Falls back to HTML parsing if the instance refuses JSON.
+    // ────────────────────────────────────────────────────────────────────
+    async _searchSearx(query) {
+        const shuffled = [...SEARX_INSTANCES].sort(() => Math.random() - 0.5);
 
-      try {
-        const url = new URL(r.link);
-        const domain = url.hostname.replace('www.', '').toLowerCase();
+        for (const instance of shuffled.slice(0, 4)) {
+            try {
+                const url = `${instance}/search?q=${encodeURIComponent(query)}&categories=general,science&language=en&format=json`;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 8000);
 
-        if (_CFG.hardBlock.has(domain)) return false;
-        if (_CFG.junkDomains.has(domain)) return false;
+                const res = await fetch(url, {
+                    signal: controller.signal,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'application/json'
+                    }
+                });
+                clearTimeout(timeout);
 
-        if (r.title.length < 5 || r.title.length > 300) return false;
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const titleLower = r.title.toLowerCase();
-        const snippetLower = (r.snippet || '').toLowerCase();
-
-        const junkPatterns = [
-          /^(how to|tutorial|guide:|step by step)/i,
-          /netflix|streaming|watch/i,
-          /error|troubleshoot|can't|not working/i,
-          /login|signup|account|password/i,
-          /download\s+(pdf|ebook|movie|video)/i,
-          /illegal|pirate|torrent/i,
-        ];
-
-        if (junkPatterns.some(p => p.test(titleLower) && p.test(snippetLower))) {
-          return false;
+                const contentType = res.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const data = await res.json();
+                    const results = (data.results || [])
+                        .map(r => ({
+                            title: r.title || '',
+                            link: r.url || '',
+                            snippet: r.content || ''
+                        }))
+                        .filter(r => r.title && r.link);
+                    if (results.length > 0) {
+                        console.log('[Search] SearXNG JSON:', results.length, 'from', instance);
+                        return results;
+                    }
+                } else {
+                    // HTML fallback
+                    const html = await res.text();
+                    const results = this._parseResults(html);
+                    if (results.length > 0) {
+                        console.log('[Search] SearXNG HTML:', results.length, 'from', instance);
+                        return results;
+                    }
+                }
+            } catch (e) {
+                console.error('[Search] SearXNG instance failed:', instance, e.message);
+            }
         }
 
-        return true;
-      } catch (e) {
-        return false;
-      }
-    });
-  },
+        console.warn('[Search] All SearXNG instances failed for:', query);
+        return [];
+    },
 
-  // ─── LLM Relevance Filter ────────────────────────────────────────
+    // ─── Improved Groq query extraction ─────────────────────────────────
+    // The prompt now explicitly bans generic words ("impact", "importance",
+    // "education" alone) and requires 2-4 SPECIFIC topical keywords per query.
+    // ────────────────────────────────────────────────────────────────────
+    async _extractClaimQueries(text, groqKey) {
+        try {
+            const prompt = `You are helping find ACADEMIC sources for a student essay.
 
-  /**
-   * Two-stage LLM filtering:
-   * 1. Filter by relevance to essay topic
-   * 2. Remove obvious irrelevant sources (satellite imagery, machine learning, etc.)
-   */
-  async _relevanceFilter(sources, essay, groqKey) {
-    if (sources.length < 3) return sources;
+ESSAY TEXT (first 1500 chars):
+"${text.substring(0, 1500)}"
 
-    const sourceList = sources
-      .slice(0, 25)
-      .map((s, i) => `[${i + 1}] "${s.title}"\n    ${s.snippet.substring(0, 140)}\n    Domain: ${new URL(s.link).hostname}`)
-      .join('\n\n');
+TASK: Return a JSON array of 5-7 search queries that will surface peer-reviewed academic papers, scholarly articles, or .edu/.gov sources relevant to the SPECIFIC claims in this essay.
 
-  const prompt = `You are filtering academic sources for an essay.
+CRITICAL RULES:
+1. Each query must target a SPECIFIC claim, theory, statistic, or named entity in the essay — NOT the general topic.
+2. NEVER use these generic words as the primary term: impact, importance, role, effect, benefit, study, research, education, learning, development, growth, personal, societal, economic.
+3. Each query must combine 2-4 SPECIFIC topical keywords that would appear in academic paper titles.
+4. Cover EVERY distinct section or argument in the essay — not just the first one.
+5. If a researcher, theorist, or study is named, include their name.
+6. Prefer queries likely to surface journal articles, NOT dictionaries or commercial sites.
 
-ESSAY TOPIC:
-"""
-${essay.substring(0, 900)}
-"""
+GOOD EXAMPLES (for an essay on education):
+- "education critical thinking skills academic achievement"
+- "higher education lifetime earnings poverty reduction"
+- "civic engagement voter turnout education level"
+- "education crime recidivism reduction study"
+- "gender equality access education developing countries"
+- "lifelong learning adult education economic outcomes"
+- "education workforce productivity innovation national growth"
 
-SOURCES:
-${sourceList}
+BAD EXAMPLES (do NOT do this):
+- "impact of education" (too generic, returns brand sites)
+- "importance of education" (returns opinion blogs)
+- "education research" (returns anything)
 
-For each source:
-1. Determine whether it could reasonably help write the essay.
-2. Remove it only if it is clearly irrelevant or low-value.
+Return ONLY a raw JSON array, no explanation, no markdown:
+["query one", "query two", "query three"]`;
 
-REMOVE if:
-- The subject matter does not meaningfully overlap with the essay
-- The source belongs to an unrelated discipline or context
-- It is a generic study guide, glossary, or superficial summary
-- It is duplicate content
+            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            console.log('[Search] Groq raw response:', response);
 
-KEEP if:
-- It provides direct analysis
-- It provides historical, cultural, social, or theoretical context
-- It discusses related people, events, movements, themes, or concepts
-- Relevance is uncertain
+            const jsonMatch = response.match(/\[[\s\S]*?\]/);
+            if (!jsonMatch) throw new Error('No JSON array in response');
 
-Output ONLY:
-{"remove_ids":[...]}
-`;
+            const queries = JSON.parse(jsonMatch[0]);
+            if (!Array.isArray(queries) || queries.length === 0) throw new Error('Empty array');
 
-    try {
-      const response = await GroqAPI.chat(
-        [{ role: 'user', content: prompt }],
-        groqKey,
-        false
-      );
+            // Filter out queries that are too generic (only contain GENERIC_WORDS)
+            const cleaned = queries
+                .filter(q => typeof q === 'string' && q.trim().split(/\s+/).length >= 3)
+                .map(q => q.trim().substring(0, 120))
+                .filter(q => {
+                    const words = q.toLowerCase().split(/\s+/);
+                    const specificWords = words.filter(w => !GENERIC_WORDS.has(w));
+                    return specificWords.length >= 2;  // require at least 2 specific words
+                });
 
-      const match = response.match(/\{[\s\S]*?\}/);
-      if (!match) throw new Error('No JSON');
+            if (cleaned.length === 0) throw new Error('All queries too generic');
+            console.log('[Search] Extracted queries:', cleaned);
+            return cleaned;
 
-      const parsed = JSON.parse(match[0]);
-      if (!Array.isArray(parsed.remove_ids)) throw new Error('No IDs');
+        } catch (e) {
+            console.error('[Search] _extractClaimQueries failed:', e.message);
+            return [this._buildFallbackQuery(text)];
+        }
+    },
 
-      console.log(`[Search] LLM removing ${parsed.remove_ids.length} irrelevant sources:`, parsed.remove_ids);
+    // ─── Improved relevance filter ──────────────────────────────────────
+    // Now explicitly tells Groq to reject dictionaries, brand sites,
+    // social media, and "results that only share a keyword with the topic."
+    // ────────────────────────────────────────────────────────────────────
+    async _filterByRelevance(results, originalText, groqKey) {
+        if (!groqKey || results.length === 0) return results;
 
-      const relevant = sources.filter((_, i) => !parsed.remove_ids.includes(i + 1));
-      return relevant.length > 0 ? relevant : sources.slice(0, 10);
+        try {
+            const summaries = results.map((r, i) =>
+                `${i}: "${r.title}" — ${(r.snippet || '').substring(0, 200)}`
+            ).join('\n');
 
-    } catch (error) {
-      console.warn('[Search] LLM filter failed:', error.message);
-      return sources;
+            const prompt = `You are filtering search results for an academic essay.
+
+ESSAY TOPIC SUMMARY (first 800 chars):
+"${originalText.substring(0, 800)}"
+
+SEARCH RESULTS:
+${summaries}
+
+TASK: Return ONLY the index numbers of results that satisfy BOTH criteria:
+1. ACADEMIC NATURE — peer-reviewed paper, journal article, scholarly book chapter, .edu page, .gov report, or a reputable research organization (e.g., OECD, World Bank, Brookings).
+2. DIRECT RELEVANCE — directly about a specific claim in the essay, not just sharing a keyword.
+
+STRICTLY EXCLUDE:
+- Dictionary or thesaurus entries (e.g., "impact definition", "meaning of...")
+- Commercial / brand websites whose name happens to match a keyword (e.g., impact.com for an essay about "impact of education")
+- Social media, forums, Q&A sites, blog posts without scholarly attribution
+- TV networks, marketing platforms, insurance sites, etc.
+- Results that only share a word with the essay topic but aren't about the same subject
+
+Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
+
+            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            const jsonMatch = response.match(/\[[\s\S]*?\]/);
+            if (!jsonMatch) throw new Error('No JSON array');
+
+            const indices = JSON.parse(jsonMatch[0]);
+            if (!Array.isArray(indices)) throw new Error('Not an array');
+
+            const filtered = indices
+                .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
+                .map(i => results[i]);
+
+            // Safety: if Groq filtered everything out, return originals
+            return filtered.length > 0 ? filtered : results;
+
+        } catch (e) {
+            console.error('[Search] Relevance filter failed:', e.message);
+            return results;
+        }
+    },
+
+    // ─── Improved filter + score + dedup ────────────────────────────────
+    // Adds:
+    //   - URL pattern bans for /dictionary/ and /definition/
+    //   - Title-similarity dedup (kills multiple "impact definition" results)
+    //   - Stronger scoring: +5 for PREFERRED_DOMAINS, +4 for DOI links
+    //   - Penalty for titles containing "definition", "meaning", "what is"
+    // ────────────────────────────────────────────────────────────────────
+    _filterAndScore(results) {
+        const seenUrls = new Set();
+        const seenTitles = new Set();
+        const seenDomains = new Set();
+
+        return results
+            .filter(r => {
+                if (!r.title || !r.link) return false;
+
+                const lowerUrl = r.link.toLowerCase();
+                const lowerTitle = r.title.toLowerCase();
+
+                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
+
+                // Ban dictionary entries by URL pattern
+                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
+
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
+
+                    // Title-based dedup (first 60 chars, normalized) — kills
+                    // near-duplicate "impact definition" results from multiple sites
+                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
+                    if (seenTitles.has(normalizedTitle)) return false;
+                    seenTitles.add(normalizedTitle);
+
+                    if (seenUrls.has(lowerUrl)) return false;
+                    seenUrls.add(lowerUrl);
+
+                    // For non-academic domains, allow only 1 result per domain
+                    // (academic domains like sciencedirect may legitimately have many)
+                    const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
+                                       domain.endsWith('.edu') || domain.endsWith('.gov');
+                    if (!isAcademic) {
+                        if (seenDomains.has(domain)) return false;
+                        seenDomains.add(domain);
+                    }
+                    return true;
+                } catch { return false; }
+            })
+            .map(r => {
+                let score = r._score || 0;
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (PREFERRED_DOMAINS.some(p => domain.includes(p))) score += 5;
+                    if (domain.endsWith('.edu')) score += 3;
+                    if (domain.endsWith('.gov')) score += 3;
+                    if (r.link.includes('doi.org')) score += 4;
+                    if (domain.includes('blog')) score -= 3;
+                    if (r.title.length < 15) score -= 2;
+                    if (r.snippet && r.snippet.length > 100) score += 1;
+                    // Penalize dictionary-style titles even if they slip through URL filter
+                    if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
+                    // Bonus for results with author metadata (OpenAlex)
+                    if (r.authors) score += 2;
+                } catch {}
+                return { ...r, _score: score };
+            })
+            .sort((a, b) => b._score - a._score)
+            .slice(0, 15);
+    },
+
+    // ─── REWRITTEN fallback query builder ───────────────────────────────
+    // OLD: extracted Capitalized Words → grabbed section headers like "Impact"
+    //      and "Personal Growth" → returned dictionary/brand sites.
+    // NEW: extracts lowercase content words (4+ chars), filters out
+    //      GENERIC_WORDS, joins 4 most-specific words + "academic study".
+    // ────────────────────────────────────────────────────────────────────
+    _buildFallbackQuery(text) {
+        const stopWords = new Set([
+            'the','a','an','is','are','was','were','be','been','being','have','has','had',
+            'do','does','did','will','would','could','should','may','might','must','can',
+            'this','that','these','those','they','their','what','which','who','where',
+            'when','why','how','all','each','every','both','few','more','most','other',
+            'some','such','no','nor','not','only','own','same','so','than','too','very',
+            'just','also','now','people','things','many','much','often','even','well',
+            'make','made','take','get','put','use','used','using','instead','through',
+            ...GENERIC_WORDS
+        ]);
+
+        const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+        const meaningful = [...new Set(words)]
+            .filter(w => !stopWords.has(w))
+            .slice(0, 4);
+
+        return (meaningful.join(' ') || 'education research') + ' academic study';
+    },
+
+    // ─── HTML parser (fallback only — kept for SearXNG instances that refuse JSON)
+    _parseResults(html) {
+        const results = [];
+
+        const articleRegex = /<article[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/article>/gi;
+        let match;
+
+        while ((match = articleRegex.exec(html)) !== null) {
+            const block = match[1];
+            const urlMatch = block.match(/href="(https?:\/\/[^"]+)"/);
+            const titleMatch = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/) ||
+                               block.match(/<a[^>]*>([\s\S]*?)<\/a>/);
+            const snippetMatch = block.match(/<p[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/p>/);
+
+            if (urlMatch && titleMatch) {
+                const url = urlMatch[1];
+                const title = this._clean(titleMatch[1]);
+                const snippet = snippetMatch ? this._clean(snippetMatch[1]) : '';
+                if (title && url && !url.includes('searx')) {
+                    results.push({ title, link: url, snippet });
+                }
+            }
+        }
+
+        if (results.length < 3) {
+            const divRegex = /<div[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi;
+            while ((match = divRegex.exec(html)) !== null) {
+                const block = match[1];
+                const urlMatch = block.match(/href="(https?:\/\/[^"]+)"/);
+                const titleMatch = block.match(/<h[34][^>]*>([\s\S]*?)<\/h[34]>/);
+                if (urlMatch && titleMatch) {
+                    const url = urlMatch[1];
+                    const title = this._clean(titleMatch[1]);
+                    if (title && !url.includes('searx') && !results.some(r => r.link === url)) {
+                        results.push({ title, link: url, snippet: '' });
+                    }
+                }
+            }
+        }
+
+        return results.slice(0, 30);
+    },
+
+    _clean(html) {
+        return (html || '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ').trim().substring(0, 300);
     }
-  },
-
-  // ─── Structure ────────────────────────────────────────────────────
-
-  _structureForCitation(sources) {
-    return sources.map((s, i) => ({
-      id: i + 1,
-      title: s.title || 'Untitled',
-      link: s.link,
-      snippet: s.snippet || '',
-      content: s.snippet || '',
-      doi: null,
-      meta: {
-        author: null,
-        year: 'n.d.',
-        published: 'n.d.',
-        siteName: this._getSiteName(s.link),
-        isDOI: false,
-      },
-      engine: 'searxng',
-    }));
-  },
-
-  _getSiteName(url) {
-    try {
-      const host = new URL(url).hostname.replace('www.', '');
-      const part = host.split('.')[0];
-      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-    } catch {
-      return 'Unknown';
-    }
-  },
 };
