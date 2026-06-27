@@ -10,19 +10,13 @@ const SEARX_INSTANCES = [
     'https://priv.au'
 ];
 
-// Domains that should NEVER appear as academic citations
 const BANNED_DOMAINS = [
-    // Social / UGC
     'reddit', 'quora', 'stackoverflow', 'stackexchange',
     'youtube', 'tiktok', 'instagram', 'facebook', 'twitter', 'pinterest',
-    // E-commerce
     'amazon', 'ebay', 'etsy', 'alibaba',
-    // Dictionary / thesaurus (NOT academic sources — these were polluting your results)
     'merriam-webster.com', 'dictionary.cambridge.org', 'wordreference',
     'thesaurus.com', 'vocabulary.com', 'definitions.net', 'urbandictionary',
-    // Commercial / brand sites whose name matches common keywords
     'impact.com', 'watchimpact.com', 'impactmobile', 'impacttest.com',
-    // Encyclopedic (use sparingly, not as primary citation)
     'wikipedia.org', 'britannica.com', 'wikihow.com', 'investopedia.com'
 ];
 
@@ -34,11 +28,10 @@ const PREFERRED_DOMAINS = [
     'springer', 'wiley', 'tandfonline', 'sagepub', 'oup.com',
     'cambridge.org/core', 'pnas.org', 'cell.com', 'bmj.com', 'thelancet.com',
     'doi.org', 'sciencedirect', 'frontiersin', 'mdpi.com',
-    'taylorfrancis.com', 'worldscientific', 'eric.ed.gov', 'ssrn.com'
+    'taylorfrancis.com', 'worldscientific', 'eric.ed.gov', 'ssrn.com',
+    'plato.stanford.edu'  // SEP — gold standard for philosophy
 ];
 
-// Generic words that should NEVER be the primary search term.
-// These were polluting queries — "impact" alone returns the SaaS company, not academic sources.
 const GENERIC_WORDS = new Set([
     'impact', 'importance', 'role', 'effect', 'affect', 'influence',
     'benefit', 'advantage', 'disadvantage', 'cause', 'result',
@@ -52,42 +45,123 @@ const GENERIC_WORDS = new Set([
 
 export const GoogleSearchAPI = {
 
+    // ════════════════════════════════════════════════════════════════════
+    // MAIN ENTRY POINT — now uses a 4-stage pipeline:
+    //   1. Analyze topic → produce a structured "search brief"
+    //   2. Generate paired (concrete + abstract) queries from the brief
+    //   3. Search OpenAlex + SearXNG in parallel
+    //   4. Filter by relevance using the brief as ground truth
+    // ════════════════════════════════════════════════════════════════════
     async search(query, apiKey, cx, groqKey = null) {
-        // Step 1: Extract claim-specific queries via Groq
-        const queries = groqKey
-            ? await this._extractClaimQueries(query, groqKey)
+        // ── Stage 1: Topic Analysis ──────────────────────────────────────
+        let brief = null;
+        if (groqKey) {
+            brief = await this._analyzeTopic(query, groqKey);
+            console.log('[Search] Topic brief:', JSON.stringify(brief, null, 2));
+        }
+
+        // ── Stage 2: Query Generation (uses brief) ───────────────────────
+        const queries = brief
+            ? brief.queries
             : [this._buildFallbackQuery(query)];
+        console.log('[Search] Generated queries:', queries);
 
-        console.log('[Search] Claim queries:', queries);
-
-        // Step 2: Search OpenAlex FIRST (primary — real academic papers with DOIs)
-        const openAlexResults = await this._searchOpenAlex(queries);
-        console.log('[Search] OpenAlex results:', openAlexResults.length);
-
-        // Step 3: Search SearXNG IN PARALLEL (secondary — broader coverage)
-        const searxResultArrays = await Promise.all(
-            queries.map(q => this._searchSearx(q))
-        );
+        // ── Stage 3: Search OpenAlex + SearXNG in parallel ──────────────
+        const [openAlexResults, searxResultArrays] = await Promise.all([
+            this._searchOpenAlex(queries),
+            Promise.all(queries.map(q => this._searchSearx(q)))
+        ]);
         const searxResults = searxResultArrays.flat();
-        console.log('[Search] SearXNG results:', searxResults.length);
 
-        // Step 4: Merge, filter, score, deduplicate
         const allResults = [...openAlexResults, ...searxResults];
+        console.log(`[Search] Raw: OpenAlex=${openAlexResults.length}, SearXNG=${searxResults.length}`);
+
         const filtered = this._filterAndScore(allResults);
         console.log('[Search] After scoring:', filtered.length);
 
-        // Step 5: Groq relevance filter — strict academic-only pass
-        const relevant = await this._filterByRelevance(filtered, query, groqKey);
+        // ── Stage 4: Relevance filter (uses brief) ───────────────────────
+        const relevant = await this._filterByRelevance(filtered, query, groqKey, brief);
         console.log('[Search] After relevance filter:', relevant.length);
 
         return relevant;
     },
 
-    // ─── NEW: OpenAlex API ──────────────────────────────────────────────
-    // Free, no API key, returns real peer-reviewed papers with abstracts.
-    // This is the single biggest improvement — you stop searching the open
-    // web and start searching actual academic literature.
-    // ────────────────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 1: TOPIC ANALYSIS
+    // One Groq call that reads the whole essay and produces a structured
+    // "search brief" — the single source of truth used by both query
+    // generation and the relevance filter.
+    // ════════════════════════════════════════════════════════════════════
+    async _analyzeTopic(text, groqKey) {
+        try {
+            const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
+
+ESSAY TEXT:
+"${text.substring(0, 2500)}"
+
+TASK: Analyze the essay and return a JSON object with these fields:
+
+{
+  "core_thesis": "one-sentence summary of the essay's central argument",
+  "central_question": "the specific question the essay is trying to answer",
+  "philosophical_positions": ["list of named philosophical positions, theories, or frameworks the essay engages with — e.g., 'Mathematical Platonism', 'Constructivism', 'Formalism'"],
+  "discipline": "the academic discipline this essay belongs to — e.g., 'philosophy of mathematics', 'epistemology', 'sociology of education'",
+  "named_entities": [
+    {"name": "specific named thing from essay", "role": "how it's used in the argument — e.g., 'evidence for math in nature'", "abstract_framing": "the philosophical claim it supports"}
+  ],
+  "must_engage_with": ["keywords/phrases that a TRULY relevant source MUST discuss — e.g., 'invention vs discovery', 'philosophy of mathematics', 'mathematical Platonism'"],
+  "queries": [
+    "5-7 search queries that pair a CONCRETE keyword from the essay with its ABSTRACT philosophical framing",
+    "each query should be the kind of phrase likely to appear in a journal article TITLE or ABSTRACT",
+    "ALWAYS combine specific + philosophical — never a bare concrete keyword, never a bare abstract term"
+  ]
+}
+
+CRITICAL RULES:
+1. The "queries" must ALWAYS pair a concrete essay keyword with its philosophical/academic framing. BAD: "Fibonacci sequence". GOOD: "mathematical Platonism Fibonacci sequence unreasonable effectiveness nature".
+2. The "queries" must cover EVERY distinct section/argument of the essay, not just the first.
+3. The "must_engage_with" field is the ground truth for filtering — a source that doesn't engage with at least ONE of these is OFF-TOPIC, even if it shares a keyword.
+4. Discipline matters: if the essay is about philosophy of mathematics, queries should be phrased to surface PHILOSOPHY papers, not pure math papers. Add "philosophy" or "epistemology" to queries when appropriate.
+5. If a named philosopher/theorist is mentioned, include them by name in a query.
+
+Return ONLY the raw JSON object, no explanation, no markdown.`;
+
+            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            console.log('[Search] Topic analysis raw:', response.substring(0, 200));
+
+            // Extract JSON object (not array — use { ... } match)
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('No JSON object in response');
+
+            const brief = JSON.parse(jsonMatch[0]);
+
+            // Validate required fields
+            if (!brief.queries || !Array.isArray(brief.queries) || brief.queries.length === 0) {
+                throw new Error('Missing queries array');
+            }
+            if (!brief.must_engage_with || !Array.isArray(brief.must_engage_with)) {
+                brief.must_engage_with = [];
+            }
+
+            // Sanitize queries
+            brief.queries = brief.queries
+                .filter(q => typeof q === 'string' && q.trim().split(/\s+/).length >= 3)
+                .map(q => q.trim().substring(0, 150))
+                .slice(0, 8);
+
+            if (brief.queries.length === 0) throw new Error('No valid queries after cleaning');
+
+            return brief;
+
+        } catch (e) {
+            console.error('[Search] _analyzeTopic failed:', e.message);
+            return null;  // falls back to old query extraction
+        }
+    },
+
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 3a: OpenAlex search (unchanged — real academic papers)
+    // ════════════════════════════════════════════════════════════════════
     async _searchOpenAlex(queries) {
         const allResults = [];
 
@@ -126,7 +200,7 @@ export const GoogleSearchAPI = {
                         year: work.publication_year,
                         venue: work.primary_location?.source?.display_name || '',
                         source: 'openalex',
-                        _score: 10  // heavy boost — these are real academic papers
+                        _score: 10
                     });
                 }
             } catch (e) {
@@ -137,7 +211,6 @@ export const GoogleSearchAPI = {
         return allResults;
     },
 
-    // OpenAlex returns abstracts as inverted indexes — reconstruct to plain text.
     _reconstructAbstract(invertedIndex) {
         if (!invertedIndex || typeof invertedIndex !== 'object') return '';
         const positions = [];
@@ -151,10 +224,9 @@ export const GoogleSearchAPI = {
             .substring(0, 400);
     },
 
-    // ─── Improved SearXNG search ────────────────────────────────────────
-    // Now requests JSON via &format=json — far more reliable than HTML scraping.
-    // Falls back to HTML parsing if the instance refuses JSON.
-    // ────────────────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 3b: SearXNG search (unchanged — JSON-first, HTML fallback)
+    // ════════════════════════════════════════════════════════════════════
     async _searchSearx(query) {
         const shuffled = [...SEARX_INSTANCES].sort(() => Math.random() - 0.5);
 
@@ -190,7 +262,6 @@ export const GoogleSearchAPI = {
                         return results;
                     }
                 } else {
-                    // HTML fallback
                     const html = await res.text();
                     const results = this._parseResults(html);
                     if (results.length > 0) {
@@ -207,103 +278,58 @@ export const GoogleSearchAPI = {
         return [];
     },
 
-    // ─── Improved Groq query extraction ─────────────────────────────────
-    // The prompt now explicitly bans generic words ("impact", "importance",
-    // "education" alone) and requires 2-4 SPECIFIC topical keywords per query.
-    // ────────────────────────────────────────────────────────────────────
-    async _extractClaimQueries(text, groqKey) {
-        try {
-            const prompt = `You are helping find ACADEMIC sources for a student essay.
-
-ESSAY TEXT (first 1500 chars):
-"${text.substring(0, 1500)}"
-
-TASK: Return a JSON array of 5-7 search queries that will surface peer-reviewed academic papers, scholarly articles, or .edu/.gov sources relevant to the SPECIFIC claims in this essay.
-
-CRITICAL RULES:
-1. Each query must target a SPECIFIC claim, theory, statistic, or named entity in the essay — NOT the general topic.
-2. NEVER use these generic words as the primary term: impact, importance, role, effect, benefit, study, research, education, learning, development, growth, personal, societal, economic.
-3. Each query must combine 2-4 SPECIFIC topical keywords that would appear in academic paper titles.
-4. Cover EVERY distinct section or argument in the essay — not just the first one.
-5. If a researcher, theorist, or study is named, include their name.
-6. Prefer queries likely to surface journal articles, NOT dictionaries or commercial sites.
-
-GOOD EXAMPLES (for an essay on education):
-- "education critical thinking skills academic achievement"
-- "higher education lifetime earnings poverty reduction"
-- "civic engagement voter turnout education level"
-- "education crime recidivism reduction study"
-- "gender equality access education developing countries"
-- "lifelong learning adult education economic outcomes"
-- "education workforce productivity innovation national growth"
-
-BAD EXAMPLES (do NOT do this):
-- "impact of education" (too generic, returns brand sites)
-- "importance of education" (returns opinion blogs)
-- "education research" (returns anything)
-
-Return ONLY a raw JSON array, no explanation, no markdown:
-["query one", "query two", "query three"]`;
-
-            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
-            console.log('[Search] Groq raw response:', response);
-
-            const jsonMatch = response.match(/\[[\s\S]*?\]/);
-            if (!jsonMatch) throw new Error('No JSON array in response');
-
-            const queries = JSON.parse(jsonMatch[0]);
-            if (!Array.isArray(queries) || queries.length === 0) throw new Error('Empty array');
-
-            // Filter out queries that are too generic (only contain GENERIC_WORDS)
-            const cleaned = queries
-                .filter(q => typeof q === 'string' && q.trim().split(/\s+/).length >= 3)
-                .map(q => q.trim().substring(0, 120))
-                .filter(q => {
-                    const words = q.toLowerCase().split(/\s+/);
-                    const specificWords = words.filter(w => !GENERIC_WORDS.has(w));
-                    return specificWords.length >= 2;  // require at least 2 specific words
-                });
-
-            if (cleaned.length === 0) throw new Error('All queries too generic');
-            console.log('[Search] Extracted queries:', cleaned);
-            return cleaned;
-
-        } catch (e) {
-            console.error('[Search] _extractClaimQueries failed:', e.message);
-            return [this._buildFallbackQuery(text)];
-        }
-    },
-
-    // ─── Improved relevance filter ──────────────────────────────────────
-    // Now explicitly tells Groq to reject dictionaries, brand sites,
-    // social media, and "results that only share a keyword with the topic."
-    // ────────────────────────────────────────────────────────────────────
-    async _filterByRelevance(results, originalText, groqKey) {
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 4: RELEVANCE FILTER (now uses the brief as ground truth)
+    // Key change: instead of "is this relevant to the topic?", we now ask
+    // "does this paper ENGAGE WITH the central question — or merely
+    // mention a keyword?" The brief's must_engage_with list is the
+    // pass/fail criterion.
+    // ════════════════════════════════════════════════════════════════════
+    async _filterByRelevance(results, originalText, groqKey, brief) {
         if (!groqKey || results.length === 0) return results;
 
         try {
             const summaries = results.map((r, i) =>
-                `${i}: "${r.title}" — ${(r.snippet || '').substring(0, 200)}`
+                `${i}: "${r.title}" — ${(r.snippet || '').substring(0, 250)}`
             ).join('\n');
+
+            // Build context from the brief if available
+            const briefContext = brief ? `
+GROUND TRUTH (from topic analysis):
+- Central question: ${brief.central_question || '(unspecified)'}
+- Discipline: ${brief.discipline || '(unspecified)'}
+- Philosophical positions engaged: ${JSON.stringify(brief.philosophical_positions || [])}
+- A source is RELEVANT only if it engages with at least ONE of: ${JSON.stringify(brief.must_engage_with || [])}
+
+PASS CRITERION: The source must actually ARGUE about or ANALYZE the central question (or one of the philosophical positions), NOT merely mention a keyword that also appears in the essay.
+
+EXAMPLE OF WHAT TO REJECT:
+- Essay argues "is math invented or discovered?"
+- Source: "Fibonacci scaling in k-Cullen sequences" → REJECT (pure math, doesn't engage with invention/discovery)
+- Source: "Jungian synchronicity and Fibonacci" → REJECT (psychology, doesn't engage with philosophy of math)
+- Source: "Mathematical Platonism and the unreasonable effectiveness of mathematics" → ACCEPT
+` : `
+ESSAY TOPIC SUMMARY (first 800 chars):
+"${originalText.substring(0, 800)}"
+`;
 
             const prompt = `You are filtering search results for an academic essay.
 
-ESSAY TOPIC SUMMARY (first 800 chars):
-"${originalText.substring(0, 800)}"
+${briefContext}
 
 SEARCH RESULTS:
 ${summaries}
 
-TASK: Return ONLY the index numbers of results that satisfy BOTH criteria:
-1. ACADEMIC NATURE — peer-reviewed paper, journal article, scholarly book chapter, .edu page, .gov report, or a reputable research organization (e.g., OECD, World Bank, Brookings).
-2. DIRECT RELEVANCE — directly about a specific claim in the essay, not just sharing a keyword.
+TASK: Return ONLY the index numbers of results that:
+1. Are ACADEMIC in nature (peer-reviewed paper, journal article, scholarly book chapter, .edu page, .gov report, reputable research org)
+2. DIRECTLY ENGAGE with the essay's central question or one of its philosophical positions — NOT merely share a keyword
 
 STRICTLY EXCLUDE:
-- Dictionary or thesaurus entries (e.g., "impact definition", "meaning of...")
-- Commercial / brand websites whose name happens to match a keyword (e.g., impact.com for an essay about "impact of education")
-- Social media, forums, Q&A sites, blog posts without scholarly attribution
-- TV networks, marketing platforms, insurance sites, etc.
-- Results that only share a word with the essay topic but aren't about the same subject
+- Pure-math / pure-science papers that use a keyword from the essay but don't discuss its philosophical implications
+- Psychology, sociology, linguistics papers that share a keyword but aren't about the essay's actual question
+- Dictionary / thesaurus / encyclopedia entries
+- Commercial sites, brand websites, TV networks
+- Blog posts, forum threads, social media
 
 Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
 
@@ -318,7 +344,6 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                 .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
                 .map(i => results[i]);
 
-            // Safety: if Groq filtered everything out, return originals
             return filtered.length > 0 ? filtered : results;
 
         } catch (e) {
@@ -327,13 +352,9 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
         }
     },
 
-    // ─── Improved filter + score + dedup ────────────────────────────────
-    // Adds:
-    //   - URL pattern bans for /dictionary/ and /definition/
-    //   - Title-similarity dedup (kills multiple "impact definition" results)
-    //   - Stronger scoring: +5 for PREFERRED_DOMAINS, +4 for DOI links
-    //   - Penalty for titles containing "definition", "meaning", "what is"
-    // ────────────────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // Filter + score + dedup (unchanged from v2)
+    // ════════════════════════════════════════════════════════════════════
     _filterAndScore(results) {
         const seenUrls = new Set();
         const seenTitles = new Set();
@@ -347,16 +368,12 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                 const lowerTitle = r.title.toLowerCase();
 
                 if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
-
-                // Ban dictionary entries by URL pattern
                 if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
 
                 try {
                     const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
                     if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
 
-                    // Title-based dedup (first 60 chars, normalized) — kills
-                    // near-duplicate "impact definition" results from multiple sites
                     const normalizedTitle = lowerTitle.substring(0, 60).trim();
                     if (seenTitles.has(normalizedTitle)) return false;
                     seenTitles.add(normalizedTitle);
@@ -364,8 +381,6 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                     if (seenUrls.has(lowerUrl)) return false;
                     seenUrls.add(lowerUrl);
 
-                    // For non-academic domains, allow only 1 result per domain
-                    // (academic domains like sciencedirect may legitimately have many)
                     const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
                                        domain.endsWith('.edu') || domain.endsWith('.gov');
                     if (!isAcademic) {
@@ -386,9 +401,7 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                     if (domain.includes('blog')) score -= 3;
                     if (r.title.length < 15) score -= 2;
                     if (r.snippet && r.snippet.length > 100) score += 1;
-                    // Penalize dictionary-style titles even if they slip through URL filter
                     if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
-                    // Bonus for results with author metadata (OpenAlex)
                     if (r.authors) score += 2;
                 } catch {}
                 return { ...r, _score: score };
@@ -397,12 +410,9 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
             .slice(0, 15);
     },
 
-    // ─── REWRITTEN fallback query builder ───────────────────────────────
-    // OLD: extracted Capitalized Words → grabbed section headers like "Impact"
-    //      and "Personal Growth" → returned dictionary/brand sites.
-    // NEW: extracts lowercase content words (4+ chars), filters out
-    //      GENERIC_WORDS, joins 4 most-specific words + "academic study".
-    // ────────────────────────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════
+    // Fallback query builder (used only if topic analysis fails)
+    // ════════════════════════════════════════════════════════════════════
     _buildFallbackQuery(text) {
         const stopWords = new Set([
             'the','a','an','is','are','was','were','be','been','being','have','has','had',
@@ -423,7 +433,9 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
         return (meaningful.join(' ') || 'education research') + ' academic study';
     },
 
-    // ─── HTML parser (fallback only — kept for SearXNG instances that refuse JSON)
+    // ════════════════════════════════════════════════════════════════════
+    // HTML parser (SearXNG fallback)
+    // ════════════════════════════════════════════════════════════════════
     _parseResults(html) {
         const results = [];
 
