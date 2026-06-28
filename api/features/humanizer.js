@@ -219,12 +219,84 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. API HANDLER
+// 6. GROQ SANITY CHECKER MODULE (NEW)
+// ==========================================================================
+
+/**
+ * Uses Groq (Llama 3) to semantically scan for stubborn AI patterns and 
+ * return JSON fixes. This replaces fragile regex post-processing.
+ * @param {string} text - The humanized text to check.
+ * @param {string} groqKey - Groq API Key.
+ * @returns {Promise<{text: string, fixes: array}>} The cleaned text and applied fixes.
+ */
+async function groqSanityCheck(text, groqKey) {
+    const prompt = `You are a strict post-processing engine. Analyze the provided text for any lingering AI artifacts. 
+
+Find and fix these specific issues:
+1. Em dashes (— or -) or semicolons (;).
+2. Lists of three items (e.g., "A, B, and C"). Reduce them to two items or split into two sentences.
+3. "Not X. It is not Y. It is Z." repetitive negation structures.
+4. Cliché AI phrases ("fabric of the universe", "dynamic interplay", "vast horizon").
+5. "Isn't X, it's Y" sentence structures.
+
+Return a JSON object with a key "fixes" containing an array of objects. Each object must have "target" (the exact problematic sentence) and "replacement" (the fixed sentence). 
+If there are no issues, return {"fixes": []}.
+
+TEXT TO ANALYZE:
+ ${text}
+
+JSON OUTPUT:`;
+
+    try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${groqKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'llama3-8b-8192', // Fast and capable for this task
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.2, // Low temp for deterministic output
+                response_format: { type: 'json_object' } // Force JSON
+            })
+        });
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        const parsed = JSON.parse(content);
+
+        let cleanText = text;
+        const appliedFixes = [];
+
+        // Apply the fixes safely
+        if (parsed.fixes && parsed.fixes.length > 0) {
+            for (const fix of parsed.fixes) {
+                // Escape regex characters in the target string for safe replacement
+                const escapedTarget = fix.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const regex = new RegExp(escapedTarget, 'gi');
+                
+                if (regex.test(cleanText)) {
+                    cleanText = cleanText.replace(regex, fix.replacement);
+                    appliedFixes.push(fix);
+                }
+            }
+        }
+
+        return { text: cleanText, fixes: appliedFixes };
+    } catch (error) {
+        console.error('Groq Sanity Check Failed:', error);
+        return { text, fixes: [] }; // Fail gracefully, return original text
+    }
+}
+
+// ==========================================================================
+// 7. API HANDLER (UPDATED)
 // ==========================================================================
 
 /**
  * Main API Route Handler
- * Orchestrates the humanization process: Pre-processing -> Chunking -> LLM -> Post-processing.
+ * Orchestrates: Pre-processing -> Chunking -> Gemini -> Post-processing -> Groq Sanity Check
  */
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -236,8 +308,9 @@ export default async function handler(req, res) {
     const logs = [];
 
     try {
-        const { text, apiKey } = req.body;
+        const { text, apiKey, groqApiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
+        const GROQ_KEY = groqApiKey || process.env.GROQ_API_KEY;
 
         if (!text) throw new Error("No text provided.");
         if (!GEMINI_KEY) throw new Error("No Gemini API key provided.");
@@ -248,33 +321,42 @@ export default async function handler(req, res) {
         let processed = applyWordSwaps(text);
         logs.push('Applied banned word replacements');
 
-        // Step 2: Split into chunks (Efficiency improvement)
+        // Step 2: Split into chunks
         const chunks = splitIntoChunks(processed, 4);
-        logs.push(`Split into ${chunks.length} chunks (4 sentences each)`);
+        logs.push(`Split into ${chunks.length} chunks`);
 
-        // Safe temperature: High enough for variety, low enough to prevent hallucination
-        const temperature = 0.7 + Math.random() * 0.3; // 0.7 to 1.0
+        const temperature = 0.7 + Math.random() * 0.3;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Humanize chunks sequentially to avoid rate limits
+        // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
-        
         for (let i = 0; i < chunks.length; i++) {
             try {
                 const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message}), using original`);
-                humanizedChunks.push(chunks[i]); // Fallback to pre-processed original on failure
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED, using original`);
+                humanizedChunks.push(chunks[i]);
             }
         }
 
-        // Step 4: Rejoin and post-process
+        // Step 4: Rejoin and initial regex post-process
         let result = humanizedChunks.join(' ');
         result = postProcess(result);
+        logs.push('Applied regex post-processing');
 
-        // Step 5: Final word swap pass (catches any new banned words generated by LLM)
+        // Step 5: Groq Semantic Sanity Check
+        if (GROQ_KEY) {
+            logs.push('Starting Groq sanity check...');
+            const groqResult = await groqSanityCheck(result, GROQ_KEY);
+            result = groqResult.text;
+            logs.push(`Groq applied ${groqResult.fixes.length} semantic fixes.`);
+        } else {
+            logs.push('Skipped Groq sanity check (no API key provided).');
+        }
+
+        // Step 6: Final word swap pass
         result = applyWordSwaps(result);
 
         logs.push(`Final: ${result.length} chars`);
@@ -286,6 +368,8 @@ export default async function handler(req, res) {
         return res.status(500).json({ success: false, error: error.message, logs });
     }
 }
+
+
 
 // Exporting modules for testing and external use
 export { 
