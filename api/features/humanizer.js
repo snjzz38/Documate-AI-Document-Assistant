@@ -115,15 +115,15 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. BURSTINESS IS MANDATORY: Drastically vary sentence lengths. Mix very short, direct sentences with longer ones. Do not use a uniform, metronomic rhythm.
+2. BURSTINESS IS MANDATORY: Drastically vary sentence lengths. Mix very short, direct sentences with longer ones.
 3. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
 4. NEVER use semicolons (;) or em dashes (— or -).
 5. NEVER use ", which" relative clauses. Use separate sentences instead.
-6. NEVER use the "Not X. It is not Y. It is Z." sentence structure. Do not use repeated negations to make a point.
-7. BANNED WORDS/PHRASES: "regarding", "represents", "abstract cognitive tools", "artificial logic exercise", "societal organization", "persist outside the mind", "limitless sequence", "dynamic interplay", "fabric of the universe".
-8. Do NOT write like a textbook or an encyclopedia. Write like a human expert explaining a concept clearly and directly. 
-9. Do NOT use formulaic transitions like "Some scholars argue", "This perspective suggests", or "A combination of these perspectives". Just state the idea directly.
-10. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
+6. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+7. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
+8. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
+9. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
+10. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
 11. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
 Output ONLY the rewritten text:`;
@@ -291,7 +291,7 @@ JSON OUTPUT:`;
 }
 
 // ==========================================================================
-// 7. API HANDLER (UPDATED)
+// 7. API HANDLER (UPDATED WITH METRICS)
 // ==========================================================================
 
 /**
@@ -306,6 +306,13 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const logs = [];
+    const startTime = Date.now();
+    
+    // Metrics tracking
+    let geminiCalls = 0;
+    let groqCalls = 0;
+    let geminiFailures = 0;
+    let groqFixesApplied = 0;
 
     try {
         const { text, apiKey, groqApiKey } = req.body;
@@ -334,8 +341,10 @@ export default async function handler(req, res) {
             try {
                 const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
+                geminiCalls++; // Track success
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
+                geminiFailures++; // Track failure
                 logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED, using original`);
                 humanizedChunks.push(chunks[i]);
             }
@@ -351,7 +360,9 @@ export default async function handler(req, res) {
             logs.push('Starting Groq sanity check...');
             const groqResult = await groqSanityCheck(result, GROQ_KEY);
             result = groqResult.text;
-            logs.push(`Groq applied ${groqResult.fixes.length} semantic fixes.`);
+            groqCalls++; // Track call
+            groqFixesApplied = groqResult.fixes.length;
+            logs.push(`Groq applied ${groqFixesApplied} semantic fixes.`);
         } else {
             logs.push('Skipped Groq sanity check (no API key provided).');
         }
@@ -359,13 +370,48 @@ export default async function handler(req, res) {
         // Step 6: Final word swap pass
         result = applyWordSwaps(result);
 
+        const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
-        return res.status(200).json({ success: true, result, logs });
+        // Construct the "humanizer" network result object
+        const humanizerNetworkResult = {
+            engine: "Gemini 1.5 Flash + Groq Llama 3",
+            executionTimeMs: totalTimeMs,
+            executionTimeSec: (totalTimeMs / 1000).toFixed(2),
+            inputChars: text.length,
+            outputChars: result.length,
+            chunksProcessed: chunks.length,
+            gemini: {
+                calls: geminiCalls,
+                failures: geminiFailures
+            },
+            groq: {
+                calls: groqCalls,
+                fixesApplied: groqFixesApplied
+            }
+        };
+
+        return res.status(200).json({ 
+            success: true, 
+            result, 
+            logs,
+            humanizer: humanizerNetworkResult 
+        });
 
     } catch (error) {
+        const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
-        return res.status(500).json({ success: false, error: error.message, logs });
+        
+        return res.status(500).json({ 
+            success: false, 
+            error: error.message, 
+            logs,
+            humanizer: {
+                executionTimeMs: totalTimeMs,
+                gemini: { calls: geminiCalls, failures: geminiFailures },
+                groq: { calls: groqCalls, fixesApplied: 0 }
+            }
+        });
     }
 }
 
