@@ -219,84 +219,69 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ SANITY CHECKER MODULE (NEW)
+// 6. GROQ FLOW ENHANCER MODULE (Replaces Sanity Checker)
 // ==========================================================================
 
+import { GroqAPI } from '../_utils/groqAPI.js';
+
 /**
- * Uses Groq (Llama 3) to semantically scan for stubborn AI patterns and 
- * return JSON fixes. This replaces fragile regex post-processing.
+ * Uses Groq to fix staccato, disconnected sentences by designing natural 
+ * transitions and improving overall flow. Returns a JSON object with the full text.
+ * 
  * @param {string} text - The humanized text to check.
  * @param {string} groqKey - Groq API Key.
- * @returns {Promise<{text: string, fixes: array}>} The cleaned text and applied fixes.
+ * @returns {Promise<{text: string, success: boolean}>} The cleaned text.
  */
-async function groqSanityCheck(text, groqKey) {
-    const prompt = `You are a strict post-processing engine. Analyze the provided text for any lingering AI artifacts. 
+async function groqFlowEnhancement(text, groqKey) {
+    const prompt = `You are an expert editor. The following text is too staccato and consists of too many short, disconnected sentences. Your job is to rewrite it to improve flow, combining sentences naturally and adding smooth transitions between ideas.
 
-Find and fix these specific issues:
-1. Em dashes (— or -) or semicolons (;).
-2. Lists of three items (e.g., "A, B, and C"). Reduce them to two items or split into two sentences.
-3. "Not X. It is not Y. It is Z." repetitive negation structures.
-4. Cliché AI phrases ("fabric of the universe", "dynamic interplay", "vast horizon").
-5. "Isn't X, it's Y" sentence structures.
+STRICT RULES:
+1. Keep the exact same meaning and academic tone. Do not add new facts.
+2. Vary sentence length (burstiness), but connect ideas logically so it doesn't read like a list of facts.
+3. NEVER use em dashes (— or -), semicolons (;), or lists of three items (A, B, and C).
+4. NEVER use "Not X. It is not Y. It is Z." repetitive negation structures.
+5. NEVER use cliché AI phrases ("fabric of the universe", "dynamic interplay", "vast horizon").
+6. NEVER use words: "regarding", "represents", "utilize", "facilitate".
+7. NEVER use formulaic transitions like "Furthermore", "Moreover", "Additionally", or "In conclusion". Use natural conversational/academic flow instead.
 
-Return a JSON object with a key "fixes" containing an array of objects. Each object must have "target" (the exact problematic sentence) and "replacement" (the fixed sentence). 
-If there are no issues, return {"fixes": []}.
+Return a JSON object with the key "rewritten_text" containing the fully edited text.
 
-TEXT TO ANALYZE:
+TEXT TO EDIT:
  ${text}
 
 JSON OUTPUT:`;
 
+    const messages = [{ role: 'user', content: prompt }];
+
     try {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${groqKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: 'llama3-8b-8192', // Fast and capable for this task
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.2, // Low temp for deterministic output
-                response_format: { type: 'json_object' } // Force JSON
-            })
-        });
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        const parsed = JSON.parse(content);
-
-        let cleanText = text;
-        const appliedFixes = [];
-
-        // Apply the fixes safely
-        if (parsed.fixes && parsed.fixes.length > 0) {
-            for (const fix of parsed.fixes) {
-                // Escape regex characters in the target string for safe replacement
-                const escapedTarget = fix.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(escapedTarget, 'gi');
-                
-                if (regex.test(cleanText)) {
-                    cleanText = cleanText.replace(regex, fix.replacement);
-                    appliedFixes.push(fix);
-                }
-            }
+        // Use your shared utility, forcing JSON mode
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        
+        // Safely parse JSON
+        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        
+        if (parsed.rewritten_text) {
+            return { text: parsed.rewritten_text, success: true };
         }
-
-        return { text: cleanText, fixes: appliedFixes };
+        return { text, success: false }; // Fail gracefully
+        
     } catch (error) {
-        console.error('Groq Sanity Check Failed:', error);
-        return { text, fixes: [] }; // Fail gracefully, return original text
+        console.error('Groq Flow Enhancement Failed:', error);
+        return { text, success: false }; // Fail gracefully, return original text
     }
 }
 
+
 // ==========================================================================
-// 7. API HANDLER (UPDATED WITH METRICS)
+// 7. API HANDLER (UPDATED WITH MODEL USAGE METRICS)
 // ==========================================================================
+
+import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
 
 /**
  * Main API Route Handler
- * Orchestrates: Pre-processing -> Chunking -> Gemini -> Post-processing -> Groq Sanity Check
+ * Orchestrates: Pre-processing -> Chunking -> Gemini -> Post-processing -> Groq Flow Enhancement
  */
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -308,11 +293,9 @@ export default async function handler(req, res) {
     const logs = [];
     const startTime = Date.now();
     
-    // Metrics tracking
-    let geminiCalls = 0;
-    let groqCalls = 0;
-    let geminiFailures = 0;
-    let groqFixesApplied = 0;
+    // Reset model usage trackers for this specific invocation
+    resetGeminiUsage();
+    resetGroqModelUsage();
 
     try {
         const { text, apiKey, groqApiKey } = req.body;
@@ -341,10 +324,8 @@ export default async function handler(req, res) {
             try {
                 const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
-                geminiCalls++; // Track success
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                geminiFailures++; // Track failure
                 logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED, using original`);
                 humanizedChunks.push(chunks[i]);
             }
@@ -355,16 +336,16 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq Semantic Sanity Check
+        // Step 5: Groq Flow Enhancement (Fixes staccato sentences)
+        let groqSuccess = false;
         if (GROQ_KEY) {
-            logs.push('Starting Groq sanity check...');
-            const groqResult = await groqSanityCheck(result, GROQ_KEY);
+            logs.push('Starting Groq flow enhancement...');
+            const groqResult = await groqFlowEnhancement(result, GROQ_KEY);
             result = groqResult.text;
-            groqCalls++; // Track call
-            groqFixesApplied = groqResult.fixes.length;
-            logs.push(`Groq applied ${groqFixesApplied} semantic fixes.`);
+            groqSuccess = groqResult.success;
+            logs.push(`Groq flow enhancement success: ${groqSuccess}`);
         } else {
-            logs.push('Skipped Groq sanity check (no API key provided).');
+            logs.push('Skipped Groq flow enhancement (no API key provided).');
         }
 
         // Step 6: Final word swap pass
@@ -373,21 +354,29 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
+        // Gather actual model usage from the utility files
+        const geminiUsage = getGeminiUsage();
+        const groqUsage = getGroqModelUsage();
+
+        // Calculate total calls
+        const geminiTotalCalls = Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0);
+        const groqTotalCalls = Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0);
+
         // Construct the "humanizer" network result object
         const humanizerNetworkResult = {
-            engine: "Gemini 1.5 Flash + Groq Llama 3",
             executionTimeMs: totalTimeMs,
             executionTimeSec: (totalTimeMs / 1000).toFixed(2),
             inputChars: text.length,
             outputChars: result.length,
             chunksProcessed: chunks.length,
             gemini: {
-                calls: geminiCalls,
-                failures: geminiFailures
+                totalCalls: geminiTotalCalls,
+                modelsUsed: geminiUsage // Returns object like { 'gemini-2.5-flash': { success: 5, failed: 0 } }
             },
             groq: {
-                calls: groqCalls,
-                fixesApplied: groqFixesApplied
+                totalCalls: groqTotalCalls,
+                modelsUsed: groqUsage,
+                flowEnhancementApplied: groqSuccess
             }
         };
 
@@ -402,14 +391,24 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
         
+        // Still try to gather usage data even if it crashed
+        const geminiUsage = getGeminiUsage() || {};
+        const groqUsage = getGroqModelUsage() || {};
+        
         return res.status(500).json({ 
             success: false, 
             error: error.message, 
             logs,
             humanizer: {
                 executionTimeMs: totalTimeMs,
-                gemini: { calls: geminiCalls, failures: geminiFailures },
-                groq: { calls: groqCalls, fixesApplied: 0 }
+                gemini: {
+                    totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                    modelsUsed: geminiUsage
+                },
+                groq: {
+                    totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                    modelsUsed: groqUsage
+                }
             }
         });
     }
