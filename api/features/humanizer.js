@@ -102,8 +102,22 @@ function applyWordSwaps(text) {
 }
 
 /**
- * Safely applies a JSON map of { "before": "after" } to a text string.
- * Uses flexible whitespace regex to handle minor formatting differences.
+ * Safely parses a string into a JSON object.
+ */
+function parseGroqJson(content) {
+    try {
+        // Strip markdown code blocks if the model added them
+        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
+        return JSON.parse(cleanJson);
+    } catch (error) {
+        console.error('Failed to parse Groq JSON:', error, '\nRaw:', content);
+        return {}; // Fail gracefully to empty object
+    }
+}
+
+/**
+ * Applies a JSON map of { "before": "after" } to a text string.
+ * Replaces ONLY the first instance of a perfect match (with flexible whitespace).
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
@@ -111,9 +125,11 @@ function applyJsonReplacements(text, jsonMap) {
 
     for (const [before, after] of Object.entries(jsonMap)) {
         if (!before || !after) continue;
-        // Escape regex special characters, and allow flexible whitespace
+        
+        // Escape regex special characters, but allow flexible whitespace \s+ between words
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-        const regex = new RegExp(escaped, 'gi');
+        // No 'g' flag ensures it ONLY replaces the FIRST match
+        const regex = new RegExp(escaped, 'i');
         result = result.replace(regex, after);
     }
     return result;
@@ -135,16 +151,15 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. BURSTINESS IS MANDATORY: Drastically vary sentence lengths. Mix very short, direct sentences with longer ones.
+2. FLOW NATURALLY: Do not write in short, staccato, disconnected sentences. Connect related ideas naturally so the text flows. Vary sentence length, but do not shatter the paragraph into tiny fragments.
 3. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
 4. NEVER use semicolons (;) or em dashes (— or -).
-5. NEVER use ", which" relative clauses. Use separate sentences instead.
-6. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-7. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
-8. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
-9. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
-10. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
-11. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
+5. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+6. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
+7. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
+8. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
+9. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
+10. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
 Output ONLY the rewritten text:`;
 }
@@ -205,7 +220,7 @@ const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, roboti
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: em dashes (—), semicolons (;), participial phrases at the end of sentences (e.g., '..., making it...'), 'not only... but also', and 'isn't X, it's Y' structures. Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences without the banned conventions. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
 /**
  * Calls Groq with a specific instruction set and parses JSON safely.
@@ -216,8 +231,9 @@ async function groqChat(text, groqKey, instructions) {
 
     try {
         const content = await GroqAPI.chat(messages, groqKey, true);
-        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
-        return JSON.parse(cleanJson);
+        // Turn string-based object into actual JSON object
+        const parsedObject = parseGroqJson(content);
+        return parsedObject;
     } catch (error) {
         console.error('Groq Stage Failed:', error);
         return {}; // Fail gracefully
