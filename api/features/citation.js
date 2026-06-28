@@ -367,6 +367,9 @@ FORMAT:
                 error: 'No search results. The search service may be temporarily unavailable.',
                 sources: [],
                 text: ''
+                citations: results,
+                stats: results.stats,
+                count: results.length
             });
         }
         
