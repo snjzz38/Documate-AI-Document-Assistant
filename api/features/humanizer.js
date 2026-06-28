@@ -26,13 +26,19 @@
 5. POST-PROCESSING MODULE
    - postProcess(): Light, safe cleanup of punctuation (Em-dash banning).
    
-6. API HANDLER
+6. GROQ FLOW ENHANCER MODULE
+   - groqFlowEnhancement(): Uses Groq to fix staccato flow and add transitions.
+   
+7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
 // ==========================================================================
 */
 
-import { GeminiAPI } from '../_utils/geminiAPI.js';
-import { resetGroqModelUsage } from '../_utils/groqAPI.js';
+// ==========================================================================
+// IMPORTS (Always at the top)
+// ==========================================================================
+import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
+import { GroqAPI, getGroqModelUsage, resetGroqModelUsage } from '../_utils/groqAPI.js';
 
 // ==========================================================================
 // 1. CONFIGURATION & CONSTANTS
@@ -131,7 +137,6 @@ Output ONLY the rewritten text:`;
 }
 
 
-
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
@@ -220,10 +225,8 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ FLOW ENHANCER MODULE (Replaces Sanity Checker)
+// 6. GROQ FLOW ENHANCER MODULE
 // ==========================================================================
-
-import { GroqAPI } from '../_utils/groqAPI.js';
 
 /**
  * Uses Groq to fix staccato, disconnected sentences by designing natural 
@@ -275,10 +278,8 @@ JSON OUTPUT:`;
 
 
 // ==========================================================================
-// 7. API HANDLER (UPDATED WITH MODEL USAGE METRICS)
+// 7. API HANDLER
 // ==========================================================================
-
-import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
 
 /**
  * Main API Route Handler
@@ -414,7 +415,6 @@ export default async function handler(req, res) {
         });
     }
 }
-
 
 
 // Exporting modules for testing and external use
