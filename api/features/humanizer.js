@@ -162,25 +162,27 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items joined by "and"). If you need more commas, you MUST split the sentence into two separate sentences.
-3. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-4. COMPARISONS: When comparing two subjects or parallel ideas across two short sentences, combine them using ", while" or ", whereas" (e.g., "A mathematician uncovers facts, while an explorer finds an island.").
+2. ABSOLUTE BAN ON ", WHICH": NEVER use the word "which" preceded by a comma (e.g., DO NOT write "tools, which people use"). Break these into separate sentences or use "and".
+3. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items). If you need more commas, split the sentence into two.
+4. PARTICIPIAL PHRASES: NEVER use ", [verb]ing" (e.g., DO NOT write "perspectives, acting as a bridge"). You MUST use "and [verb]" instead (e.g., "perspectives and acts as a bridge").
 5. NO REDUNDANCY: Do not repeat the same premise or concept in consecutive sentences. State an idea once and move on.
-6. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or the main subject of the text. Vary your sentence openers.
-7. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
-8. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
-9. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
-10. NEVER use "Both X and Y" structures. Just say "X and Y".
-11. NEVER use semicolons (;) or em dashes (— or -).
-12. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-13. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
-14. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
+6. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection"). Keep descriptions literal and factual.
+7. COMPARISONS: When comparing two subjects across two short sentences, combine them using ", while" or ", whereas".
+8. NEVER start consecutive sentences with the same word. Vary your sentence openers.
+9. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). 
+10. NEVER use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+11. NEVER use "Both X and Y" structures. Just say "X and Y".
+12. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+13. NEVER use semicolons (;) or em dashes (— or -).
+14. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+15. NEVER use imperative pivots ("Consider the...", "Think of a..."). State the information directly.
+16. Do NOT use formulaic transitions ("Others maintain that", "This perspective suggests"). State the idea directly.
 
-VOCABULARY STYLE GUIDE (Apply these moderately for a natural, human tone):
+VOCABULARY STYLE GUIDE:
 - Replace "serving as" or "functioning as" with "acting as" or "used as".
-- Replace formal words with common equivalents (e.g., "emerged" -> "came about", "utilize" -> "use", "demonstrates" -> "shows").
-- NEVER use dramatic adjectives. BANNED: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable".
-- NEVER repeat metaphors. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
+- Replace formal words with common equivalents ("emerged" -> "came about", "utilize" -> "use").
+- NEVER use dramatic adjectives ("startling", "profound", "vast").
+- NEVER repeat metaphors ("acts as a bridge", "fabric of the universe", "dynamic interplay").
 
 Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
@@ -243,13 +245,19 @@ function postProcess(text) {
         });
     }
 
+    // ===========================================
+    // FIX GROQ REPLACEMENT ARTIFACTS
+    // ===========================================
+    // Fix double periods caused by overlapping replacements (e.g., ".." or "...")
+    result = result.replace(/\.{2,}/g, '.');
+    // Fix double commas
+    result = result.replace(/,{2,}/g, ',');
     // Fix accidental double words (e.g., "the the", "and and")
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
-
     // Fix accidental double transitions (e.g., "Also, the arrangement of X also...")
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
 
-    // Fix "a" vs "an" grammar errors caused by replacements
+    // Fix "a" vs "an" grammar errors
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
 
@@ -272,28 +280,28 @@ function postProcess(text) {
 // 6. GROQ 4-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents", "serving as", "functioning as"). 
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents", "serving as"). 
 Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
-Examples of good replacements: "emerged" -> "came about", "serving as" -> "acting as", "demonstrates" -> "shows". 
+Examples of good replacements: "emerged" -> "came about", "serving as" -> "acting as". 
 Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. "With [noun] [verb]ing" constructions (e.g., "with mathematics acting as...").
-3. Participial phrases at the end of sentences (e.g., '..., making it...', '..., revealing...').
-4. 'Not only... but also' and 'isn't X, it's Y' structures.
-5. Run-on sentences with nested relative clauses (e.g., 'X, which is Y, a concept that does Z').
-6. "Both X and Y" structures.
-7. COMMA CHAINS: Any sentence containing more than one comma (excluding a simple two-item list). Break these into separate, shorter sentences.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences broken into smaller, direct sentences without the banned conventions. If none, return {}.`;
+2. ", which" relative clauses (e.g., "tools, which people use"). 
+3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]" (e.g., "perspectives and acts as...").
+4. "With [noun] [verb]ing" constructions.
+5. 'Not only... but also' and 'isn't X, it's Y' structures.
+6. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
-1. If you find two short sentences comparing two subjects or parallel ideas, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential and share a subject (e.g., "X does Y. This means Z."), combine them using a natural transition word (e.g., "X does Y, which means Z.").
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
+2. If you find two separated sentences that are logically sequential, combine them using "and" or a natural transition.
+CRITICAL RULE: NEVER use ", which" to combine sentences. 
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It", or "Mathematics"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
