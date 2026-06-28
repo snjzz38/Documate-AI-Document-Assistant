@@ -115,13 +115,16 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. NEVER use lists of three items (e.g., "A, B, and C"). This is a dead giveaway for AI. If listing things, use only two items joined by "and", or split the items into separate sentences.
-3. NEVER use semicolons (;) or em dashes (— or -).
-4. NEVER use ", which" relative clauses. Use separate sentences instead.
-5. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
-6. Use contractions naturally (e.g., it's, don't) ONLY if the original text uses them or if the tone is casual. If the tone is strictly formal, do not force contractions.
-7. Vary sentence structure: mix short punchy sentences with longer ones. Do not make every sentence the same length.
-8. NEVER use "isn't X, it's Y" or "not just X, but Y" constructions.
+2. BURSTINESS IS MANDATORY: You must drastically vary sentence lengths. Mix very short, direct sentences (3-5 words) with longer, complex ones. Do not make every sentence the same length or rhythm.
+3. NEVER use lists of three items (e.g., "A, B, and C"). If listing things, use only two items joined by "and", or split the items into separate sentences.
+4. NEVER use semicolons (;) or em dashes (— or -).
+5. NEVER use ", which" relative clauses. Use separate sentences instead.
+6. NEVER use cliché AI metaphors or dramatic imagery. BANNED PHRASES: "fabric of the universe", "uncharted terrain", "vast horizon", "dynamic interplay", "tapestry", "navigating", "landscape". 
+7. NEVER use formulaic transitions such as: "The most compelling evidence...", "Arguments identifying...", "The most effective way to reconcile...", or "This holds true". Just state the point directly.
+8. DO NOT start consecutive sentences with the same word (e.g., do not start three sentences with "This" or "It").
+9. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
+10. NEVER use "isn't X, it's Y" or "not just X, but Y" constructions.
+11. Use contractions naturally ONLY if the original text uses them or if the tone is casual. 
 
 Output ONLY the rewritten text:`;
 }
@@ -151,9 +154,20 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 // 5. POST-PROCESSING MODULE
 // ==========================================================================
 
+// Dictionary of dramatic AI metaphors to flatten into literal language
+const AI_METAPHOR_SWAPS = {
+    "fabric of the universe": "structure of reality",
+    "uncharted terrain": "new areas",
+    "vast horizon of": "many",
+    "dynamic interplay": "interaction",
+    "woven into": "part of",
+    "navigating the": "exploring the",
+    "tapestry of": "structure of"
+};
+
 /**
  * Performs light, safe cleanup on the final combined text.
- * Acts as a safety net for em-dashes and formatting.
+ * Acts as a safety net for em-dashes, metaphors, and formatting.
  * @param {string} text - The fully humanized text.
  * @returns {string} Cleaned text.
  */
@@ -169,9 +183,15 @@ function postProcess(text) {
     // Replaces em-dashes (—), en-dashes (–), and double hyphens (--) with commas
     // ===========================================
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    
-    // Fix any accidental double commas created by the dash replacement
     result = result.replace(/,\s*,/g, ',');
+
+    // ===========================================
+    // AI METAPHOR SWAPS (Safety Net)
+    // ===========================================
+    for (const [bad, good] of Object.entries(AI_METAPHOR_SWAPS)) {
+        const regex = new RegExp(bad, 'gi');
+        result = result.replace(regex, good);
+    }
 
     // Fix missing space after comma/period (basic formatting)
     result = result.replace(/,([a-zA-Z])/g, ', $1');
