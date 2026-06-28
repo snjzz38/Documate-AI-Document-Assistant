@@ -115,19 +115,20 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. BURSTINESS IS MANDATORY: You must drastically vary sentence lengths. Mix very short, direct sentences (3-5 words) with longer, complex ones. Do not make every sentence the same length or rhythm.
-3. NEVER use lists of three items (e.g., "A, B, and C"). If listing things, use only two items joined by "and", or split the items into separate sentences.
+2. BURSTINESS IS MANDATORY: Drastically vary sentence lengths. Mix very short, direct sentences with longer ones. Do not use a uniform, metronomic rhythm.
+3. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
 4. NEVER use semicolons (;) or em dashes (— or -).
 5. NEVER use ", which" relative clauses. Use separate sentences instead.
-6. NEVER use cliché AI metaphors or dramatic imagery. BANNED PHRASES: "fabric of the universe", "uncharted terrain", "vast horizon", "dynamic interplay", "tapestry", "navigating", "landscape". 
-7. NEVER use formulaic transitions such as: "The most compelling evidence...", "Arguments identifying...", "The most effective way to reconcile...", or "This holds true". Just state the point directly.
-8. DO NOT start consecutive sentences with the same word (e.g., do not start three sentences with "This" or "It").
-9. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
-10. NEVER use "isn't X, it's Y" or "not just X, but Y" constructions.
-11. Use contractions naturally ONLY if the original text uses them or if the tone is casual. 
+6. NEVER use the "Not X. It is not Y. It is Z." sentence structure. Do not use repeated negations to make a point.
+7. BANNED WORDS/PHRASES: "regarding", "represents", "abstract cognitive tools", "artificial logic exercise", "societal organization", "persist outside the mind", "limitless sequence", "dynamic interplay", "fabric of the universe".
+8. Do NOT write like a textbook or an encyclopedia. Write like a human expert explaining a concept clearly and directly. 
+9. Do NOT use formulaic transitions like "Some scholars argue", "This perspective suggests", or "A combination of these perspectives". Just state the idea directly.
+10. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
+11. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
 Output ONLY the rewritten text:`;
 }
+
 
 
 // ==========================================================================
@@ -154,20 +155,23 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 // 5. POST-PROCESSING MODULE
 // ==========================================================================
 
-// Dictionary of dramatic AI metaphors to flatten into literal language
-const AI_METAPHOR_SWAPS = {
-    "fabric of the universe": "structure of reality",
-    "uncharted terrain": "new areas",
-    "vast horizon of": "many",
-    "dynamic interplay": "interaction",
-    "woven into": "part of",
-    "navigating the": "exploring the",
-    "tapestry of": "structure of"
+// Dictionary of sterile AI words to flatten into natural language
+const AI_STERILE_SWAPS = {
+    "regarding": "about",
+    "represents a": "is a",
+    "represents an": "is an",
+    "represents the": "is the",
+    "represents": "is",
+    "abstract cognitive tools": "mental tools",
+    "artificial logic exercise": "logic exercise",
+    "societal organization": "organizing society",
+    "limitless sequence": "endless sequence",
+    "persist outside the mind": "exist outside the mind"
 };
 
 /**
  * Performs light, safe cleanup on the final combined text.
- * Acts as a safety net for em-dashes, metaphors, and formatting.
+ * Acts as a safety net for em-dashes, sterile vocabulary, and formatting.
  * @param {string} text - The fully humanized text.
  * @returns {string} Cleaned text.
  */
@@ -180,17 +184,21 @@ function postProcess(text) {
 
     // ===========================================
     // STRICT EM-DASH BANNING
-    // Replaces em-dashes (—), en-dashes (–), and double hyphens (--) with commas
     // ===========================================
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
     result = result.replace(/,\s*,/g, ',');
 
     // ===========================================
-    // AI METAPHOR SWAPS (Safety Net)
+    // STERILE VOCABULARY SWAPS (Safety Net)
     // ===========================================
-    for (const [bad, good] of Object.entries(AI_METAPHOR_SWAPS)) {
-        const regex = new RegExp(bad, 'gi');
-        result = result.replace(regex, good);
+    for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
+        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (match[0] === match[0].toUpperCase()) {
+                return good.charAt(0).toUpperCase() + good.slice(1);
+            }
+            return good;
+        });
     }
 
     // Fix missing space after comma/period (basic formatting)
