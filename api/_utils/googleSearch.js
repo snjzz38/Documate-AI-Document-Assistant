@@ -75,6 +75,8 @@ export const GoogleSearchAPI = {
         const queries = brief
             ? brief.queries
             : [this._buildFallbackQuery(query)];
+        const exactTitleQueries = (brief?.known_seminal_works || []).map(w => `"${w}"`);
+        const allQueries = [...queries, ...exactTitleQueries];
         console.log('[Search] Queries:', queries);
 
         // ── Stage 3 ──────────────────────────────────────────────────────
@@ -128,6 +130,10 @@ Return a JSON object with EXACTLY these fields:
     "3-5 specific phrases (NOT single keywords) that a TRULY relevant source MUST discuss",
     "A source engaging with NONE of these phrases is off-topic",
     "BAD: 'invention vs discovery', 'mathematical Platonism'. GOOD: 'mathematics as invention or discovery', 'mathematical Platonism realism', 'unreasonable effectiveness of mathematics'"
+  ],
+  "known_seminal_works": [
+  "If the essay mentions a distinctive phrase that is the title of a famous academic work (e.g., 'unreasonable effectiveness', 'structure of scientific revolutions'), list that exact title here.",
+  "These will be used for exact-match searches to find the original source."
   ],
   "queries": [
     "5-7 search queries that are NATURAL PHRASES of 4-8 words each",
@@ -464,6 +470,7 @@ For these common ambiguity traps, apply the following logic:
 - "realism": ACCEPT if paired with mathematics, Platonism, ontology. REJECT if paired with art, literature, politics.
 - "formalism": ACCEPT if paired with mathematics, logic, Hilbert. REJECT if paired with art, literature, law.
 - "intuitionism": ACCEPT if paired with mathematics, Brouwer. REJECT if paired with psychology, ethics.
+PHRASE-ECHO RULE: If a famous phrase from the essay is used as a metaphor or play-on-words in a different discipline (e.g., "unreasonable fairness" in Computer Science, "unreasonable ineffectiveness" in Economics), REJECT it. Only accept sources that discuss the phrase in its ORIGINAL context and discipline.
 
 CONCRETE EXAMPLES OF WHAT TO REJECT (based on past failures for similar topics):
 - "Student-centred learning: constructivism in the mathematics classroom" → REJECT (pedagogy, not philosophy)
