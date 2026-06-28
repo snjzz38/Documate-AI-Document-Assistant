@@ -1,6 +1,8 @@
 // api/utils/googleSearch.js
 import { GroqAPI } from './groqAPI.js';
 
+// SearXNG instance list — searx.be removed (frequently rate-limits / 403s).
+// Order roughly by reliability based on observed stats.
 const SEARX_INSTANCES = [
     'https://searx.oloke.xyz',
     'https://searxng.website',
@@ -163,8 +165,8 @@ export const GoogleSearchAPI = {
             stages: {
                 topicAnalysis: { calls: 0, failures: 0, ms: 0, ok: false },
                 parallelSearch: { startedAt: null, finishedAt: null, ms: 0 },
-                openalex: { calls: 0, failures: 0, ms: 0, resultsReturned: 0 },
-                searxng:   { calls: 0, failures: 0, ms: 0, resultsReturned: 0, instancesTried: 0 },
+                openalex: { calls: 0, failures: 0, emptyResults: 0, ms: 0, resultsReturned: 0 },
+                searxng:   { calls: 0, failures: 0, emptyResults: 0, ms: 0, resultsReturned: 0, instancesTried: 0 },
                 filter:    { calls: 0, failures: 0, ms: 0, ok: false }
             },
             results: {
@@ -339,6 +341,13 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                         _score: 10
                     });
                 }
+                // Distinguish "HTTP 200 + valid JSON but zero results"
+                // from a real failure (timeout, 4xx, network error, etc.).
+                // An empty result is not a failure — it just means OpenAlex
+                // had no papers matching that query.
+                if ((data.results || []).length === 0) {
+                    stage.emptyResults += 1;
+                }
                 stage.resultsReturned += (data.results || []).length;
             } catch (e) {
                 stage.ms += Date.now() - start;
@@ -348,7 +357,7 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
         }));
 
         return allResults;
-    },
+    }
 
     _reconstructAbstract(invertedIndex) {
         if (!invertedIndex || typeof invertedIndex !== 'object') return '';
@@ -407,6 +416,12 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                         console.log('[Search] SearXNG JSON:', results.length, 'from', instance);
                         return results;
                     }
+                    // HTTP 200 + valid JSON, but zero usable results.
+                    // NOT a failure — the instance is healthy, it just had
+                    // nothing for this query. Track separately so the stats
+                    // tell us "instance works" vs "instance is broken."
+                    stage.emptyResults += 1;
+                    console.log('[Search] SearXNG empty (200 OK):', instance);
                 } else {
                     const html = await res.text();
                     const results = this._parseResults(html);
@@ -415,6 +430,8 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                         console.log('[Search] SearXNG HTML:', results.length, 'from', instance);
                         return results;
                     }
+                    stage.emptyResults += 1;
+                    console.log('[Search] SearXNG HTML empty (200 OK):', instance);
                 }
             } catch (e) {
                 stage.failures += 1;
