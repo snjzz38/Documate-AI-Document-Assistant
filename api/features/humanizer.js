@@ -162,15 +162,15 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-3. COMPARISONS: When comparing two subjects or parallel ideas across two short sentences, combine them using ", while" or ", whereas" (e.g., "A mathematician uncovers facts, while an explorer finds an island.").
-4. NO REDUNDANCY: Do not repeat the same premise or concept within the chunk. State an idea once and move on.
-5. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or the main subject of the text. Vary your sentence openers.
-6. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
-7. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
-8. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
-9. NEVER use "Both X and Y" structures. Just say "X and Y".
-10. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+2. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items joined by "and"). If you need more commas, you MUST split the sentence into two separate sentences.
+3. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
+4. COMPARISONS: When comparing two subjects or parallel ideas across two short sentences, combine them using ", while" or ", whereas" (e.g., "A mathematician uncovers facts, while an explorer finds an island.").
+5. NO REDUNDANCY: Do not repeat the same premise or concept in consecutive sentences. State an idea once and move on.
+6. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or the main subject of the text. Vary your sentence openers.
+7. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
+8. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
+9. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
+10. NEVER use "Both X and Y" structures. Just say "X and Y".
 11. NEVER use semicolons (;) or em dashes (— or -).
 12. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
 13. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
@@ -284,11 +284,14 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 4. 'Not only... but also' and 'isn't X, it's Y' structures.
 5. Run-on sentences with nested relative clauses (e.g., 'X, which is Y, a concept that does Z').
 6. "Both X and Y" structures.
+7. COMMA CHAINS: Any sentence containing more than one comma (excluding a simple two-item list). Break these into separate, shorter sentences.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences broken into smaller, direct sentences without the banned conventions. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. 
-SPECIFICALLY: If you find two short sentences comparing two subjects or parallel ideas, combine them using ", while" or ", whereas". 
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences. 
+SPECIFIC INSTRUCTIONS:
+1. If you find two short sentences comparing two subjects or parallel ideas, combine them using ", while" or ", whereas".
+2. If you find two separated sentences that are logically sequential and share a subject (e.g., "X does Y. This means Z."), combine them using a natural transition word (e.g., "X does Y, which means Z.").
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It", or "Mathematics"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
 
@@ -321,7 +324,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s3);
     fixes.stage3 = Object.keys(s3).length;
 
-    // Stage 4: Repetitive sentence starters
     const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
