@@ -3,7 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies safe post-processing.
+// phrasing via strict prompt engineering, and applies safe 3-stage post-processing.
 // ==========================================================================
 
 /* 
@@ -16,6 +16,7 @@
 2. TEXT UTILITIES MODULE
    - splitIntoChunks(): Safely splits text into sentence groups.
    - applyWordSwaps(): Case-preserving replacement of banned words.
+   - applyJsonReplacements(): Safely applies JSON before/after maps to text.
    
 3. PROMPT ENGINEERING MODULE
    - buildChunkPrompt(): Constructs the LLM prompt with strict humanizing rules.
@@ -23,11 +24,13 @@
 4. LLM SERVICE MODULE
    - humanizeChunk(): Handles the API call to Gemini with safe temperature.
    
-5. POST-PROCESSING MODULE
+5. REGEX POST-PROCESSING MODULE
    - postProcess(): Light, safe cleanup of punctuation (Em-dash banning).
    
-6. GROQ FLOW ENHANCER MODULE
-   - groqFlowEnhancement(): Uses Groq to fix staccato flow and add transitions.
+6. GROQ 3-STAGE SANITY CHECKER MODULE
+   - Stage 1: Vocabulary context fixes.
+   - Stage 2: Syntactic AI tells (em dashes, participial phrases, etc.).
+   - Stage 3: Staccato flow and transition fixes.
    
 7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -69,12 +72,8 @@ const AI_VOCAB_SWAPS = {
 
 /**
  * Splits text into chunks of sentences without breaking on common abbreviations.
- * @param {string} text - The input text.
- * @param {number} sentencesPerChunk - How many sentences to group per API call.
- * @returns {string[]} Array of text chunks.
  */
 function splitIntoChunks(text, sentencesPerChunk = 4) {
-    // Matches sentence endings, ignoring common abbreviations like Mr., Dr., U.S.
     const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$|\n)/g;
     const sentences = text.match(sentenceRegex) || [text];
     
@@ -87,8 +86,6 @@ function splitIntoChunks(text, sentencesPerChunk = 4) {
 
 /**
  * Replaces banned AI words while preserving the original capitalization.
- * @param {string} text - The text to process.
- * @returns {string} Processed text.
  */
 function applyWordSwaps(text) {
     let result = text;
@@ -104,6 +101,24 @@ function applyWordSwaps(text) {
     return result;
 }
 
+/**
+ * Safely applies a JSON map of { "before": "after" } to a text string.
+ * Uses flexible whitespace regex to handle minor formatting differences.
+ */
+function applyJsonReplacements(text, jsonMap) {
+    let result = text;
+    if (!jsonMap || typeof jsonMap !== 'object') return result;
+
+    for (const [before, after] of Object.entries(jsonMap)) {
+        if (!before || !after) continue;
+        // Escape regex special characters, and allow flexible whitespace
+        const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+        const regex = new RegExp(escaped, 'gi');
+        result = result.replace(regex, after);
+    }
+    return result;
+}
+
 
 // ==========================================================================
 // 3. PROMPT ENGINEERING MODULE
@@ -111,8 +126,6 @@ function applyWordSwaps(text) {
 
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
- * @param {string} chunk - The text chunk to rewrite.
- * @returns {string} The formatted prompt.
  */
 function buildChunkPrompt(chunk) {
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
@@ -143,43 +156,20 @@ Output ONLY the rewritten text:`;
 
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
- * @param {string} chunk - The text chunk.
- * @param {string} apiKey - The Gemini API key.
- * @param {number} temperature - LLM temperature.
- * @returns {Promise<string>} Humanized chunk.
  */
 async function humanizeChunk(chunk, apiKey, temperature) {
     const prompt = buildChunkPrompt(chunk);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
-    
-    // Clean up potential quotes or formatting LLM might add
     return raw.trim().replace(/^["']|["']$/g, '');
 }
 
 
 // ==========================================================================
-// 5. POST-PROCESSING MODULE
+// 5. REGEX POST-PROCESSING MODULE
 // ==========================================================================
-
-// Dictionary of sterile AI words to flatten into natural language
-const AI_STERILE_SWAPS = {
-    "regarding": "about",
-    "represents a": "is a",
-    "represents an": "is an",
-    "represents the": "is the",
-    "represents": "is",
-    "abstract cognitive tools": "mental tools",
-    "artificial logic exercise": "logic exercise",
-    "societal organization": "organizing society",
-    "limitless sequence": "endless sequence",
-    "persist outside the mind": "exist outside the mind"
-};
 
 /**
  * Performs light, safe cleanup on the final combined text.
- * Acts as a safety net for em-dashes, sterile vocabulary, and formatting.
- * @param {string} text - The fully humanized text.
- * @returns {string} Cleaned text.
  */
 function postProcess(text) {
     let result = text;
@@ -188,26 +178,11 @@ function postProcess(text) {
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
 
-    // ===========================================
     // STRICT EM-DASH BANNING
-    // ===========================================
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
     result = result.replace(/,\s*,/g, ',');
 
-    // ===========================================
-    // STERILE VOCABULARY SWAPS (Safety Net)
-    // ===========================================
-    for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
-        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
-        result = result.replace(regex, (match) => {
-            if (match[0] === match[0].toUpperCase()) {
-                return good.charAt(0).toUpperCase() + good.slice(1);
-            }
-            return good;
-        });
-    }
-
-    // Fix missing space after comma/period (basic formatting)
+    // Fix missing space after comma/period
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
 
@@ -216,8 +191,6 @@ function postProcess(text) {
 
     // Capitalize first letter of every sentence
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
-    
-    // Ensure very first letter is capitalized
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
 
     return result.trim();
@@ -225,55 +198,55 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ FLOW ENHANCER MODULE
+// 6. GROQ 3-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents"). Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
+
+const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: em dashes (—), semicolons (;), participial phrases at the end of sentences (e.g., '..., making it...'), 'not only... but also', and 'isn't X, it's Y' structures. Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences without the banned conventions. If none, return {}.`;
+
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+
 /**
- * Uses Groq to fix staccato, disconnected sentences by designing natural 
- * transitions and improving overall flow. Returns a JSON object with the full text.
- * 
- * @param {string} text - The humanized text to check.
- * @param {string} groqKey - Groq API Key.
- * @returns {Promise<{text: string, success: boolean}>} The cleaned text.
+ * Calls Groq with a specific instruction set and parses JSON safely.
  */
-async function groqFlowEnhancement(text, groqKey) {
-    const prompt = `You are an expert editor. The following text is too staccato and consists of too many short, disconnected sentences. Your job is to rewrite it to improve flow, combining sentences naturally and adding smooth transitions between ideas.
-
-STRICT RULES:
-1. Keep the exact same meaning and academic tone. Do not add new facts.
-2. Vary sentence length (burstiness), but connect ideas logically so it doesn't read like a list of facts.
-3. NEVER use em dashes (— or -), semicolons (;), or lists of three items (A, B, and C).
-4. NEVER use "Not X. It is not Y. It is Z." repetitive negation structures.
-5. NEVER use cliché AI phrases ("fabric of the universe", "dynamic interplay", "vast horizon").
-6. NEVER use words: "regarding", "represents", "utilize", "facilitate".
-7. NEVER use formulaic transitions like "Furthermore", "Moreover", "Additionally", or "In conclusion". Use natural conversational/academic flow instead.
-
-Return a JSON object with the key "rewritten_text" containing the fully edited text.
-
-TEXT TO EDIT:
- ${text}
-
-JSON OUTPUT:`;
-
+async function groqChat(text, groqKey, instructions) {
+    const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-        // Use your shared utility, forcing JSON mode
         const content = await GroqAPI.chat(messages, groqKey, true);
-        
-        // Safely parse JSON
         const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
-        const parsed = JSON.parse(cleanJson);
-        
-        if (parsed.rewritten_text) {
-            return { text: parsed.rewritten_text, success: true };
-        }
-        return { text, success: false }; // Fail gracefully
-        
+        return JSON.parse(cleanJson);
     } catch (error) {
-        console.error('Groq Flow Enhancement Failed:', error);
-        return { text, success: false }; // Fail gracefully, return original text
+        console.error('Groq Stage Failed:', error);
+        return {}; // Fail gracefully
     }
+}
+
+/**
+ * Runs the 3-stage Groq pipeline sequentially.
+ */
+async function runGroqStages(text, groqKey) {
+    let currentText = text;
+    const fixes = { stage1: 0, stage2: 0, stage3: 0 };
+
+    // Stage 1: Vocabulary context fixes
+    const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
+    currentText = applyJsonReplacements(currentText, s1);
+    fixes.stage1 = Object.keys(s1).length;
+
+    // Stage 2: Syntactic AI tells
+    const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
+    currentText = applyJsonReplacements(currentText, s2);
+    fixes.stage2 = Object.keys(s2).length;
+
+    // Stage 3: Staccato flow and transitions
+    const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
+    currentText = applyJsonReplacements(currentText, s3);
+    fixes.stage3 = Object.keys(s3).length;
+
+    return { text: currentText, fixes };
 }
 
 
@@ -283,7 +256,6 @@ JSON OUTPUT:`;
 
 /**
  * Main API Route Handler
- * Orchestrates: Pre-processing -> Chunking -> Gemini -> Post-processing -> Groq Flow Enhancement
  */
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -338,16 +310,18 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq Flow Enhancement (Fixes staccato sentences)
-        let groqSuccess = false;
+        // Step 5: Groq 3-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq flow enhancement...');
-            const groqResult = await groqFlowEnhancement(result, GROQ_KEY);
+            logs.push('Starting Groq 3-stage post-processing...');
+            const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
-            groqSuccess = groqResult.success;
-            logs.push(`Groq flow enhancement success: ${groqSuccess}`);
+            groqFixes = groqResult.fixes;
+            logs.push(`Groq Stage 1 (Vocab) fixes: ${groqFixes.stage1}`);
+            logs.push(`Groq Stage 2 (Syntax) fixes: ${groqFixes.stage2}`);
+            logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
         } else {
-            logs.push('Skipped Groq flow enhancement (no API key provided).');
+            logs.push('Skipped Groq post-processing (no API key provided).');
         }
 
         // Step 6: Final word swap pass
@@ -360,9 +334,12 @@ export default async function handler(req, res) {
         const geminiUsage = getGeminiUsage();
         const groqUsage = getGroqModelUsage();
 
-        // Calculate total calls
-        const geminiTotalCalls = Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0);
-        const groqTotalCalls = Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0);
+        // Format model usage for UI display
+        const formatUsage = (usage) => {
+            return Object.entries(usage).map(([model, stats]) => 
+                `${model} (${stats.success} ok, ${stats.failed} fail)`
+            );
+        };
 
         // Construct the "humanizer" network result object
         const humanizerNetworkResult = {
@@ -372,13 +349,13 @@ export default async function handler(req, res) {
             outputChars: result.length,
             chunksProcessed: chunks.length,
             gemini: {
-                totalCalls: geminiTotalCalls,
-                modelsUsed: geminiUsage // Returns object like { 'gemini-2.5-flash': { success: 5, failed: 0 } }
+                totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                modelsUsed: formatUsage(geminiUsage)
             },
             groq: {
-                totalCalls: groqTotalCalls,
-                modelsUsed: groqUsage,
-                flowEnhancementApplied: groqSuccess
+                totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                modelsUsed: formatUsage(groqUsage),
+                fixesApplied: groqFixes
             }
         };
 
@@ -393,9 +370,9 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
         
-        // Still try to gather usage data even if it crashed
         const geminiUsage = getGeminiUsage() || {};
         const groqUsage = getGroqModelUsage() || {};
+        const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
         
         return res.status(500).json({ 
             success: false, 
@@ -405,17 +382,16 @@ export default async function handler(req, res) {
                 executionTimeMs: totalTimeMs,
                 gemini: {
                     totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                    modelsUsed: geminiUsage
+                    modelsUsed: formatUsage(geminiUsage)
                 },
                 groq: {
                     totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                    modelsUsed: groqUsage
+                    modelsUsed: formatUsage(groqUsage)
                 }
             }
         });
     }
 }
-
 
 // Exporting modules for testing and external use
 export { 
