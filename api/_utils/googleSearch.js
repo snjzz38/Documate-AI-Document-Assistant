@@ -53,10 +53,14 @@ export const GoogleSearchAPI = {
     //   4. Filter by relevance using the brief as ground truth
     // ════════════════════════════════════════════════════════════════════
     async search(query, apiKey, cx, groqKey = null) {
+        // ── Initialize network stats tracking ───────────────────────────
+        const stats = this._createStats();
+        stats.startedAt = Date.now();
+
         // ── Stage 1: Topic Analysis ──────────────────────────────────────
         let brief = null;
         if (groqKey) {
-            brief = await this._analyzeTopic(query, groqKey);
+            brief = await this._analyzeTopic(query, groqKey, stats);
             console.log('[Search] Topic brief:', JSON.stringify(brief, null, 2));
         }
 
@@ -64,26 +68,100 @@ export const GoogleSearchAPI = {
         const queries = brief
             ? brief.queries
             : [this._buildFallbackQuery(query)];
+        stats.queriesGenerated = queries.length;
         console.log('[Search] Generated queries:', queries);
 
         // ── Stage 3: Search OpenAlex + SearXNG in parallel ──────────────
+        stats.stages.parallelSearch.startedAt = Date.now();
         const [openAlexResults, searxResultArrays] = await Promise.all([
-            this._searchOpenAlex(queries),
-            Promise.all(queries.map(q => this._searchSearx(q)))
+            this._searchOpenAlex(queries, stats),
+            Promise.all(queries.map(q => this._searchSearx(q, stats)))
         ]);
         const searxResults = searxResultArrays.flat();
+        stats.stages.parallelSearch.finishedAt = Date.now();
+        stats.stages.parallelSearch.ms =
+            stats.stages.parallelSearch.finishedAt - stats.stages.parallelSearch.startedAt;
 
         const allResults = [...openAlexResults, ...searxResults];
+        stats.results.raw = allResults.length;
         console.log(`[Search] Raw: OpenAlex=${openAlexResults.length}, SearXNG=${searxResults.length}`);
 
         const filtered = this._filterAndScore(allResults);
+        stats.results.afterScoring = filtered.length;
         console.log('[Search] After scoring:', filtered.length);
 
         // ── Stage 4: Relevance filter (uses brief) ───────────────────────
-        const relevant = await this._filterByRelevance(filtered, query, groqKey, brief);
+        const relevant = await this._filterByRelevance(filtered, query, groqKey, brief, stats);
+        stats.results.afterFilter = relevant.length;
         console.log('[Search] After relevance filter:', relevant.length);
 
+        // ── Finalize stats ───────────────────────────────────────────────
+        stats.finishedAt = Date.now();
+        stats.elapsedMs = stats.finishedAt - stats.startedAt;
+        stats.totals.externalRequests =
+            stats.totals.groqCalls + stats.totals.httpRequests;
+        stats.totals.failedRequests =
+            stats.stages.topicAnalysis.failures +
+            stats.stages.openalex.failures +
+            stats.stages.searxng.failures +
+            stats.stages.filter.failures;
+        stats.totals.successRate =
+            stats.totals.externalRequests > 0
+                ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3)
+                : 1;
+
+        // Attach stats as a non-enumerable property on the results array
+        // so callers can do `results.stats` without it appearing in JSON.stringify
+        Object.defineProperty(relevant, 'stats', {
+            value: stats,
+            enumerable: false,
+            writable: false
+        });
+
         return relevant;
+    },
+
+    // ════════════════════════════════════════════════════════════════════
+    // NETWORK STATS — initialize a fresh stats object per search() call.
+    // Returned as `results.stats` so the UI can render efficiency metrics.
+    // ════════════════════════════════════════════════════════════════════
+    _createStats() {
+        return {
+            startedAt: null,
+            finishedAt: null,
+            elapsedMs: 0,
+            queriesGenerated: 0,
+            stages: {
+                topicAnalysis: { calls: 0, failures: 0, ms: 0, ok: false },
+                parallelSearch: { startedAt: null, finishedAt: null, ms: 0 },
+                openalex: { calls: 0, failures: 0, ms: 0, resultsReturned: 0 },
+                searxng:   { calls: 0, failures: 0, ms: 0, resultsReturned: 0, instancesTried: 0 },
+                filter:    { calls: 0, failures: 0, ms: 0, ok: false }
+            },
+            results: {
+                raw: 0,
+                afterScoring: 0,
+                afterFilter: 0
+            },
+            totals: {
+                externalRequests: 0,
+                groqCalls: 0,
+                httpRequests: 0,
+                failedRequests: 0,
+                successRate: 1
+            }
+        };
+    },
+
+    // Tiny timing helper — wraps an async fn and returns { result, ms }
+    async _time(fn) {
+        const start = Date.now();
+        try {
+            const result = await fn();
+            return { result, ms: Date.now() - start, ok: true };
+        } catch (e) {
+            return { result: null, ms: Date.now() - start, ok: false, error: e };
+        }
     },
 
     // ════════════════════════════════════════════════════════════════════
@@ -92,7 +170,11 @@ export const GoogleSearchAPI = {
     // "search brief" — the single source of truth used by both query
     // generation and the relevance filter.
     // ════════════════════════════════════════════════════════════════════
-    async _analyzeTopic(text, groqKey) {
+    async _analyzeTopic(text, groqKey, stats) {
+        const stage = stats.stages.topicAnalysis;
+        stage.calls += 1;
+        stats.totals.groqCalls += 1;
+        const start = Date.now();
         try {
             const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
 
@@ -146,6 +228,8 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
             if (!jsonMatch) throw new Error('No JSON object in response');
 
             const brief = JSON.parse(jsonMatch[0]);
+            stage.ms = Date.now() - start;
+            stage.ok = true;
 
             // Validate required fields
             if (!brief.queries || !Array.isArray(brief.queries) || brief.queries.length === 0) {
@@ -170,6 +254,8 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
             return brief;
 
         } catch (e) {
+            stage.ms = Date.now() - start;
+            stage.failures += 1;
             console.error('[Search] _analyzeTopic failed:', e.message);
             return null;  // falls back to old query extraction
         }
@@ -178,10 +264,14 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
     // ════════════════════════════════════════════════════════════════════
     // STAGE 3a: OpenAlex search (unchanged — real academic papers)
     // ════════════════════════════════════════════════════════════════════
-    async _searchOpenAlex(queries) {
+    async _searchOpenAlex(queries, stats) {
         const allResults = [];
+        const stage = stats.stages.openalex;
 
         await Promise.all(queries.map(async (query) => {
+            const start = Date.now();
+            stage.calls += 1;
+            stats.totals.httpRequests += 1;
             try {
                 const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=8&mailto=research@example.com`;
                 const controller = new AbortController();
@@ -195,6 +285,7 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
+                stage.ms += Date.now() - start;
 
                 for (const work of (data.results || [])) {
                     const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
@@ -219,7 +310,10 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                         _score: 10
                     });
                 }
+                stage.resultsReturned += (data.results || []).length;
             } catch (e) {
+                stage.ms += Date.now() - start;
+                stage.failures += 1;
                 console.error('[Search] OpenAlex failed for query:', query, e.message);
             }
         }));
@@ -243,10 +337,15 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
     // ════════════════════════════════════════════════════════════════════
     // STAGE 3b: SearXNG search (unchanged — JSON-first, HTML fallback)
     // ════════════════════════════════════════════════════════════════════
-    async _searchSearx(query) {
+    async _searchSearx(query, stats) {
+        const stage = stats.stages.searxng;
         const shuffled = [...SEARX_INSTANCES].sort(() => Math.random() - 0.5);
 
         for (const instance of shuffled.slice(0, 4)) {
+            const start = Date.now();
+            stage.calls += 1;
+            stage.instancesTried += 1;
+            stats.totals.httpRequests += 1;
             try {
                 const url = `${instance}/search?q=${encodeURIComponent(query)}&categories=general,science&language=en&format=json`;
                 const controller = new AbortController();
@@ -260,6 +359,7 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                     }
                 });
                 clearTimeout(timeout);
+                stage.ms += Date.now() - start;
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -274,6 +374,7 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                         }))
                         .filter(r => r.title && r.link);
                     if (results.length > 0) {
+                        stage.resultsReturned += results.length;
                         console.log('[Search] SearXNG JSON:', results.length, 'from', instance);
                         return results;
                     }
@@ -281,11 +382,13 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                     const html = await res.text();
                     const results = this._parseResults(html);
                     if (results.length > 0) {
+                        stage.resultsReturned += results.length;
                         console.log('[Search] SearXNG HTML:', results.length, 'from', instance);
                         return results;
                     }
                 }
             } catch (e) {
+                stage.failures += 1;
                 console.error('[Search] SearXNG instance failed:', instance, e.message);
             }
         }
@@ -301,8 +404,15 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
     // mention a keyword?" The brief's must_engage_with list is the
     // pass/fail criterion.
     // ════════════════════════════════════════════════════════════════════
-    async _filterByRelevance(results, originalText, groqKey, brief) {
-        if (!groqKey || results.length === 0) return results;
+    async _filterByRelevance(results, originalText, groqKey, brief, stats) {
+        const stage = stats ? stats.stages.filter : null;
+        if (stage) { stage.calls += 1; stats.totals.groqCalls += 1; }
+        const start = stats ? Date.now() : 0;
+
+        if (!groqKey || results.length === 0) {
+            if (stage) { stage.ms = Date.now() - start; stage.ok = true; }
+            return results;
+        }
 
         try {
             const summaries = results.map((r, i) =>
@@ -377,6 +487,7 @@ STRICTLY EXCLUDE:
 Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            if (stage) stage.ms = Date.now() - start;
             const jsonMatch = response.match(/\[[\s\S]*?\]/);
             if (!jsonMatch) throw new Error('No JSON array');
 
@@ -387,9 +498,11 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                 .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
                 .map(i => results[i]);
 
+            if (stage) stage.ok = true;
             return filtered.length > 0 ? filtered : results;
 
         } catch (e) {
+            if (stage) { stage.ms = Date.now() - start; stage.failures += 1; }
             console.error('[Search] Relevance filter failed:', e.message);
             return results;
         }
