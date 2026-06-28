@@ -62,7 +62,18 @@ const AI_VOCAB_SWAPS = {
     "consequently": "so", "nevertheless": "but", "therefore": "so",
     "thus": "so", "hence": "so", "whereby": "where",
     "crucial": "important", "essential": "needed", "significant": "major",
-    "substantial": "large", "numerous": "many", "prudent": "wise"
+    "substantial": "large", "numerous": "many", "prudent": "wise",
+    "objective discovery": "discovery", "objective discoveries": "discoveries",
+    "pre-existing truths": "existing facts", "pre-existing": "existing",
+    "predictability and effectiveness": "accuracy",
+    "abstract tools": "mental tools",
+    "social organization": "organizing society",
+    "constant interaction": "interaction",
+    "entirely separate existence": "independent reality",
+    "extensive set": "large number",
+    "supports the view": "argues",
+    "holds that": "claims",
+    "in turn": ""
 };
 
 
@@ -140,9 +151,6 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
-/**
- * Builds a highly constrained prompt for naturalizing a chunk of text.
- */
 function buildChunkPrompt(chunk) {
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
@@ -152,17 +160,18 @@ TEXT TO REWRITE:
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
 2. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-3. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
-4. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead (e.g., "This makes it important. It reveals the truth.").
-5. NEVER use "Both X and Y" structures. Just say "X and Y".
-6. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
-7. NEVER use semicolons (;) or em dashes (— or -).
-8. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-9. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
-10. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
-11. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
-12. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
-13. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
+3. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or "Mathematics". Vary your sentence openers.
+4. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
+5. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
+6. NEVER use "Both X and Y" structures. Just say "X and Y".
+7. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+8. NEVER use semicolons (;) or em dashes (— or -).
+9. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+10. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
+11. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
+12. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
+13. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
+14. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
 Output ONLY the rewritten text:`;
 }
@@ -186,9 +195,19 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 // 5. REGEX POST-PROCESSING MODULE
 // ==========================================================================
 
-/**
- * Performs light, safe cleanup on the final combined text.
- */
+const AI_STERILE_SWAPS = {
+    "regarding": "about",
+    "represents a": "is a",
+    "represents an": "is an",
+    "represents the": "is the",
+    "represents": "is",
+    "abstract cognitive tools": "mental tools",
+    "artificial logic exercise": "logic exercise",
+    "societal organization": "organizing society",
+    "limitless sequence": "endless sequence",
+    "persist outside the mind": "exist outside the mind"
+};
+
 function postProcess(text) {
     let result = text;
 
@@ -199,6 +218,24 @@ function postProcess(text) {
     // STRICT EM-DASH BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
     result = result.replace(/,\s*,/g, ',');
+
+    // STERILE VOCABULARY SWAPS
+    for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
+        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (match[0] === match[0].toUpperCase()) {
+                return good.charAt(0).toUpperCase() + good.slice(1);
+            }
+            return good;
+        });
+    }
+
+    // Fix accidental double words caused by replacements (e.g., "the the", "and and")
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
+
+    // Fix "a" vs "an" grammar errors caused by replacements
+    result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
+    result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
 
     // Fix missing space after comma/period
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -216,10 +253,10 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ 3-STAGE SANITY CHECKER MODULE
+// 6. GROQ 4-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents"). Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
@@ -231,45 +268,41 @@ Return a JSON object where keys are the EXACT sentences containing these errors,
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
-/**
- * Calls Groq with a specific instruction set and parses JSON safely.
- */
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It", or "Mathematics"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
+
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
 
     try {
         const content = await GroqAPI.chat(messages, groqKey, true);
-        // Turn string-based object into actual JSON object
-        const parsedObject = parseGroqJson(content);
-        return parsedObject;
+        return parseGroqJson(content);
     } catch (error) {
         console.error('Groq Stage Failed:', error);
-        return {}; // Fail gracefully
+        return {};
     }
 }
 
-/**
- * Runs the 3-stage Groq pipeline sequentially.
- */
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
 
-    // Stage 1: Vocabulary context fixes
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
     fixes.stage1 = Object.keys(s1).length;
 
-    // Stage 2: Syntactic AI tells (Now targeting run-ons and participial phrases)
     const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
     currentText = applyJsonReplacements(currentText, s2);
     fixes.stage2 = Object.keys(s2).length;
 
-    // Stage 3: Staccato flow and transitions
     const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
     currentText = applyJsonReplacements(currentText, s3);
     fixes.stage3 = Object.keys(s3).length;
+
+    // Stage 4: Repetitive sentence starters
+    const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
+    currentText = applyJsonReplacements(currentText, s4);
+    fixes.stage4 = Object.keys(s4).length;
 
     return { text: currentText, fixes };
 }
