@@ -151,6 +151,9 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
+/**
+ * Builds a highly constrained prompt for naturalizing a chunk of text.
+ */
 function buildChunkPrompt(chunk) {
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
@@ -162,16 +165,22 @@ STRICT RULES:
 2. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
 3. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or "Mathematics". Vary your sentence openers.
 4. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
-5. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
-6. NEVER use "Both X and Y" structures. Just say "X and Y".
-7. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
-8. NEVER use semicolons (;) or em dashes (— or -).
-9. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-10. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
-11. NEVER use dramatic or poetic adjectives. BANNED WORDS: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable". Use neutral, factual adjectives instead.
-12. NEVER repeat the same metaphor or analogy within the same chunk. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
-13. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
-14. Use contractions naturally ONLY if the original text uses them or if the tone is casual.
+5. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
+6. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
+7. NEVER use "Both X and Y" structures. Just say "X and Y".
+8. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+9. NEVER use semicolons (;) or em dashes (— or -).
+10. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+11. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
+12. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
+
+VOCABULARY STYLE GUIDE (Apply these moderately for a natural, human tone):
+- Replace "serving as" or "functioning as" with "acting as" or "used as".
+- Replace formal words with common equivalents (e.g., "emerged" -> "came about", "utilize" -> "use", "demonstrates" -> "shows").
+- NEVER use dramatic adjectives. BANNED: "startling", "profound", "vast", "limitless", "unparalleled", "remarkable".
+- NEVER repeat metaphors. BANNED CLICHÉS: "acts as a bridge", "fabric of the universe", "dynamic interplay", "vast landscape".
+
+Use contractions naturally ONLY if the original text uses them or if the tone is casual.
 
 Output ONLY the rewritten text:`;
 }
@@ -192,7 +201,7 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 
 
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE
+// 5. REGEX POST-PROCESSING MODULE (Safety Net)
 // ==========================================================================
 
 const AI_STERILE_SWAPS = {
@@ -205,7 +214,9 @@ const AI_STERILE_SWAPS = {
     "artificial logic exercise": "logic exercise",
     "societal organization": "organizing society",
     "limitless sequence": "endless sequence",
-    "persist outside the mind": "exist outside the mind"
+    "persist outside the mind": "exist outside the mind",
+    "serving as": "acting as",  // Added based on your request
+    "functioning as": "acting as" // Added based on your request
 };
 
 function postProcess(text) {
@@ -256,14 +267,18 @@ function postProcess(text) {
 // 6. GROQ 4-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents", "serving as", "functioning as"). 
+Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
+Examples of good replacements: "emerged" -> "came about", "serving as" -> "acting as", "demonstrates" -> "shows". 
+Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. Participial phrases at the end of sentences (e.g., '..., making it...', '..., revealing...').
-3. 'Not only... but also' and 'isn't X, it's Y' structures.
-4. Run-on sentences with nested relative clauses (e.g., 'X, which is Y, a concept that does Z').
-5. "Both X and Y" structures.
+2. "With [noun] [verb]ing" constructions (e.g., "with mathematics acting as...").
+3. Participial phrases at the end of sentences (e.g., '..., making it...', '..., revealing...').
+4. 'Not only... but also' and 'isn't X, it's Y' structures.
+5. Run-on sentences with nested relative clauses (e.g., 'X, which is Y, a concept that does Z').
+6. "Both X and Y" structures.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences broken into smaller, direct sentences without the banned conventions. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
