@@ -3,7 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via prompt engineering, and applies safe post-processing.
+// phrasing via strict prompt engineering, and applies safe post-processing.
 // ==========================================================================
 
 /* 
@@ -24,7 +24,7 @@
    - humanizeChunk(): Handles the API call to Gemini with safe temperature.
    
 5. POST-PROCESSING MODULE
-   - postProcess(): Light, safe cleanup of punctuation and formatting.
+   - postProcess(): Light, safe cleanup of punctuation (Em-dash banning).
    
 6. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -88,7 +88,6 @@ function applyWordSwaps(text) {
     for (const [bad, good] of Object.entries(AI_VOCAB_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
-            // Preserve capitalization
             if (match[0] === match[0].toUpperCase()) {
                 return good.charAt(0).toUpperCase() + good.slice(1);
             }
@@ -109,20 +108,20 @@ function applyWordSwaps(text) {
  * @returns {string} The formatted prompt.
  */
 function buildChunkPrompt(chunk) {
-    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning and academic tone, but make the phrasing natural and direct.
+    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. Keep the same meaning — do not add or remove facts.
-3. NEVER use "isn't X, it's Y" or "not just X, but Y" constructions.
-4. NEVER use semicolons (;) or em dashes (—).
-5. NEVER use ", which" relative clauses. Use separate sentences instead.
-6. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
-7. Use contractions naturally (e.g., it's, don't, we're, that's).
-8. Vary sentence structure: mix short punchy sentences with longer ones.
+2. NEVER use lists of three items (e.g., "A, B, and C"). This is a dead giveaway for AI. If listing things, use only two items joined by "and", or split the items into separate sentences.
+3. NEVER use semicolons (;) or em dashes (— or -).
+4. NEVER use ", which" relative clauses. Use separate sentences instead.
+5. NEVER use filler phrases like "essentially", "it should be noted", or "as a matter of course".
+6. Use contractions naturally (e.g., it's, don't) ONLY if the original text uses them or if the tone is casual. If the tone is strictly formal, do not force contractions.
+7. Vary sentence structure: mix short punchy sentences with longer ones. Do not make every sentence the same length.
+8. NEVER use "isn't X, it's Y" or "not just X, but Y" constructions.
 
 Output ONLY the rewritten text:`;
 }
@@ -154,7 +153,7 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 
 /**
  * Performs light, safe cleanup on the final combined text.
- * Removed complex structural regex in favor of LLM prompt constraints.
+ * Acts as a safety net for em-dashes and formatting.
  * @param {string} text - The fully humanized text.
  * @returns {string} Cleaned text.
  */
@@ -164,6 +163,15 @@ function postProcess(text) {
     // Normalize quotes/apostrophes
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
+
+    // ===========================================
+    // STRICT EM-DASH BANNING
+    // Replaces em-dashes (—), en-dashes (–), and double hyphens (--) with commas
+    // ===========================================
+    result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
+    
+    // Fix any accidental double commas created by the dash replacement
+    result = result.replace(/,\s*,/g, ',');
 
     // Fix missing space after comma/period (basic formatting)
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -220,8 +228,7 @@ export default async function handler(req, res) {
         const temperature = 0.7 + Math.random() * 0.3; // 0.7 to 1.0
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Humanize chunks sequentially or in small batches
-        // Sequential is safer for rate limits, but you can use Promise.all if you prefer speed
+        // Step 3: Humanize chunks sequentially to avoid rate limits
         const humanizedChunks = [];
         
         for (let i = 0; i < chunks.length; i++) {
