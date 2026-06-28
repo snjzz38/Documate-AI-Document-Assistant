@@ -32,6 +32,7 @@
 */
 
 import { GeminiAPI } from '../_utils/geminiAPI.js';
+import { resetGroqModelUsage } from '../_utils/groqAPI.js';
 
 // ==========================================================================
 // 1. CONFIGURATION & CONSTANTS
