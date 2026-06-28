@@ -16,20 +16,20 @@ const BANNED_DOMAINS = [
     'amazon', 'ebay', 'etsy', 'alibaba',
     'merriam-webster.com', 'dictionary.cambridge.org', 'wordreference',
     'thesaurus.com', 'vocabulary.com', 'definitions.net', 'urbandictionary',
+    'impact.com', 'watchimpact.com', 'impactmobile', 'impacttest.com',
     'wikipedia.org', 'britannica.com', 'wikihow.com', 'investopedia.com'
 ];
 
 const BANNED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.mp4', '.mp3', '.pdf.jpg'];
 
-const ACADEMIC_DOMAINS = [
+const PREFERRED_DOMAINS = [
     'edu', 'gov', 'pubmed', 'ncbi.nlm.nih.gov', 'jstor',
     'scholar.google', 'arxiv', 'nature.com', 'science.org',
     'springer', 'wiley', 'tandfonline', 'sagepub', 'oup.com',
     'cambridge.org/core', 'pnas.org', 'cell.com', 'bmj.com', 'thelancet.com',
     'doi.org', 'sciencedirect', 'frontiersin', 'mdpi.com',
-    'worldscientific', 'ssrn.com', 'acm.org', 'ieee.org', 'aps.org',
-    'iop.org', 'royalsocietypublishing.org', 'plato.stanford.edu',
-    'philpapers.org', 'oxfordacademic.com', 'eric.ed.gov'
+    'taylorfrancis.com', 'worldscientific', 'eric.ed.gov', 'ssrn.com',
+    'plato.stanford.edu'  // SEP — gold standard for philosophy
 ];
 
 const GENERIC_WORDS = new Set([
@@ -40,45 +40,58 @@ const GENERIC_WORDS = new Set([
     'education', 'learning', 'development', 'growth', 'progress',
     'personal', 'societal', 'social', 'economic', 'academic',
     'main', 'three', 'one', 'two', 'first', 'second', 'third',
-    'pillar', 'foundation', 'key', 'tool', 'thing', 'way', 'part',
-    'make', 'made', 'take', 'get', 'use', 'used', 'using',
-    'people', 'world', 'system', 'process', 'approach', 'method',
-    'also', 'even', 'well', 'much', 'many', 'often', 'still'
+    'pillar', 'foundation', 'key', 'tool'
 ]);
 
 export const GoogleSearchAPI = {
 
+    // ════════════════════════════════════════════════════════════════════
+    // MAIN ENTRY POINT — now uses a 4-stage pipeline:
+    //   1. Analyze topic → produce a structured "search brief"
+    //   2. Generate paired (concrete + abstract) queries from the brief
+    //   3. Search OpenAlex + SearXNG in parallel
+    //   4. Filter by relevance using the brief as ground truth
+    // ════════════════════════════════════════════════════════════════════
     async search(query, apiKey, cx, groqKey = null) {
+        // ── Stage 1: Topic Analysis ──────────────────────────────────────
         let brief = null;
         if (groqKey) {
             brief = await this._analyzeTopic(query, groqKey);
-            console.log('[Search] Brief:', JSON.stringify(brief, null, 2));
+            console.log('[Search] Topic brief:', JSON.stringify(brief, null, 2));
         }
 
-        // Use the API-specific search queries
+        // ── Stage 2: Query Generation (uses brief) ───────────────────────
         const queries = brief
-            ? brief.search_queries
+            ? brief.queries
             : [this._buildFallbackQuery(query)];
-        console.log('[Search] Queries:', queries);
+        console.log('[Search] Generated queries:', queries);
 
+        // ── Stage 3: Search OpenAlex + SearXNG in parallel ──────────────
         const [openAlexResults, searxResultArrays] = await Promise.all([
-            this._searchOpenAlex(queries, brief),
+            this._searchOpenAlex(queries),
             Promise.all(queries.map(q => this._searchSearx(q)))
         ]);
-        
         const searxResults = searxResultArrays.flat();
+
         const allResults = [...openAlexResults, ...searxResults];
         console.log(`[Search] Raw: OpenAlex=${openAlexResults.length}, SearXNG=${searxResults.length}`);
 
-        const filtered = this._filterAndScore(allResults, brief);
+        const filtered = this._filterAndScore(allResults);
         console.log('[Search] After scoring:', filtered.length);
 
+        // ── Stage 4: Relevance filter (uses brief) ───────────────────────
         const relevant = await this._filterByRelevance(filtered, query, groqKey, brief);
-        console.log('[Search] After relevance:', relevant.length);
+        console.log('[Search] After relevance filter:', relevant.length);
 
         return relevant;
     },
 
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 1: TOPIC ANALYSIS
+    // One Groq call that reads the whole essay and produces a structured
+    // "search brief" — the single source of truth used by both query
+    // generation and the relevance filter.
+    // ════════════════════════════════════════════════════════════════════
     async _analyzeTopic(text, groqKey) {
         try {
             const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
@@ -86,93 +99,91 @@ export const GoogleSearchAPI = {
 ESSAY TEXT:
 "${text.substring(0, 2500)}"
 
-Return a JSON object with EXACTLY these fields:
+TASK: Analyze the essay and return a JSON object with these fields:
 
 {
-  "discipline": "the specific academic discipline — e.g. 'philosophy of mathematics', 'macroeconomics', 'developmental psychology'",
-  "core_question": "the central question the essay tries to answer",
-  "key_arguments": ["the 3-5 main claims or arguments the essay makes"],
+  "core_thesis": "one-sentence summary of the essay's central argument",
+  "central_question": "the specific question the essay is trying to answer",
+  "philosophical_positions": ["list of named philosophical positions, theories, or frameworks the essay engages with — e.g., 'Mathematical Platonism', 'Constructivism', 'Formalism'"],
+  "discipline": "the academic discipline this essay belongs to — e.g., 'philosophy of mathematics', 'epistemology', 'sociology of education'",
   "named_entities": [
-    {"name": "any proper noun, named theory, or distinctive phrase from the essay", "context": "how the essay uses it"}
+    {"name": "specific named thing from essay", "role": "how it's used in the argument — e.g., 'evidence for math in nature'", "abstract_framing": "the philosophical claim it supports"}
   ],
-  "off_topic_disciplines": [
-    {
-      "discipline": "name of a discipline that shares KEYWORDS with the essay but asks DIFFERENT questions",
-      "red_flags": ["2-4 title words that reliably signal a paper is from THIS off-topic discipline"]
-    }
-  ],
-  "must_engage_with": [
-    "3-5 specific natural language phrases that a TRULY relevant source MUST discuss",
-    "A source engaging with NONE of these phrases is off-topic",
-    "BAD: 'invention vs discovery'. GOOD: 'mathematics as invention or discovery'"
-  ],
-  "search_queries": [
-    "5-7 search queries formatted specifically for ACADEMIC SEARCH ENGINES",
-    "Each must be 3-5 keywords long (NOT natural language sentences)",
-    "Always pair a concrete term with the discipline or abstract framing",
-    "BAD: 'is mathematics invented or discovered' (too long, natural language)",
-    "GOOD: 'philosophy mathematics invention discovery'",
-    "BAD: 'constructivism mathematics'",
-    "GOOD: 'philosophical constructivism epistemology mathematics'",
-    "If a named distinctive phrase appears (e.g. 'unreasonable effectiveness'), include it in quotes in a query"
+  "must_engage_with": ["3-6 short PHRASES (not single keywords) that capture the essay's core claims — e.g., 'mathematics as invention or discovery', 'mathematical Platonism realism', 'unreasonable effectiveness of mathematics'", "each phrase must be self-contained and carry its own context"],
+  "queries": [
+    "5-8 NATURAL SEARCH PHRASES — short, readable phrases of 4-8 words each",
+    "each phrase must read like a coherent description of a specific claim or question from the essay",
+    "each phrase must be self-contextualizing — a reader who knows nothing about the essay should understand what the phrase is about",
+    "phrases should be the kind of text likely to appear in an academic paper TITLE or ABSTRACT"
   ]
 }
 
 CRITICAL RULES:
-1. "off_topic_disciplines": Think hard about what OTHER fields share keywords but ask different questions.
-2. "search_queries": MUST be 3-5 word keyword clusters. Search engines do not understand natural language questions.
-3. Cover ALL sections of the essay, not just the introduction.
+1. ALWAYS return PHRASES, not keyword lists. A phrase reads naturally; a keyword list is just words jammed together.
+   - BAD (keyword list): "mathematical Platonism Fibonacci sequence unreasonable effectiveness nature"
+   - GOOD (phrase): "is mathematics invented or discovered"
+   - GOOD (phrase): "Wigner unreasonable effectiveness of mathematics"
+   - GOOD (phrase): "Newton Leibniz independent discovery of calculus"
+   - GOOD (phrase): "mathematical Platonism versus constructivism"
+2. Each phrase must SELF-CONTEXTUALIZE. If a word is ambiguous (e.g., "constructivism" could mean pedagogy OR philosophy of math), the phrase itself must disambiguate:
+   - BAD: "constructivism mathematics classroom" (could be pedagogy)
+   - GOOD: "philosophical constructivism mathematics invention"
+   - BAD: "realism mathematics" (could be art realism or math realism)
+   - GOOD: "mathematical realism and Platonism ontology"
+3. The "queries" must cover EVERY distinct section/argument of the essay, not just the first.
+4. The "must_engage_with" field is the ground truth for filtering — a source that doesn't engage with at least ONE of these is OFF-TOPIC, even if it shares a keyword.
+5. Discipline qualification: if the essay is philosophical, every query phrase should make the philosophical context explicit. Add words like "philosophy of", "epistemology", "ontology", "debate", "argument" where appropriate so the phrase surfaces PHILOSOPHY papers, not pure-math or pedagogy papers.
+6. If a named philosopher/theorist is mentioned, include them by name in a phrase.
+7. Each phrase must be 4-8 words. Not fewer (too vague), not more (too narrow for full-text search).
 
-Return ONLY raw JSON. No markdown fences. No explanation.`;
+Return ONLY the raw JSON object, no explanation, no markdown.`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            console.log('[Search] Topic analysis raw:', response.substring(0, 200));
+
+            // Extract JSON object (not array — use { ... } match)
             const jsonMatch = response.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error('No JSON object found');
+            if (!jsonMatch) throw new Error('No JSON object in response');
 
             const brief = JSON.parse(jsonMatch[0]);
 
-            if (!brief.search_queries?.length) throw new Error('No search_queries');
-            if (!brief.off_topic_disciplines) brief.off_topic_disciplines = [];
-            if (!brief.must_engage_with) brief.must_engage_with = [];
-            if (!brief.discipline) brief.discipline = '';
-            if (!brief.core_question) brief.core_question = '';
+            // Validate required fields
+            if (!brief.queries || !Array.isArray(brief.queries) || brief.queries.length === 0) {
+                throw new Error('Missing queries array');
+            }
+            if (!brief.must_engage_with || !Array.isArray(brief.must_engage_with)) {
+                brief.must_engage_with = [];
+            }
 
-            // Enforce 2-6 word length for API queries
-            brief.search_queries = brief.search_queries
+            // Sanitize queries — enforce 4-8 word phrase length
+            brief.queries = brief.queries
                 .filter(q => typeof q === 'string')
-                .map(q => q.trim())
+                .map(q => q.trim().substring(0, 150))
                 .filter(q => {
                     const wordCount = q.split(/\s+/).length;
-                    return wordCount >= 2 && wordCount <= 6;
+                    return wordCount >= 4 && wordCount <= 8;
                 })
                 .slice(0, 8);
 
-            brief._redFlags = brief.off_topic_disciplines
-                .flatMap(d => d.red_flags || [])
-                .map(f => f.toLowerCase().trim())
-                .filter(f => f.length > 2 && f.length < 40);
-
-            if (brief.search_queries.length === 0) throw new Error('No valid queries after length filter');
+            if (brief.queries.length === 0) throw new Error('No valid queries after cleaning');
 
             return brief;
 
         } catch (e) {
             console.error('[Search] _analyzeTopic failed:', e.message);
-            return null;
+            return null;  // falls back to old query extraction
         }
     },
 
-    async _searchOpenAlex(queries, brief) {
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 3a: OpenAlex search (unchanged — real academic papers)
+    // ════════════════════════════════════════════════════════════════════
+    async _searchOpenAlex(queries) {
         const allResults = [];
-        const disciplineHint = brief?.discipline ? ` ${brief.discipline}` : '';
 
         await Promise.all(queries.map(async (query) => {
             try {
-                const enrichedQuery = disciplineHint && !this._queryHasDiscipline(query, brief.discipline)
-                    ? query + disciplineHint
-                    : query;
-
-                const url = `https://api.openalex.org/works?search=${encodeURIComponent(enrichedQuery)}&per-page=8&mailto=research@example.com`;
+                const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=8&mailto=research@example.com`;
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 10000);
 
@@ -181,38 +192,39 @@ Return ONLY raw JSON. No markdown fences. No explanation.`;
                     headers: { 'User-Agent': 'AcademicCitationTool/1.0 (mailto:research@example.com)' }
                 });
                 clearTimeout(timeout);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
                 for (const work of (data.results || [])) {
                     const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
                     const link = doi || work.id;
-                    if (!work.title || !link) continue;
-
                     const abstract = this._reconstructAbstract(work.abstract_inverted_index);
                     const authors = (work.authorships || [])
-                        .map(a => a.author?.display_name).filter(Boolean).slice(0, 3).join(', ');
+                        .map(a => a.author?.display_name)
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .join(', ');
+
+                    if (!work.title || !link) continue;
 
                     allResults.push({
-                        title: work.title, link, snippet: abstract || '',
-                        authors, year: work.publication_year,
+                        title: work.title,
+                        link,
+                        snippet: abstract || '',
+                        authors,
+                        year: work.publication_year,
                         venue: work.primary_location?.source?.display_name || '',
-                        source: 'openalex', _score: 10
+                        source: 'openalex',
+                        _score: 10
                     });
                 }
             } catch (e) {
-                console.error('[Search] OpenAlex error:', query, e.message);
+                console.error('[Search] OpenAlex failed for query:', query, e.message);
             }
         }));
-        return allResults;
-    },
 
-    _queryHasDiscipline(query, discipline) {
-        if (!discipline) return true;
-        return discipline.toLowerCase().split(/\s+/)
-            .filter(w => w.length >= 3)
-            .some(w => query.toLowerCase().includes(w));
+        return allResults;
     },
 
     _reconstructAbstract(invertedIndex) {
@@ -221,11 +233,19 @@ Return ONLY raw JSON. No markdown fences. No explanation.`;
         for (const [word, idxs] of Object.entries(invertedIndex)) {
             for (const i of idxs) positions.push([i, word]);
         }
-        return positions.sort((a, b) => a[0] - b[0]).map(p => p[1]).join(' ').substring(0, 400);
+        return positions
+            .sort((a, b) => a[0] - b[0])
+            .map(p => p[1])
+            .join(' ')
+            .substring(0, 400);
     },
 
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 3b: SearXNG search (unchanged — JSON-first, HTML fallback)
+    // ════════════════════════════════════════════════════════════════════
     async _searchSearx(query) {
         const shuffled = [...SEARX_INSTANCES].sort(() => Math.random() - 0.5);
+
         for (const instance of shuffled.slice(0, 4)) {
             try {
                 const url = `${instance}/search?q=${encodeURIComponent(query)}&categories=general,science&language=en&format=json`;
@@ -240,98 +260,47 @@ Return ONLY raw JSON. No markdown fences. No explanation.`;
                     }
                 });
                 clearTimeout(timeout);
+
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                 const contentType = res.headers.get('content-type') || '';
                 if (contentType.includes('application/json')) {
                     const data = await res.json();
                     const results = (data.results || [])
-                        .map(r => ({ title: r.title || '', link: r.url || '', snippet: r.content || '' }))
+                        .map(r => ({
+                            title: r.title || '',
+                            link: r.url || '',
+                            snippet: r.content || ''
+                        }))
                         .filter(r => r.title && r.link);
-                    if (results.length > 0) return results;
+                    if (results.length > 0) {
+                        console.log('[Search] SearXNG JSON:', results.length, 'from', instance);
+                        return results;
+                    }
                 } else {
                     const html = await res.text();
                     const results = this._parseResults(html);
-                    if (results.length > 0) return results;
+                    if (results.length > 0) {
+                        console.log('[Search] SearXNG HTML:', results.length, 'from', instance);
+                        return results;
+                    }
                 }
             } catch (e) {
-                console.error('[Search] SearXNG failed:', instance, e.message);
+                console.error('[Search] SearXNG instance failed:', instance, e.message);
             }
         }
+
+        console.warn('[Search] All SearXNG instances failed for:', query);
         return [];
     },
 
-    _filterAndScore(results, brief) {
-        const seenUrls = new Set();
-        const seenTitles = new Set();
-        const seenDomains = new Set();
-        const redFlags = brief?._redFlags || [];
-
-        return results
-            .filter(r => {
-                if (!r.title || !r.link) return false;
-                const lowerUrl = r.link.toLowerCase();
-                const lowerTitle = r.title.toLowerCase();
-                const lowerSnippet = (r.snippet || '').toLowerCase();
-
-                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
-                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
-
-                try {
-                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
-
-                    // SOFTENED red-flag filter: Only hard-reject if 3+ flags in title, or 4+ in snippet
-                    if (redFlags.length > 0) {
-                        const titleFlags = redFlags.filter(f => lowerTitle.includes(f)).length;
-                        const snippetFlags = redFlags.filter(f => lowerSnippet.includes(f)).length;
-                        if (titleFlags >= 3) return false;
-                        if (snippetFlags >= 5) return false;
-                    }
-
-                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
-                    if (seenTitles.has(normalizedTitle)) return false;
-                    seenTitles.add(normalizedTitle);
-
-                    if (seenUrls.has(lowerUrl)) return false;
-                    seenUrls.add(lowerUrl);
-
-                    const isAcademic = ACADEMIC_DOMAINS.some(p => domain.includes(p)) || domain.endsWith('.edu') || domain.endsWith('.gov');
-                    if (!isAcademic && seenDomains.has(domain)) return false;
-                    seenDomains.add(domain);
-
-                    return true;
-                } catch { return false; }
-            })
-            .map(r => {
-                let score = r._score || 0;
-                try {
-                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-                    if (ACADEMIC_DOMAINS.some(p => domain.includes(p))) score += 5;
-                    if (domain.endsWith('.edu')) score += 3;
-                    if (domain.endsWith('.gov')) score += 3;
-                    if (r.link.includes('doi.org')) score += 4;
-                    if (r.authors) score += 2;
-                    if (r.snippet && r.snippet.length > 100) score += 1;
-
-                    if (domain.includes('blog')) score -= 3;
-                    if (r.title.length < 15) score -= 2;
-                    if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
-
-                    // Soft red-flag penalty
-                    if (redFlags.length > 0) {
-                        const lowerTitle = r.title.toLowerCase();
-                        const lowerSnippet = (r.snippet || '').toLowerCase();
-                        const flagHits = redFlags.filter(f => lowerTitle.includes(f) || lowerSnippet.includes(f)).length;
-                        score -= flagHits * 2; 
-                    }
-                } catch {}
-                return { ...r, _score: score };
-            })
-            .sort((a, b) => b._score - a._score)
-            .slice(0, 20);
-    },
-
+    // ════════════════════════════════════════════════════════════════════
+    // STAGE 4: RELEVANCE FILTER (now uses the brief as ground truth)
+    // Key change: instead of "is this relevant to the topic?", we now ask
+    // "does this paper ENGAGE WITH the central question — or merely
+    // mention a keyword?" The brief's must_engage_with list is the
+    // pass/fail criterion.
+    // ════════════════════════════════════════════════════════════════════
     async _filterByRelevance(results, originalText, groqKey, brief) {
         if (!groqKey || results.length === 0) return results;
 
@@ -340,48 +309,70 @@ Return ONLY raw JSON. No markdown fences. No explanation.`;
                 `${i}: "${r.title}" — ${(r.snippet || '').substring(0, 250)}`
             ).join('\n');
 
-            let contextBlock;
-            if (brief) {
-                const offTopicLines = (brief.off_topic_disciplines || [])
-                    .map(d => `  - ${d.discipline}: red flags ${JSON.stringify(d.red_flags || [])}`)
-                    .join('\n');
+            // Build context from the brief if available
+            const briefContext = brief ? `
+GROUND TRUTH (from topic analysis):
+- Central question: ${brief.central_question || '(unspecified)'}
+- Discipline: ${brief.discipline || '(unspecified)'}
+- Philosophical positions engaged: ${JSON.stringify(brief.philosophical_positions || [])}
+- A source is RELEVANT only if it engages with at least ONE of these phrases: ${JSON.stringify(brief.must_engage_with || [])}
 
-                contextBlock = `
-DISCIPLINE: ${brief.discipline || '(unspecified)'}
-CORE QUESTION: ${brief.core_question || '(unspecified)'}
-A relevant source must engage with at least ONE of these phrases: ${JSON.stringify(brief.must_engage_with || [])}
+PASS CRITERION: The source must actually ARGUE about or ANALYZE the central question (or one of the philosophical positions), NOT merely mention a keyword that also appears in the essay.
 
-OFF-TOPIC DISCIPLINES (share keywords but ask different questions):
- ${offTopicLines || '  (none identified)'}
+DISCIPLINE GATE — if the brief's discipline contains "philosophy":
+  STRICTLY REJECT any source whose title or venue contains pedagogy/education terms:
+  teaching, classroom, pedagogy, students, curriculum, instruction, learning outcomes,
+  mathematics education, science education, K-12, higher education teaching
+  These are pedagogy papers sharing a keyword, NOT philosophical engagements.
 
-CRITICAL FILTERING RULES:
-1. DISCIPLINE MATCH: The source must belong to the same discipline as the essay. If the essay is about "philosophy of mathematics", reject pure math, psychology, or education papers.
-2. KEYWORD INTERSECTION vs ENGAGEMENT: A source that merely shares a keyword (e.g., "constructivism") but applies it in a different discipline (e.g., pedagogy) must be REJECTED.
-3. PHRASE ECHOES: If a famous phrase from the essay is used as a playful metaphor in a different discipline (e.g., "unreasonable fairness" in Computer Science), REJECT it. Only accept sources discussing the phrase in its ORIGINAL context.`;
-            } else {
-                contextBlock = `
-ESSAY TOPIC (first 800 chars):
+DISCIPLINE GATE — if the brief's discipline contains "philosophy of mathematics":
+  ACCEPT only if the source discusses at least one of: Platonism, realism, nominalism,
+  formalism, intuitionism, constructivism (the philosophical position, NOT pedagogy),
+  ontology of mathematics, epistemology of mathematics, mathematics invention,
+  mathematics discovery, philosophy of mathematics
+
+AMBIGUOUS-WORD RULE — these words have multiple meanings; only accept if context confirms the philosophical sense:
+  - "constructivism": ACCEPT if paired with Platonism/realism/ontology; REJECT if paired with classroom/teaching/learning
+  - "realism": ACCEPT if paired with mathematics/Platonism/ontology; REJECT if paired with art/literature/politics
+  - "formalism": ACCEPT if paired with mathematics/logic/Hilbert; REJECT if paired with art/literature/law
+  - "intuitionism": ACCEPT if paired with mathematics/Brouwer; REJECT if paired with psychology/ethics
+
+EXAMPLES OF WHAT TO REJECT (for an essay on philosophy of mathematics):
+- Source: "Student-centred learning: constructivism in the mathematics classroom" → REJECT (pedagogy, not philosophy)
+- Source: "Innovative approaches to teaching mathematics in higher education" → REJECT (math education, not philosophy)
+- Source: "Fibonacci scaling in k-Cullen sequences" → REJECT (pure math, no philosophical engagement)
+- Source: "Jungian synchronicity and Fibonacci" → REJECT (psychology, shares keyword only)
+
+EXAMPLES OF WHAT TO ACCEPT:
+- Source: "Mathematical Platonism and the unreasonable effectiveness of mathematics" → ACCEPT
+- Source: "Is mathematics invented or discovered? A philosophical analysis" → ACCEPT
+- Source: "Newton, Leibniz, and the priority dispute over calculus" → ACCEPT (philosophical/historical engagement)
+` : `
+ESSAY TOPIC SUMMARY (first 800 chars):
 "${originalText.substring(0, 800)}"
-
-A relevant source must directly address the essay's central argument or question.`;
-            }
+`;
 
             const prompt = `You are filtering search results for an academic essay.
 
- ${contextBlock}
+${briefContext}
 
 SEARCH RESULTS:
- ${summaries}
+${summaries}
 
-TASK: Return ONLY the index numbers of results that:
-1. Are ACADEMIC (peer-reviewed, journal article, scholarly book, .edu/.gov page)
-2. Are from the SAME discipline as the essay
-3. DIRECTLY ENGAGE with the core question — NOT merely share a keyword
+TASK: Return ONLY the index numbers of results that satisfy ALL of:
+1. ACADEMIC in nature (peer-reviewed paper, journal article, scholarly book chapter, .edu page, .gov report, reputable research org)
+2. DIRECTLY ENGAGES with the essay's central question or one of its philosophical positions — NOT merely shares a keyword
+3. PASSES the DISCIPLINE GATE above (if brief discipline is philosophy, reject pedagogy/education papers)
+4. PASSES the AMBIGUOUS-WORD RULE above (if title hinges on an ambiguous term, only accept if context confirms the philosophical sense)
 
 STRICTLY EXCLUDE:
-- Papers from off-topic disciplines — even if they share keywords
+- Pure-math / pure-science papers that use a keyword from the essay but don't discuss its philosophical implications
+- Pedagogy / education papers that share a keyword (e.g., "constructivism in the classroom")
+- Psychology, sociology, linguistics papers that share a keyword but aren't about the essay's actual question
 - Dictionary / thesaurus / encyclopedia entries
-- Commercial sites, blog posts, forum threads
+- Book reviews (cite the book itself, not the review) unless the review itself makes substantive philosophical arguments
+- Commercial sites, brand websites, TV networks
+- Blog posts, forum threads, social media
 
 Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
 
@@ -396,16 +387,75 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                 .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
                 .map(i => results[i]);
 
-            // FIX: If the LLM over-filters and rejects everything, return the top 5 
-            // statically scored results instead of dumping the whole unfiltered list
-            return filtered.length > 0 ? filtered : results.slice(0, 5);
+            return filtered.length > 0 ? filtered : results;
 
         } catch (e) {
             console.error('[Search] Relevance filter failed:', e.message);
-            return results.slice(0, 5);
+            return results;
         }
     },
 
+    // ════════════════════════════════════════════════════════════════════
+    // Filter + score + dedup (unchanged from v2)
+    // ════════════════════════════════════════════════════════════════════
+    _filterAndScore(results) {
+        const seenUrls = new Set();
+        const seenTitles = new Set();
+        const seenDomains = new Set();
+
+        return results
+            .filter(r => {
+                if (!r.title || !r.link) return false;
+
+                const lowerUrl = r.link.toLowerCase();
+                const lowerTitle = r.title.toLowerCase();
+
+                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
+                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
+
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
+
+                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
+                    if (seenTitles.has(normalizedTitle)) return false;
+                    seenTitles.add(normalizedTitle);
+
+                    if (seenUrls.has(lowerUrl)) return false;
+                    seenUrls.add(lowerUrl);
+
+                    const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
+                                       domain.endsWith('.edu') || domain.endsWith('.gov');
+                    if (!isAcademic) {
+                        if (seenDomains.has(domain)) return false;
+                        seenDomains.add(domain);
+                    }
+                    return true;
+                } catch { return false; }
+            })
+            .map(r => {
+                let score = r._score || 0;
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (PREFERRED_DOMAINS.some(p => domain.includes(p))) score += 5;
+                    if (domain.endsWith('.edu')) score += 3;
+                    if (domain.endsWith('.gov')) score += 3;
+                    if (r.link.includes('doi.org')) score += 4;
+                    if (domain.includes('blog')) score -= 3;
+                    if (r.title.length < 15) score -= 2;
+                    if (r.snippet && r.snippet.length > 100) score += 1;
+                    if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
+                    if (r.authors) score += 2;
+                } catch {}
+                return { ...r, _score: score };
+            })
+            .sort((a, b) => b._score - a._score)
+            .slice(0, 15);
+    },
+
+    // ════════════════════════════════════════════════════════════════════
+    // Fallback query builder (used only if topic analysis fails)
+    // ════════════════════════════════════════════════════════════════════
     _buildFallbackQuery(text) {
         const stopWords = new Set([
             'the','a','an','is','are','was','were','be','been','being','have','has','had',
@@ -421,20 +471,25 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
         const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
         const meaningful = [...new Set(words)]
             .filter(w => !stopWords.has(w))
-            .slice(0, 5);
+            .slice(0, 4);
 
-        return (meaningful.join(' ') || 'academic research') + ' scholarly study';
+        return (meaningful.join(' ') || 'education research') + ' academic study';
     },
 
+    // ════════════════════════════════════════════════════════════════════
+    // HTML parser (SearXNG fallback)
+    // ════════════════════════════════════════════════════════════════════
     _parseResults(html) {
         const results = [];
+
         const articleRegex = /<article[^>]*class="[^"]*result[^"]*"[^>]*>([\s\S]*?)<\/article>/gi;
         let match;
 
         while ((match = articleRegex.exec(html)) !== null) {
             const block = match[1];
             const urlMatch = block.match(/href="(https?:\/\/[^"]+)"/);
-            const titleMatch = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/) || block.match(/<a[^>]*>([\s\S]*?)<\/a>/);
+            const titleMatch = block.match(/<h3[^>]*>([\s\S]*?)<\/h3>/) ||
+                               block.match(/<a[^>]*>([\s\S]*?)<\/a>/);
             const snippetMatch = block.match(/<p[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/p>/);
 
             if (urlMatch && titleMatch) {
@@ -462,6 +517,7 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
                 }
             }
         }
+
         return results.slice(0, 30);
     },
 
