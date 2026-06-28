@@ -163,16 +163,18 @@ TEXT TO REWRITE:
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
 2. SENTENCE FLOW: Do not write in short, staccato fragments. Connect related ideas. However, DO NOT write massive run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-3. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or "Mathematics". Vary your sentence openers.
-4. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
-5. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
-6. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
-7. NEVER use "Both X and Y" structures. Just say "X and Y".
-8. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
-9. NEVER use semicolons (;) or em dashes (— or -).
-10. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-11. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
-12. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
+3. COMPARISONS: When comparing two subjects or parallel ideas across two short sentences, combine them using ", while" or ", whereas" (e.g., "A mathematician uncovers facts, while an explorer finds an island.").
+4. NO REDUNDANCY: Do not repeat the same premise or concept within the chunk. State an idea once and move on.
+5. NEVER start consecutive sentences with the same word. Specifically, do not start multiple sentences with "The", "This", "It", or the main subject of the text. Vary your sentence openers.
+6. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). Write separate, direct sentences instead.
+7. NEVER use "with [noun] [verb]ing" constructions (e.g., "with mathematics serving as..."). Break them into separate sentences.
+8. NEVER use participial phrases at the end of sentences (e.g., "..., making it important" or "..., revealing the truth"). Use a separate verb and subject instead.
+9. NEVER use "Both X and Y" structures. Just say "X and Y".
+10. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+11. NEVER use semicolons (;) or em dashes (— or -).
+12. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+13. NEVER use imperative pivots. Do NOT write "Consider the...", "Think of a...", or "Take for example...". Just state the information directly.
+14. Do NOT use formulaic transitions like "Others maintain that", "This perspective suggests", or "The most compelling evidence". Just state the idea directly.
 
 VOCABULARY STYLE GUIDE (Apply these moderately for a natural, human tone):
 - Replace "serving as" or "functioning as" with "acting as" or "used as".
@@ -215,8 +217,8 @@ const AI_STERILE_SWAPS = {
     "societal organization": "organizing society",
     "limitless sequence": "endless sequence",
     "persist outside the mind": "exist outside the mind",
-    "serving as": "acting as",  // Added based on your request
-    "functioning as": "acting as" // Added based on your request
+    "serving as": "acting as",
+    "functioning as": "acting as"
 };
 
 function postProcess(text) {
@@ -241,8 +243,11 @@ function postProcess(text) {
         });
     }
 
-    // Fix accidental double words caused by replacements (e.g., "the the", "and and")
+    // Fix accidental double words (e.g., "the the", "and and")
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
+
+    // Fix accidental double transitions (e.g., "Also, the arrangement of X also...")
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
 
     // Fix "a" vs "an" grammar errors caused by replacements
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
@@ -281,7 +286,9 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 6. "Both X and Y" structures.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences broken into smaller, direct sentences without the banned conventions. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences that lack transitions. 
+SPECIFICALLY: If you find two short sentences comparing two subjects or parallel ideas, combine them using ", while" or ", whereas". 
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or block that uses natural transitions to improve flow. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It", or "Mathematics"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
 
