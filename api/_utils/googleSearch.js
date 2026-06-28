@@ -4,11 +4,41 @@ import { GroqAPI } from './groqAPI.js';
 // SearXNG instance list — searx.be removed (frequently rate-limits / 403s).
 // Order roughly by reliability based on observed stats.
 const SEARX_INSTANCES = [
-    'https://search.sapti.me',
+    'https://searx.oloke.xyz',
+    'https://searxng.website',
+    'https://failsearx.culturanerd.it',
+    'https://searxng.shreven.org',
     'https://searx.tiekoetter.com',
-    'https://search.bus-hit.me',
-    'https://search.ononoki.org',
-    'https://priv.au'
+    'https://searx.linxx.net',
+    'https://searx.ononoki.org',
+    'https://search.einfachzocken.eu',
+    'https://search.rhscz.eu',
+    'https://searx.rhscz.eu',
+    'https://search.bladerunn.in',
+    'https://searx.namejeff.xyz',
+    'https://search.ctq.ro',
+    'https://search.femboy.ad',
+    'https://www.gruble.de',
+    'https://search.sapti.me',
+    'https://search.privacyredirect.com',
+    'https://ooglester.com',
+    'https://search.undertale.uk',
+    'https://xka.cz',
+    'https://paulgo.io',
+    'https://search.2b9t.xyz',
+    'https://search.catboy.house',
+    'https://search.ethibox.fr',
+    'https://search.hbubli.cc',
+    'https://search.im-in.space',
+    'https://search.rowie.at',
+    'https://search.url4irl.com',
+    'https://searxng.site',
+    'https://searx.sev.monster',
+    'https://search.unredacted.org',
+    'https://search.root.hr',
+    'https://searx.mxchange.org',
+    'https://searxng.gr',
+    'https://searxng.fishfvch.com'
 ];
 
 const BANNED_DOMAINS = [
