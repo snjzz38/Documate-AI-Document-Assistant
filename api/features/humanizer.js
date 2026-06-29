@@ -226,13 +226,12 @@ const AI_STERILE_SWAPS = {
     "persist outside the mind": "exist outside the mind",
     "serving as": "acting as",
     "functioning as": "acting as",
-    "act outside of": "exist outside of"
+    "act outside of": "exist outside of",
+    "environmental world": "natural world",
+    "mortal invention": "human invention",
+    "endless terrain": "many areas"
 };
 
-/**
- * Cleans text mechanics (punctuation, grammar, double words).
- * Extracted so it can be run BEFORE and AFTER Groq.
- */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -252,14 +251,17 @@ function cleanTextMechanics(text) {
     }
 
     // FIX GROQ REPLACEMENT ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.'); // Double periods
-    result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
+    result = result.replace(/\.{2,}/g, '.');
+    result = result.replace(/,{2,}/g, ',');
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
 
     // GRAMMAR FIXES
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
+    
+    // Fix "a [plural noun]" -> remove the "a" (basic heuristic for Groq errors like "a mental calculations")
+    result = result.replace(/\ba ([a-zA-Z]+s)(\s|,|\.)/g, '$1$2');
 
     // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -271,26 +273,20 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
-/**
- * Main post-processing function.
- */
 function postProcess(text) {
     let result = text;
-    // Normalize quotes/apostrophes first
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
-    
     return cleanTextMechanics(result);
 }
-
 
 // ==========================================================================
 // 6. GROQ 5-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
-Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
-Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
+Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives. 
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense) of the original word so that applying it verbatim won't lead to grammar mistakes (e.g., if the original was "a tool", do not replace with "mental tools"). Do not fix punctuation. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
@@ -298,23 +294,27 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
 4. "With [noun] [verb]ing" constructions.
 5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
+6. CLICHÉS: "woven into the fabric", "endless terrain", "vast landscape". Replace with literal descriptions.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar is perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential or share a subject (e.g., "Math is a tool. Abstract concepts help us think."), combine them using a comma and a conjunction (e.g., "Math is a tool, and abstract concepts help us think.").
+2. If you find two separated sentences that are logically sequential or share a subject, combine them using a comma and a conjunction.
 CRITICAL RULES: 
 - NEVER use ", which" to combine sentences.
 - NEVER create run-on sentences or dangling clauses.
 - Ensure the resulting grammar is perfect.
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word, OR start with a transition word followed by a comma (e.g., "However,", "Therefore,"). 
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
+1. 2 or more consecutive sentences start with the exact same word.
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "In contrast,", "To resolve this,", "From this perspective,").
 Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical" within a few sentences). 
-Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. If none, return {}.`;
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical"). 
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense) so applying it verbatim won't lead to grammar mistakes. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -353,7 +353,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
-    // Final clean up of any artifacts
     currentText = cleanTextMechanics(currentText);
 
     return { text: currentText, fixes };
