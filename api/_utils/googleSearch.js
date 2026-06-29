@@ -369,63 +369,32 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
     async _searchSearx(query, stats) {
         const stage = stats.stages.searxng;
         const shuffled = [...SEARX_INSTANCES].sort(() => Math.random() - 0.5);
-        
-        // Track failure types
-        if (!stage.failureTypes) stage.failureTypes = {};
-    
+
         for (const instance of shuffled.slice(0, 4)) {
             const start = Date.now();
             stage.calls += 1;
             stage.instancesTried += 1;
             stats.totals.httpRequests += 1;
-            
             try {
                 const url = `${instance}/search?q=${encodeURIComponent(query)}&categories=general,science&language=en&format=json`;
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 8000);
-    
+
                 const res = await fetch(url, {
                     signal: controller.signal,
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'application/json, text/html, */*',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                        'Referer': instance + '/',  // Some instances check this
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Accept': 'application/json'
                     }
                 });
                 clearTimeout(timeout);
                 stage.ms += Date.now() - start;
-    
-                // Classify HTTP errors
-                if (res.status === 403) {
-                    stage.failureTypes['403_cloudflare'] = (stage.failureTypes['403_cloudflare'] || 0) + 1;
-                    throw new Error('403 Forbidden (likely Cloudflare)');
-                }
-                if (res.status === 429) {
-                    stage.failureTypes['429_rate_limit'] = (stage.failureTypes['429_rate_limit'] || 0) + 1;
-                    throw new Error('429 Rate limited');
-                }
-                if (res.status >= 500) {
-                    stage.failureTypes[`5xx_${res.status}`] = (stage.failureTypes[`5xx_${res.status}`] || 0) + 1;
-                    throw new Error(`Server error ${res.status}`);
-                }
-                if (!res.ok) {
-                    stage.failureTypes[`http_${res.status}`] = (stage.failureTypes[`http_${res.status}`] || 0) + 1;
-                    throw new Error(`HTTP ${res.status}`);
-                }
-    
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
                 const contentType = res.headers.get('content-type') || '';
-                
-                if (contentType.includes('json')) {
+                if (contentType.includes('application/json')) {
                     const data = await res.json();
-                    
-                    // Check for SearXNG error responses
-                    if (data.error) {
-                        stage.failureTypes['searxng_error'] = (stage.failureTypes['searxng_error'] || 0) + 1;
-                        console.error(`[SearXNG] Instance ${instance} returned error:`, data.error);
-                        continue;
-                    }
-                    
                     const results = (data.results || [])
                         .map(r => ({
                             title: r.title || '',
@@ -433,42 +402,29 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
                             snippet: r.content || ''
                         }))
                         .filter(r => r.title && r.link);
-                        
                     if (results.length > 0) {
                         stage.resultsReturned += results.length;
+                        console.log('[Search] SearXNG JSON:', results.length, 'from', instance);
                         return results;
                     }
-                    // Empty results is not a failure, just no matches
-                    stage.failureTypes['empty_results'] = (stage.failureTypes['empty_results'] || 0) + 1;
                 } else {
-                    // HTML fallback
                     const html = await res.text();
                     const results = this._parseResults(html);
                     if (results.length > 0) {
                         stage.resultsReturned += results.length;
+                        console.log('[Search] SearXNG HTML:', results.length, 'from', instance);
                         return results;
                     }
-                    stage.failureTypes['html_parse_failed'] = (stage.failureTypes['html_parse_failed'] || 0) + 1;
                 }
             } catch (e) {
                 stage.failures += 1;
-                // Classify the error type
-                if (e.name === 'AbortError') {
-                    stage.failureTypes['timeout'] = (stage.failureTypes['timeout'] || 0) + 1;
-                } else if (e.message.includes('ECONNREFUSED') || e.message.includes('fetch failed')) {
-                    stage.failureTypes['connection_refused'] = (stage.failureTypes['connection_refused'] || 0) + 1;
-                } else if (e.message.includes('ENOTFOUND') || e.message.includes('getaddrinfo')) {
-                    stage.failureTypes['dns_failure'] = (stage.failureTypes['dns_failure'] || 0) + 1;
-                } else {
-                    stage.failureTypes['other'] = (stage.failureTypes['other'] || 0) + 1;
-                }
-                console.error(`[SearXNG] ${instance}: ${e.message}`);
+                console.error('[Search] SearXNG instance failed:', instance, e.message);
             }
         }
-    
-        console.warn('[SearXNG] Failure breakdown:', stage.failureTypes);
+
+        console.warn('[Search] All SearXNG instances failed for:', query);
         return [];
-    }
+    },
 
     // ════════════════════════════════════════════════════════════════════
     // STAGE 4: RELEVANCE FILTER (now uses the brief as ground truth)
