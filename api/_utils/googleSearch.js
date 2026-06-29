@@ -541,39 +541,47 @@ Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
     // Filter + score + dedup (unchanged from v2)
     // ════════════════════════════════════════════════════════════════════
     _filterAndScore(results) {
-        const seenUrls = new Set();
-        const seenTitles = new Set();
-        const seenDomains = new Set();
+    const seenUrls = new Set();
+    const seenTitles = new Set();
+    const seenDomains = new Set();
 
-        return results
-            .filter(r => {
-                if (!r.title || !r.link) return false;
+    return results
+        .filter(r => {
+            if (!r.title || !r.link) return false;
 
-                const lowerUrl = r.link.toLowerCase();
-                const lowerTitle = r.title.toLowerCase();
+            const lowerUrl = r.link.toLowerCase();
+            const lowerTitle = r.title.toLowerCase();
 
-                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
-                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
+            if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
+            if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
 
-                try {
-                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
+            try {
+                const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
 
-                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
-                    if (seenTitles.has(normalizedTitle)) return false;
-                    seenTitles.add(normalizedTitle);
+                // ─────────────────────────────────────────────
+                // THE FIX: Add openalex.org and doi.org here!
+                // ─────────────────────────────────────────────
+                const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
+                                   domain.endsWith('.edu') || 
+                                   domain.endsWith('.gov') ||
+                                   domain.includes('openalex.org') ||  // <--- ADD THIS
+                                   domain.includes('doi.org');        // <--- ADD THIS
 
-                    if (seenUrls.has(lowerUrl)) return false;
-                    seenUrls.add(lowerUrl);
+                const normalizedTitle = lowerTitle.substring(0, 60).trim();
+                if (seenTitles.has(normalizedTitle)) return false;
+                seenTitles.add(normalizedTitle);
 
-                    const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
-                                       domain.endsWith('.edu') || domain.endsWith('.gov');
-                    if (!isAcademic) {
-                        if (seenDomains.has(domain)) return false;
-                        seenDomains.add(domain);
-                    }
-                    return true;
-                } catch { return false; }
+                if (seenUrls.has(lowerUrl)) return false;
+                seenUrls.add(lowerUrl);
+
+                // Now OpenAlex results won't be falsely deduplicated by domain
+                if (!isAcademic) {
+                    if (seenDomains.has(domain)) return false;
+                    seenDomains.add(domain);
+                }
+                return true;
+            } catch { return false; }
             })
             .map(r => {
                 let score = r._score || 0;
