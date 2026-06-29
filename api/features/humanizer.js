@@ -3,7 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies safe 3-stage post-processing.
+// phrasing via strict prompt engineering, and applies safe 5-stage post-processing.
 // ==========================================================================
 
 /* 
@@ -16,6 +16,7 @@
 2. TEXT UTILITIES MODULE
    - splitIntoChunks(): Safely splits text into sentence groups.
    - applyWordSwaps(): Case-preserving replacement of banned words.
+   - parseGroqJson(): Safely parses JSON strings from Groq.
    - applyJsonReplacements(): Safely applies JSON before/after maps to text.
    
 3. PROMPT ENGINEERING MODULE
@@ -25,12 +26,15 @@
    - humanizeChunk(): Handles the API call to Gemini with safe temperature.
    
 5. REGEX POST-PROCESSING MODULE
-   - postProcess(): Light, safe cleanup of punctuation (Em-dash banning).
+   - cleanTextMechanics(): Light, safe cleanup of punctuation and grammar.
+   - postProcess(): Main regex wrapper.
    
-6. GROQ 3-STAGE SANITY CHECKER MODULE
+6. GROQ 5-STAGE SANITY CHECKER MODULE
    - Stage 1: Vocabulary context fixes.
-   - Stage 2: Syntactic AI tells (em dashes, participial phrases, etc.).
+   - Stage 2: Syntactic AI tells (lists, em dashes, participles, etc.).
    - Stage 3: Staccato flow and transition fixes.
+   - Stage 4: Repetitive sentence starters.
+   - Stage 5: Lexical variety (root word repetition).
    
 7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -135,21 +139,15 @@ function applyJsonReplacements(text, jsonMap) {
     if (!jsonMap || typeof jsonMap !== 'object') return result;
 
     for (const [before, after] of Object.entries(jsonMap)) {
-        // Skip if the key is invalid
         if (!before) continue;
         
-        // CRITICAL FIX: Ensure 'after' is a string. 
-        // If Groq returned a nested object, try to extract a string value from it.
         let afterStr = after;
         if (typeof after === 'object' && after !== null) {
-            // If it's an object, grab the first string value we can find
             afterStr = Object.values(after).find(v => typeof v === 'string') || '';
         }
         
-        // If we couldn't find a valid string replacement, skip this pair
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
 
-        // Exact match, no fuzzy whitespace. 'i' flag for case insensitivity.
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'i');
         result = result.replace(regex, afterStr);
@@ -162,38 +160,30 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
-const STYLE_HINTS = [
-    "Write with a slightly more analytical and direct tone. Focus on clear, logical progression.",
-    "Vary your sentence lengths drastically. Include one very short, punchy sentence for emphasis.",
-    "Adopt a straightforward, explanatory tone. Avoid flowery language entirely.",
-    "Use a slightly more conversational academic tone, as if explaining a concept to a peer.",
-    "Focus on concise, factual statements. Strip away any unnecessary modifiers."
-];
-
 /**
- * Builds a prompt that includes full context and a randomized style hint.
+ * Builds a highly constrained prompt for naturalizing a chunk of text.
  */
-function buildChunkPrompt(chunk, originalText) {
-    const randomHint = STYLE_HINTS[Math.floor(Math.random() * STYLE_HINTS.length)];
-    
-    return `You are humanizing a portion of a larger text. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if academic, keep it academic; do not add rhetorical questions).
+function buildChunkPrompt(chunk) {
+    return `Rewrite the following text to sound exactly like a human writing a quick, direct thought process. Do NOT sound like a textbook or an AI. Prioritize erratic, highly varied sentence lengths (burstiness) and direct, slightly blunt phrasing over sounding perfectly polished.
 
-CONTEXT (Original Full Text for reference - do NOT rewrite this, only use it to understand the flow):
-"${originalText}"
-
-CHUNK TO REWRITE:
+TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary.
-2. FOCUS ON CLARITY: Write clearly and naturally. Do NOT output broken grammar or clunky syntax.
-3. NO LISTS OF THREE: Never list three items (A, B, and C). Use two items, or separate sentences.
-4. NO EM DASHES (—) or SEMICOLONS (;). Use periods or commas instead.
-5. NO COMMA CHAINS: A sentence must not have more than one comma.
-6. STYLE INSTRUCTION: ${randomHint}
+1. Output ONLY the rewritten text.
+2. BURSTINESS: Drastically vary sentence lengths. Mix very short, blunt sentences (3-4 words) with longer ones. Do not use a uniform rhythm.
+3. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+4. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
+5. NO EM DASHES (—) or SEMICOLONS (;). 
+6. NO COMMA CHAINS: A sentence must not have more than one comma.
+7. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+8. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+9. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", or "Furthermore".
+10. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
+
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
@@ -202,8 +192,8 @@ Output ONLY the rewritten chunk:`;
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
  */
-async function humanizeChunk(chunk, originalText, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk, originalText);
+async function humanizeChunk(chunk, apiKey, temperature) {
+    const prompt = buildChunkPrompt(chunk);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
@@ -231,7 +221,6 @@ const AI_STERILE_SWAPS = {
 
 /**
  * Cleans text mechanics (punctuation, grammar, double words).
- * Extracted so it can be run BEFORE and AFTER Groq.
  */
 function cleanTextMechanics(text) {
     let result = text;
@@ -256,10 +245,12 @@ function cleanTextMechanics(text) {
     result = result.replace(/,{2,}/g, ','); // Double commas
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
 
     // GRAMMAR FIXES
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
+    result = result.replace(/\ba ([a-zA-Z]+s)(\s|,|\.)/g, '$1$2');
 
     // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -276,10 +267,8 @@ function cleanTextMechanics(text) {
  */
 function postProcess(text) {
     let result = text;
-    // Normalize quotes/apostrophes first
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
-    
     return cleanTextMechanics(result);
 }
 
@@ -294,27 +283,33 @@ Make sure your returned object contains the exact replacement, and that applying
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. Excessive ", which" clauses (more than 1 per paragraph).
-3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-4. "With [noun] [verb]ing" constructions.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
+3. Excessive ", which" clauses (more than 1 per paragraph).
+4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
 5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar is perfect. If none, return {}.`;
+6. CLICHÉS: "woven into the fabric", "endless terrain", "vast landscape". Replace with literal descriptions.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential or share a subject (e.g., "Math is a tool. Abstract concepts help us think."), combine them using a comma and a conjunction (e.g., "Math is a tool, and abstract concepts help us think.").
+2. If you find two separated sentences that are logically sequential or share a subject, combine them using a comma and a conjunction.
 CRITICAL RULES: 
 - NEVER use ", which" to combine sentences.
 - NEVER create run-on sentences or dangling clauses.
-- Ensure the resulting grammar is perfect.
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+- Ensure the resulting grammar and punctuation are perfect.
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word, OR start with a transition word followed by a comma (e.g., "However,", "Therefore,"). 
-Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
+1. 2 or more consecutive sentences start with the exact same word.
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "Ultimately,").
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical" within a few sentences). 
-Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. If none, return {}.`;
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where:
+1. The same word root is repeated multiple times in close proximity.
+2. The exact same phrase or concept is repeated in multiple sentences (redundancy).
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context so applying it verbatim won't lead to grammar mistakes. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -353,7 +348,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
-    // Final clean up of any artifacts
     currentText = cleanTextMechanics(currentText);
 
     return { text: currentText, fixes };
@@ -377,7 +371,6 @@ export default async function handler(req, res) {
     const logs = [];
     const startTime = Date.now();
     
-    // Reset model usage trackers for this specific invocation
     resetGeminiUsage();
     resetGroqModelUsage();
 
@@ -406,12 +399,12 @@ export default async function handler(req, res) {
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
             try {
-                // Pass the original text alongside the chunk
-                const humanized = await humanizeChunk(chunks[i], text, GEMINI_KEY, temperature);
+                const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED, using original`);
+                // Added err.message so we can see exactly why it fails if it ever does again
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
                 humanizedChunks.push(chunks[i]);
             }
         }
@@ -421,16 +414,18 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 3-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0 };
+        // Step 5: Groq 5-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 3-stage post-processing...');
+            logs.push('Starting Groq 5-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
             logs.push(`Groq Stage 1 (Vocab) fixes: ${groqFixes.stage1}`);
             logs.push(`Groq Stage 2 (Syntax) fixes: ${groqFixes.stage2}`);
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
+            logs.push(`Groq Stage 4 (Starters) fixes: ${groqFixes.stage4}`);
+            logs.push(`Groq Stage 5 (Lexical) fixes: ${groqFixes.stage5}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
@@ -441,18 +436,15 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
-        // Gather actual model usage from the utility files
         const geminiUsage = getGeminiUsage();
         const groqUsage = getGroqModelUsage();
 
-        // Format model usage for UI display
         const formatUsage = (usage) => {
             return Object.entries(usage).map(([model, stats]) => 
                 `${model} (${stats.success} ok, ${stats.failed} fail)`
             );
         };
 
-        // Construct the "humanizer" network result object
         const humanizerNetworkResult = {
             executionTimeMs: totalTimeMs,
             executionTimeSec: (totalTimeMs / 1000).toFixed(2),
