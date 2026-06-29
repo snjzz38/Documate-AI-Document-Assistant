@@ -218,7 +218,9 @@ const AI_STERILE_SWAPS = {
     "functioning as": "acting as",
     "act outside of": "exist outside of",
     "truly remarkable": "highly effective",
-    "remarkable accomplishment": "major accomplishment"
+    "remarkable accomplishment": "major accomplishment",
+    "fabric of the universe": "structure of reality",
+    "fabric of reality": "structure of reality"
 };
 
 /**
@@ -288,12 +290,13 @@ Make sure your returned object contains the exact replacement, and that applying
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
-6. TAUTOLOGIES: Phrases like "circular shape of circles" or "math's mathematical". Fix them to be concise.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate sentences.
+6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
+7. TAUTOLOGIES: Phrases like "circular shape of circles". Fix them to be concise.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2 or MORE consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
@@ -308,6 +311,7 @@ Return a JSON object where keys are the EXACT original disjointed sentences (joi
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
 2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
+3. Sentences start with "This perspective suggests" or "An opposing perspective suggests". Rewrite them to be direct.
 Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
 const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -378,6 +382,7 @@ export default async function handler(req, res) {
     resetGroqModelUsage();
 
     try {
+        // Frontend only sends { text, apiKey }. We use the server env for Groq.
         const { text, apiKey, groqApiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
         const GROQ_KEY = groqApiKey || process.env.GROQ_API_KEY;
