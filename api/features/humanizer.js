@@ -358,7 +358,8 @@ export default async function handler(req, res) {
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED, using original`);
+                // ADD err.message HERE SO WE CAN SEE WHY IT'S FAILING
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message}), using original`);
                 humanizedChunks.push(chunks[i]);
             }
         }
