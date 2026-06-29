@@ -302,7 +302,7 @@ Return ONLY the raw JSON object, no explanation, no markdown.`;
             stage.calls += 1;
             stats.totals.httpRequests += 1;
             try {
-                const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=8&mailto=research@example.com`;
+                const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&mailto=research@example.com`;
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 10000);
 
