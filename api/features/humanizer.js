@@ -146,26 +146,25 @@ function applyJsonReplacements(text, jsonMap) {
 // ==========================================================================
 
 /**
- * Builds a highly constrained prompt for naturalizing a chunk of text.
+ * Builds a prompt that prioritizes human unpredictability over perfect academic structure.
  */
 function buildChunkPrompt(chunk) {
-    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
+    return `Rewrite the following text to sound exactly like a human writing a quick, direct thought process. Do NOT sound like a textbook or an AI. Prioritize erratic, highly varied sentence lengths (burstiness) and direct, slightly blunt phrasing over sounding perfectly polished.
 
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. FOCUS ON CLARITY: Write clearly and naturally. Do NOT output broken grammar or clunky syntax.
-3. NO LISTS OF THREE: Never list three items (A, B, and C). Use two items, or separate sentences.
-4. NO EM DASHES (—) or SEMICOLONS (;). Use periods or commas instead.
-5. NO COMMA CHAINS: A sentence must not have more than one comma.
-6. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions (e.g., "with mathematics acting as..."). Break them into separate sentences.
-7. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb (e.g., "..., making it important").
-8. NO CLICHÉS: Never use "fabric of the universe", "dynamic interplay", or "vast landscape".
-9. NEVER start consecutive sentences with the same word.
-
-Use contractions naturally ONLY if the original text uses them or if the tone is casual.
+1. Output ONLY the rewritten text.
+2. BURSTINESS: Drastically vary sentence lengths. Mix very short, blunt sentences (3-4 words) with longer ones. Do not use a uniform rhythm.
+3. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+4. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
+5. NO EM DASHES (—) or SEMICOLONS (;). 
+6. NO COMMA CHAINS: A sentence must not have more than one comma.
+7. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+8. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+9. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", or "Furthermore".
+10. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -264,37 +263,36 @@ function postProcess(text) {
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
-Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives. 
-CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense) so applying it verbatim won't lead to grammar mistakes. Do not fix punctuation. If none, return {}.`;
+CRITICAL: You MUST flag and replace the following words if they appear: "remarkable", "profound", "woven", "fabric", "dynamic", "interplay", "vast", "landscape". Replace them with plain, literal alternatives.
+Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural alternatives. Ensure grammatical context matches. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma (excluding a simple two-item list). Break these into separate, shorter sentences using periods.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential or share a subject, combine them using a comma and a conjunction.
+2. If you find two separated sentences that are logically sequential, combine them using a comma and a conjunction.
 CRITICAL RULES: 
 - NEVER use ", which" to combine sentences.
-- NEVER create run-on sentences or dangling clauses.
-- Ensure the resulting grammar and punctuation are perfect.
+- NEVER create run-on sentences.
+- NEVER duplicate or repeat a sentence.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
-2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "Ultimately,").
-Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "Ultimately,", "Similarly,", "In this view,").
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
 
 const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where:
-1. The same word root is repeated multiple times in close proximity (e.g., "logic", "logically").
-2. The exact same phrase or wording is repeated in multiple sentences (e.g., using "dynamic balance" in two separate sentences).
-Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
-CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context so applying it verbatim won't lead to grammar mistakes. If none, return {}.`;
+1. The same word root is repeated multiple times in close proximity.
+2. The exact same phrase or concept is repeated in multiple sentences (redundancy).
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms. Ensure grammatical context matches. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
