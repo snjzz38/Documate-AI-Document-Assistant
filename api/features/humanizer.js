@@ -186,7 +186,7 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 
 // ==========================================================================
 // 5. REGEX POST-PROCESSING MODULE
-// ==========================================================================
+// =========================================================================//
 
 const AI_STERILE_SWAPS = {
     "regarding": "about",
@@ -204,11 +204,17 @@ const AI_STERILE_SWAPS = {
     "act outside of": "exist outside of",
     "environmental world": "natural world",
     "mortal invention": "human invention",
-    "endless terrain": "many areas"
+    "endless terrain": "many areas",
+    "infinite landscape": "many areas",
+    "vast landscape": "many areas"
 };
 
 function cleanTextMechanics(text) {
     let result = text;
+
+    // Strip LaTeX formatting (e.g., \( \pi \) -> pi)
+    result = result.replace(/\\\(|\\\)|\\\[|\\\]/g, '');
+    result = result.replace(/\\pi/g, 'pi');
 
     // STRICT EM-DASH BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
@@ -234,8 +240,6 @@ function cleanTextMechanics(text) {
     // GRAMMAR FIXES
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    
-    // Fix "a [plural noun]" -> remove the "a" (basic heuristic for Groq errors like "a mental calculations")
     result = result.replace(/\ba ([a-zA-Z]+s)(\s|,|\.)/g, '$1$2');
 
     // SPACING & CAPITALIZATION
@@ -265,11 +269,10 @@ CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical con
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. Excessive ", which" clauses (more than 1 per paragraph).
-3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-4. "With [noun] [verb]ing" constructions. Break them into separate sentences.
-5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
-6. CLICHÉS: "woven into the fabric", "endless terrain", "vast landscape". Replace with literal descriptions.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
+3. Excessive ", which" clauses (more than 1 per paragraph).
+4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
+5. COMMA CHAINS: Any sentence containing more than one comma (excluding a simple two-item list). Break these into separate, shorter sentences using periods.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
@@ -284,10 +287,12 @@ Return a JSON object where keys are the EXACT original disjointed sentences (joi
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
-2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "In contrast,").
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "Ultimately,").
 Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical"). 
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where:
+1. The same word root is repeated multiple times in close proximity (e.g., "logic", "logically").
+2. The exact same phrase or wording is repeated in multiple sentences (e.g., using "dynamic balance" in two separate sentences).
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
 CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context so applying it verbatim won't lead to grammar mistakes. If none, return {}.`;
 
