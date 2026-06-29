@@ -148,44 +148,38 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
-/**
- * Builds a highly constrained prompt for naturalizing a chunk of text.
- */
-function buildChunkPrompt(chunk) {
-    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
+const STYLE_HINTS = [
+    "Write with a slightly more analytical and direct tone. Focus on clear, logical progression.",
+    "Vary your sentence lengths drastically. Include one very short, punchy sentence for emphasis.",
+    "Adopt a straightforward, explanatory tone. Avoid flowery language entirely.",
+    "Use a slightly more conversational academic tone, as if explaining a concept to a peer.",
+    "Focus on concise, factual statements. Strip away any unnecessary modifiers."
+];
 
-TEXT TO REWRITE:
+/**
+ * Builds a prompt that includes full context and a randomized style hint.
+ */
+function buildChunkPrompt(chunk, originalText) {
+    const randomHint = STYLE_HINTS[Math.floor(Math.random() * STYLE_HINTS.length)];
+    
+    return `You are humanizing a portion of a larger text. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if academic, keep it academic; do not add rhetorical questions).
+
+CONTEXT (Original Full Text for reference - do NOT rewrite this, only use it to understand the flow):
+"${originalText}"
+
+CHUNK TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. NO COMMA GLUING: Do NOT use commas to glue independent clauses together. If a sentence has two distinct subjects/verbs, use a period to split it into two sentences.
-3. NO TRANSITION STARTERS: NEVER start a sentence with a transition word followed by a comma (e.g., DO NOT start with "However,", "Therefore,", "Thus,", "Moreover,"). Integrate the transition naturally into the sentence or omit it.
-4. LEXICAL VARIETY: Do NOT repeat word roots in the same chunk (e.g., if you use "logic", do not use "logically" or "logical" again in that same chunk). Use synonyms instead.
-5. ", WHICH" LIMIT: You may use ", which" sparingly (maximum once per paragraph). Do not use it repeatedly.
-6. PARTICIPIAL PHRASES: NEVER use ", [verb]ing" (e.g., DO NOT write "perspectives, acting as a bridge"). You MUST use "and [verb]" instead.
-7. NO REDUNDANCY: Do not repeat the same premise or clause in consecutive sentences.
-8. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection"). Keep descriptions literal and factual.
-9. COMPARISONS: When comparing two subjects across two short sentences, combine them using ", while" or ", whereas".
-10. SENTENCE OPENER VARIETY: NEVER start consecutive sentences with the same word. Do not start every sentence with "The" or the main subject.
-11. NEVER use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-12. NEVER use "Both X and Y" structures. Just say "X and Y".
-13. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
-14. NEVER use semicolons (;) or em dashes (— or -).
-15. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-16. NEVER use imperative pivots ("Consider the...", "Think of a..."). State the information directly.
+1. Output ONLY the rewritten text. No commentary.
+2. FOCUS ON CLARITY: Write clearly and naturally. Do NOT output broken grammar or clunky syntax.
+3. NO LISTS OF THREE: Never list three items (A, B, and C). Use two items, or separate sentences.
+4. NO EM DASHES (—) or SEMICOLONS (;). Use periods or commas instead.
+5. NO COMMA CHAINS: A sentence must not have more than one comma.
+6. STYLE INSTRUCTION: ${randomHint}
 
-VOCABULARY STYLE GUIDE:
-- Replace "serving as" or "functioning as" with "acting as" or "used as".
-- Replace formal words with common equivalents ("emerged" -> "came about", "utilize" -> "use").
-- NEVER use dramatic adjectives ("startling", "profound", "vast").
-- NEVER repeat metaphors ("acts as a bridge", "fabric of the universe", "dynamic interplay").
-
-Use contractions naturally ONLY if the original text uses them or if the tone is casual.
-
-Output ONLY the rewritten text:`;
+Output ONLY the rewritten chunk:`;
 }
-
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
@@ -194,8 +188,8 @@ Output ONLY the rewritten text:`;
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
  */
-async function humanizeChunk(chunk, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk);
+async function humanizeChunk(chunk, originalText, apiKey, temperature) {
+    const prompt = buildChunkPrompt(chunk, originalText);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
@@ -289,21 +283,23 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. Excessive ", which" clauses (more than 1 per paragraph).
 3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
 4. "With [noun] [verb]ing" constructions.
-5. COMMA GLUING/CHAINS: Any sentence containing more than one comma that glues independent clauses together. Break these into separate, shorter sentences using periods.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.`;
+5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar is perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs or groups of consecutive disjointed sentences. 
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
 2. If you find two separated sentences that are logically sequential or share a subject (e.g., "Math is a tool. Abstract concepts help us think."), combine them using a comma and a conjunction (e.g., "Math is a tool, and abstract concepts help us think.").
-CRITICAL RULE: NEVER use ", which" to combine sentences. 
+CRITICAL RULES: 
+- NEVER use ", which" to combine sentences.
+- NEVER create run-on sentences or dangling clauses.
+- Ensure the resulting grammar is perfect.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word, OR start with a transition word followed by a comma (e.g., "However,", "Therefore,"). 
-Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase (e.g., starting with a prepositional phrase or dependent clause). If none, return {}.`;
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
-// NEW STAGE 5: Lexical Variety
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical" within a few sentences of each other). 
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical" within a few sentences). 
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
@@ -339,7 +335,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
 
-    // Stage 5: Lexical variety
     const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
@@ -397,7 +392,8 @@ export default async function handler(req, res) {
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
             try {
-                const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
+                // Pass the original text alongside the chunk
+                const humanized = await humanizeChunk(chunks[i], text, GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
