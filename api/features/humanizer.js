@@ -184,6 +184,7 @@ STRICT RULES:
 Output ONLY the rewritten chunk:`;
 }
 
+
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
@@ -220,6 +221,9 @@ const AI_STERILE_SWAPS = {
     "remarkable accomplishment": "major accomplishment"
 };
 
+/**
+ * Cleans text mechanics (punctuation, grammar, double words).
+ */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -239,11 +243,11 @@ function cleanTextMechanics(text) {
     }
 
     // FIX GROQ REPLACEMENT ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.');
-    result = result.replace(/,{2,}/g, ',');
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
-    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1');
+    result = result.replace(/\.{2,}/g, '.'); // Double periods
+    result = result.replace(/,{2,}/g, ','); // Double commas
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
 
     // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
@@ -263,6 +267,16 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
+/**
+ * Main post-processing function.
+ */
+function postProcess(text) {
+    let result = text;
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    return cleanTextMechanics(result);
+}
+
 
 // ==========================================================================
 // 6. GROQ 5-STAGE SANITY CHECKER MODULE
@@ -274,12 +288,12 @@ Make sure your returned object contains the exact replacement, and that applying
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate sentences.
+5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
 6. TAUTOLOGIES: Phrases like "circular shape of circles" or "math's mathematical". Fix them to be concise.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2 or MORE consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
@@ -392,7 +406,6 @@ export default async function handler(req, res) {
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                // Added err.message so we can see exactly why it fails if it ever does again
                 logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
                 humanizedChunks.push(chunks[i]);
             }
