@@ -159,21 +159,21 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items). If you need more commas, split the sentence into two.
-3. ", WHICH" LIMIT: You may use ", which" sparingly (maximum once per paragraph). Do not use it repeatedly.
-4. PARTICIPIAL PHRASES: NEVER use ", [verb]ing" (e.g., DO NOT write "perspectives, acting as a bridge"). You MUST use "and [verb]" instead (e.g., "perspectives and acts as a bridge").
-5. NO REDUNDANCY: Do not repeat the same premise, phrase, or clause in consecutive sentences. State an idea once and move on.
-6. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection" or "act outside of consciousness"). Keep descriptions literal and factual (e.g., "exist outside of consciousness").
-7. COMPARISONS: When comparing two subjects across two short sentences, combine them using ", while" or ", whereas".
-8. NEVER start consecutive sentences with the same word. Vary your sentence openers.
-9. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). 
-10. NEVER use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-11. NEVER use "Both X and Y" structures. Just say "X and Y".
-12. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
-13. NEVER use semicolons (;) or em dashes (— or -).
-14. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
-15. NEVER use imperative pivots ("Consider the...", "Think of a..."). State the information directly.
-16. Do NOT use formulaic transitions ("Others maintain that", "This perspective suggests"). State the idea directly.
+2. NO COMMA GLUING: Do NOT use commas to glue independent clauses together. If a sentence has two distinct subjects/verbs, use a period to split it into two sentences.
+3. NO TRANSITION STARTERS: NEVER start a sentence with a transition word followed by a comma (e.g., DO NOT start with "However,", "Therefore,", "Thus,", "Moreover,"). Integrate the transition naturally into the sentence or omit it.
+4. LEXICAL VARIETY: Do NOT repeat word roots in the same chunk (e.g., if you use "logic", do not use "logically" or "logical" again in that same chunk). Use synonyms instead.
+5. ", WHICH" LIMIT: You may use ", which" sparingly (maximum once per paragraph). Do not use it repeatedly.
+6. PARTICIPIAL PHRASES: NEVER use ", [verb]ing" (e.g., DO NOT write "perspectives, acting as a bridge"). You MUST use "and [verb]" instead.
+7. NO REDUNDANCY: Do not repeat the same premise or clause in consecutive sentences.
+8. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection"). Keep descriptions literal and factual.
+9. COMPARISONS: When comparing two subjects across two short sentences, combine them using ", while" or ", whereas".
+10. SENTENCE OPENER VARIETY: NEVER start consecutive sentences with the same word. Do not start every sentence with "The" or the main subject.
+11. NEVER use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+12. NEVER use "Both X and Y" structures. Just say "X and Y".
+13. NEVER use lists of three items. Use two items joined by "and", or use separate sentences.
+14. NEVER use semicolons (;) or em dashes (— or -).
+15. NEVER use the "Not X. It is not Y. It is Z." repetitive negation structure.
+16. NEVER use imperative pivots ("Consider the...", "Think of a..."). State the information directly.
 
 VOCABULARY STYLE GUIDE:
 - Replace "serving as" or "functioning as" with "acting as" or "used as".
@@ -277,35 +277,34 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ 4-STAGE SANITY CHECKER MODULE
+// 6. GROQ 5-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents", "serving as"). 
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
 Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
-Examples of good replacements: "emerged" -> "came about", "serving as" -> "acting as". 
-Do not fix grammar or punctuation, only vocabulary. If none, return {}.
-Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
 2. Excessive ", which" clauses (more than 1 per paragraph).
-3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]" (e.g., "perspectives and acts as...").
+3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
 4. "With [noun] [verb]ing" constructions.
-5. 'Not only... but also' and 'isn't X, it's Y' structures.
-6. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.
-Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
+5. COMMA GLUING/CHAINS: Any sentence containing more than one comma that glues independent clauses together. Break these into separate, shorter sentences using periods.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs or groups of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
 2. If you find two separated sentences that are logically sequential or share a subject (e.g., "Math is a tool. Abstract concepts help us think."), combine them using a comma and a conjunction (e.g., "Math is a tool, and abstract concepts help us think.").
 CRITICAL RULE: NEVER use ", which" to combine sentences. 
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.
-Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.
-Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word, OR start with a transition word followed by a comma (e.g., "However,", "Therefore,"). 
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase (e.g., starting with a prepositional phrase or dependent clause). If none, return {}.`;
+
+// NEW STAGE 5: Lexical Variety
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically", "logical" within a few sentences of each other). 
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -322,7 +321,7 @@ async function groqChat(text, groqKey, instructions) {
 
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
 
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
@@ -340,8 +339,12 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
 
-    // Run the mechanics cleaner ONE more time to fix any grammar/punctuation 
-    // artifacts introduced by Groq's strict replacements.
+    // Stage 5: Lexical variety
+    const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
+    currentText = applyJsonReplacements(currentText, s5);
+    fixes.stage5 = Object.keys(s5).length;
+
+    // Final clean up of any artifacts
     currentText = cleanTextMechanics(currentText);
 
     return { text: currentText, fixes };
