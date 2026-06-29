@@ -164,14 +164,14 @@ function applyJsonReplacements(text, jsonMap) {
  * Builds a highly constrained prompt for naturalizing a chunk of text.
  */
 function buildChunkPrompt(chunk) {
-    return `Rewrite the following text to sound exactly like a human writing a quick, direct thought process. Do NOT sound like a textbook or an AI. Prioritize erratic, highly varied sentence lengths (burstiness) and direct, slightly blunt phrasing over sounding perfectly polished.
+    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text.
-2. BURSTINESS: Drastically vary sentence lengths. Mix very short, blunt sentences (3-4 words) with longer ones. Do not use a uniform rhythm.
+1. Output ONLY the rewritten text. No commentary.
+2. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
 3. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
 4. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
 5. NO EM DASHES (—) or SEMICOLONS (;). 
@@ -183,7 +183,6 @@ STRICT RULES:
 
 Output ONLY the rewritten chunk:`;
 }
-
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
@@ -216,12 +215,11 @@ const AI_STERILE_SWAPS = {
     "persist outside the mind": "exist outside the mind",
     "serving as": "acting as",
     "functioning as": "acting as",
-    "act outside of": "exist outside of"
+    "act outside of": "exist outside of",
+    "truly remarkable": "highly effective",
+    "remarkable accomplishment": "major accomplishment"
 };
 
-/**
- * Cleans text mechanics (punctuation, grammar, double words).
- */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -241,16 +239,19 @@ function cleanTextMechanics(text) {
     }
 
     // FIX GROQ REPLACEMENT ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.'); // Double periods
-    result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
-    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
+    result = result.replace(/\.{2,}/g, '.');
+    result = result.replace(/,{2,}/g, ',');
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1');
 
-    // GRAMMAR FIXES
+    // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    result = result.replace(/\ba ([a-zA-Z]+s)(\s|,|\.)/g, '$1$2');
+    // Specific fix for 'u' words that sound like 'y' (e.g., "an useful" -> "a useful")
+    result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+    // Fix missing 'a' in "as means of"
+    result = result.replace(/\bas means of/gi, 'as a means of');
 
     // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -260,16 +261,6 @@ function cleanTextMechanics(text) {
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
 
     return result.trim();
-}
-
-/**
- * Main post-processing function.
- */
-function postProcess(text) {
-    let result = text;
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
-    return cleanTextMechanics(result);
 }
 
 
@@ -283,33 +274,31 @@ Make sure your returned object contains the exact replacement, and that applying
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items, or split them into separate sentences.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences using periods.
-6. CLICHÉS: "woven into the fabric", "endless terrain", "vast landscape". Replace with literal descriptions.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate sentences.
+6. TAUTOLOGIES: Phrases like "circular shape of circles" or "math's mathematical". Fix them to be concise.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs of consecutive disjointed sentences. 
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2 or MORE consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
-1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential or share a subject, combine them using a comma and a conjunction.
+1. If you find sentences comparing two subjects, combine them using ", while" or ", whereas".
+2. If you find 2-3 separated sentences that are logically sequential or share a subject, combine them into one smooth sentence using a comma and a conjunction (e.g., "and", "so", "but").
 CRITICAL RULES: 
 - NEVER use ", which" to combine sentences.
-- NEVER create run-on sentences or dangling clauses.
+- NEVER create run-on sentences, dangling clauses, or tautologies.
 - Ensure the resulting grammar and punctuation are perfect.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
-2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,", "Ultimately,").
-Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar and punctuation are perfect. If none, return {}.`;
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where:
-1. The same word root is repeated multiple times in close proximity.
-2. The exact same phrase or concept is repeated in multiple sentences (redundancy).
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
-CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context so applying it verbatim won't lead to grammar mistakes. If none, return {}.`;
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
