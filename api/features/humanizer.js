@@ -117,18 +117,17 @@ function applyWordSwaps(text) {
  */
 function parseGroqJson(content) {
     try {
-        // Strip markdown code blocks if the model added them
         const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
         return JSON.parse(cleanJson);
     } catch (error) {
         console.error('Failed to parse Groq JSON:', error, '\nRaw:', content);
-        return {}; // Fail gracefully to empty object
+        return {};
     }
 }
 
 /**
  * Applies a JSON map of { "before": "after" } to a text string.
- * Replaces ONLY the first instance of a perfect match (with flexible whitespace).
+ * STRICT MATCH: Replaces ONLY the first instance of an exact string match.
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
@@ -136,10 +135,8 @@ function applyJsonReplacements(text, jsonMap) {
 
     for (const [before, after] of Object.entries(jsonMap)) {
         if (!before || !after) continue;
-        
-        // Escape regex special characters, but allow flexible whitespace \s+ between words
-        const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-        // No 'g' flag ensures it ONLY replaces the FIRST match
+        // Exact match, no fuzzy whitespace. 'i' flag for case insensitivity.
+        const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'i');
         result = result.replace(regex, after);
     }
@@ -162,11 +159,11 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary, no quotes around the output.
-2. ABSOLUTE BAN ON ", WHICH": NEVER use the word "which" preceded by a comma (e.g., DO NOT write "tools, which people use"). Break these into separate sentences or use "and".
-3. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items). If you need more commas, split the sentence into two.
+2. NO COMMA CHAINS: A sentence must NOT contain more than ONE comma (the only exception is a list of exactly two items). If you need more commas, split the sentence into two.
+3. ", WHICH" LIMIT: You may use ", which" sparingly (maximum once per paragraph). Do not use it repeatedly.
 4. PARTICIPIAL PHRASES: NEVER use ", [verb]ing" (e.g., DO NOT write "perspectives, acting as a bridge"). You MUST use "and [verb]" instead (e.g., "perspectives and acts as a bridge").
-5. NO REDUNDANCY: Do not repeat the same premise or concept in consecutive sentences. State an idea once and move on.
-6. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection"). Keep descriptions literal and factual.
+5. NO REDUNDANCY: Do not repeat the same premise, phrase, or clause in consecutive sentences. State an idea once and move on.
+6. NO HALLUCINATIONS: Do not add poetic or anthropomorphic phrases (e.g., DO NOT write "Realities wait for detection" or "act outside of consciousness"). Keep descriptions literal and factual (e.g., "exist outside of consciousness").
 7. COMPARISONS: When comparing two subjects across two short sentences, combine them using ", while" or ", whereas".
 8. NEVER start consecutive sentences with the same word. Vary your sentence openers.
 9. NEVER use nested relative clauses (e.g., "X, which is Y, a concept that does Z"). 
@@ -205,7 +202,7 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 
 
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE (Safety Net)
+// 5. REGEX POST-PROCESSING MODULE
 // ==========================================================================
 
 const AI_STERILE_SWAPS = {
@@ -220,15 +217,16 @@ const AI_STERILE_SWAPS = {
     "limitless sequence": "endless sequence",
     "persist outside the mind": "exist outside the mind",
     "serving as": "acting as",
-    "functioning as": "acting as"
+    "functioning as": "acting as",
+    "act outside of": "exist outside of"
 };
 
-function postProcess(text) {
+/**
+ * Cleans text mechanics (punctuation, grammar, double words).
+ * Extracted so it can be run BEFORE and AFTER Groq.
+ */
+function cleanTextMechanics(text) {
     let result = text;
-
-    // Normalize quotes/apostrophes
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
 
     // STRICT EM-DASH BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
@@ -245,34 +243,36 @@ function postProcess(text) {
         });
     }
 
-    // ===========================================
     // FIX GROQ REPLACEMENT ARTIFACTS
-    // ===========================================
-    // Fix double periods caused by overlapping replacements (e.g., ".." or "...")
-    result = result.replace(/\.{2,}/g, '.');
-    // Fix double commas
-    result = result.replace(/,{2,}/g, ',');
-    // Fix accidental double words (e.g., "the the", "and and")
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1');
-    // Fix accidental double transitions (e.g., "Also, the arrangement of X also...")
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2');
+    result = result.replace(/\.{2,}/g, '.'); // Double periods
+    result = result.replace(/,{2,}/g, ','); // Double commas
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
 
-    // Fix "a" vs "an" grammar errors
+    // GRAMMAR FIXES
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
 
-    // Fix missing space after comma/period
+    // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
-
-    // Ensure single space between sentences
     result = result.replace(/\s{2,}/g, ' ');
-
-    // Capitalize first letter of every sentence
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
 
     return result.trim();
+}
+
+/**
+ * Main post-processing function.
+ */
+function postProcess(text) {
+    let result = text;
+    // Normalize quotes/apostrophes first
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    
+    return cleanTextMechanics(result);
 }
 
 
@@ -283,25 +283,29 @@ function postProcess(text) {
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text (e.g., "utilize", "regarding", "represents", "serving as"). 
 Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
 Examples of good replacements: "emerged" -> "came about", "serving as" -> "acting as". 
-Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
+Do not fix grammar or punctuation, only vocabulary. If none, return {}.
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. ", which" relative clauses (e.g., "tools, which people use"). 
+2. Excessive ", which" clauses (more than 1 per paragraph).
 3. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]" (e.g., "perspectives and acts as...").
 4. "With [noun] [verb]ing" constructions.
 5. 'Not only... but also' and 'isn't X, it's Y' structures.
 6. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate, shorter sentences.
-Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.`;
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences WITHOUT using any of the banned conventions. If none, return {}.
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2-3 consecutive disjointed sentences. 
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato pairs or groups of consecutive disjointed sentences. 
 SPECIFIC INSTRUCTIONS:
 1. If you find two short sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find two separated sentences that are logically sequential, combine them using "and" or a natural transition.
+2. If you find two separated sentences that are logically sequential or share a subject (e.g., "Math is a tool. Abstract concepts help us think."), combine them using a comma and a conjunction (e.g., "Math is a tool, and abstract concepts help us think.").
 CRITICAL RULE: NEVER use ", which" to combine sentences. 
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.`;
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. Do not rewrite the whole text, only the disjointed parts. If none, return {}.
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.`;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where 2 or more consecutive sentences start with the exact same word (especially "The", "This", "It"). Return a JSON object where keys are the EXACT second or third repetitive sentences, and values are the rewritten sentences with a different, natural opening phrase. If none, return {}.
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -335,6 +339,10 @@ async function runGroqStages(text, groqKey) {
     const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
+
+    // Run the mechanics cleaner ONE more time to fix any grammar/punctuation 
+    // artifacts introduced by Groq's strict replacements.
+    currentText = cleanTextMechanics(currentText);
 
     return { text: currentText, fixes };
 }
