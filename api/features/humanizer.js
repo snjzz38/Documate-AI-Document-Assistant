@@ -175,13 +175,14 @@ Output ONLY the rewritten chunk:`;
 
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
+ * ENSURE ARGUMENT ORDER IS: (chunk, apiKey, temperature)
  */
 async function humanizeChunk(chunk, apiKey, temperature) {
     const prompt = buildChunkPrompt(chunk);
+    // ENSURE ARGUMENT ORDER IS: (prompt, apiKey, temperature)
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
-
 
 // ==========================================================================
 // 5. REGEX POST-PROCESSING MODULE (Lean & Mechanical Only)
@@ -353,13 +354,12 @@ export default async function handler(req, res) {
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
             try {
-                // Pass the original text alongside the chunk
-                const humanized = await humanizeChunk(chunks[i], text, GEMINI_KEY, temperature);
+                // ENSURE ARGUMENT ORDER IS: (chunk, GEMINI_KEY, temperature)
+                const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                // ADD err.message HERE SO WE CAN SEE WHY IT'S FAILING
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message}), using original`);
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
                 humanizedChunks.push(chunks[i]);
             }
         }
