@@ -132,14 +132,14 @@ function parseGroqJson(content) {
 /**
  * Applies a JSON map of { "before": "after" } to a text string.
  * STRICT MATCH: Replaces ONLY the first instance of an exact string match.
- * SAFETY: Ensures the replacement is a string to prevent [object Object] errors.
+ * SAFETY: Prevents [object Object] and JSON string injection.
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
     if (!jsonMap || typeof jsonMap !== 'object') return result;
 
     for (const [before, after] of Object.entries(jsonMap)) {
-        if (!before) continue;
+        if (!before || typeof before !== 'string') continue;
         
         let afterStr = after;
         if (typeof after === 'object' && after !== null) {
@@ -147,6 +147,9 @@ function applyJsonReplacements(text, jsonMap) {
         }
         
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
+
+        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings into the text
+        if (afterStr.includes('{') || afterStr.includes('}')) continue;
 
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'i');
@@ -223,9 +226,6 @@ const AI_STERILE_SWAPS = {
     "fabric of reality": "structure of reality"
 };
 
-/**
- * Cleans text mechanics (punctuation, grammar, double words).
- */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -250,13 +250,14 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
+    
+    // Fix "but However" or "but However,"
+    result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
 
     // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    // Specific fix for 'u' words that sound like 'y' (e.g., "an useful" -> "a useful")
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
-    // Fix missing 'a' in "as means of"
     result = result.replace(/\bas means of/gi, 'as a means of');
 
     // SPACING & CAPITALIZATION
@@ -269,19 +270,8 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
-/**
- * Main post-processing function.
- */
-function postProcess(text) {
-    let result = text;
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
-    return cleanTextMechanics(result);
-}
-
-
 // ==========================================================================
-// 6. GROQ 5-STAGE SANITY CHECKER MODULE
+// 6. GROQ 6-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
@@ -290,7 +280,7 @@ Make sure your returned object contains the exact replacement, and that applying
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
 1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items (e.g., "A, B, and C"). Reduce them to exactly TWO items.
+2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
 5. COMMA CHAINS: Any sentence containing more than one comma. Break these into separate sentences.
@@ -318,6 +308,10 @@ const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where t
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
 CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
 
+// NEW STAGE 6: Grammar & Typos
+const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), sentence fragments, or broken syntax (e.g., "but However,"). 
+Return a JSON object where keys are the EXACT broken sentences, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
+
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
@@ -333,7 +327,7 @@ async function groqChat(text, groqKey, instructions) {
 
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
 
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
@@ -354,6 +348,11 @@ async function runGroqStages(text, groqKey) {
     const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
+
+    // Stage 6: Grammar and Typos
+    const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
+    currentText = applyJsonReplacements(currentText, s6);
+    fixes.stage6 = Object.keys(s6).length;
 
     currentText = cleanTextMechanics(currentText);
 
@@ -421,10 +420,10 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 5-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
+        // Step 5: Groq 6-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 5-stage post-processing...');
+            logs.push('Starting Groq 6-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
@@ -433,6 +432,7 @@ export default async function handler(req, res) {
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
             logs.push(`Groq Stage 4 (Starters) fixes: ${groqFixes.stage4}`);
             logs.push(`Groq Stage 5 (Lexical) fixes: ${groqFixes.stage5}`);
+            logs.push(`Groq Stage 6 (Grammar) fixes: ${groqFixes.stage6}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
