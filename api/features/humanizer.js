@@ -128,17 +128,31 @@ function parseGroqJson(content) {
 /**
  * Applies a JSON map of { "before": "after" } to a text string.
  * STRICT MATCH: Replaces ONLY the first instance of an exact string match.
+ * SAFETY: Ensures the replacement is a string to prevent [object Object] errors.
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
     if (!jsonMap || typeof jsonMap !== 'object') return result;
 
     for (const [before, after] of Object.entries(jsonMap)) {
-        if (!before || !after) continue;
+        // Skip if the key is invalid
+        if (!before) continue;
+        
+        // CRITICAL FIX: Ensure 'after' is a string. 
+        // If Groq returned a nested object, try to extract a string value from it.
+        let afterStr = after;
+        if (typeof after === 'object' && after !== null) {
+            // If it's an object, grab the first string value we can find
+            afterStr = Object.values(after).find(v => typeof v === 'string') || '';
+        }
+        
+        // If we couldn't find a valid string replacement, skip this pair
+        if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
+
         // Exact match, no fuzzy whitespace. 'i' flag for case insensitivity.
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'i');
-        result = result.replace(regex, after);
+        result = result.replace(regex, afterStr);
     }
     return result;
 }
