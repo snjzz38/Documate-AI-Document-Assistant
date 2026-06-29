@@ -81,13 +81,9 @@ const AI_VOCAB_SWAPS = {
 // 2. TEXT UTILITIES MODULE
 // ==========================================================================
 
-/**
- * Splits text into chunks of sentences without breaking on common abbreviations.
- */
 function splitIntoChunks(text, sentencesPerChunk = 4) {
     const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$|\n)/g;
     const sentences = text.match(sentenceRegex) || [text];
-    
     const chunks = [];
     for (let i = 0; i < sentences.length; i += sentencesPerChunk) {
         chunks.push(sentences.slice(i, i + sentencesPerChunk).join(' ').trim());
@@ -95,9 +91,6 @@ function splitIntoChunks(text, sentencesPerChunk = 4) {
     return chunks.filter(c => c.length > 0);
 }
 
-/**
- * Replaces banned AI words while preserving the original capitalization.
- */
 function applyWordSwaps(text) {
     let result = text;
     for (const [bad, good] of Object.entries(AI_VOCAB_SWAPS)) {
@@ -112,9 +105,6 @@ function applyWordSwaps(text) {
     return result;
 }
 
-/**
- * Safely parses a string into a JSON object.
- */
 function parseGroqJson(content) {
     try {
         const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
@@ -128,28 +118,21 @@ function parseGroqJson(content) {
 /**
  * Applies a JSON map of { "before": "after" } to a text string.
  * STRICT MATCH: Replaces ONLY the first instance of an exact string match.
- * SAFETY: Ensures the replacement is a string to prevent [object Object] errors.
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
     if (!jsonMap || typeof jsonMap !== 'object') return result;
 
     for (const [before, after] of Object.entries(jsonMap)) {
-        // Skip if the key is invalid
         if (!before) continue;
         
-        // CRITICAL FIX: Ensure 'after' is a string. 
-        // If Groq returned a nested object, try to extract a string value from it.
         let afterStr = after;
         if (typeof after === 'object' && after !== null) {
-            // If it's an object, grab the first string value we can find
             afterStr = Object.values(after).find(v => typeof v === 'string') || '';
         }
-        
-        // If we couldn't find a valid string replacement, skip this pair
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
 
-        // Exact match, no fuzzy whitespace. 'i' flag for case insensitivity.
+        // Escape regex characters for exact match
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const regex = new RegExp(escaped, 'i');
         result = result.replace(regex, afterStr);
