@@ -3,7 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies safe 5-stage post-processing.
+// phrasing via strict prompt engineering, and applies safe 6-stage post-processing.
 // ==========================================================================
 
 /* 
@@ -29,12 +29,13 @@
    - cleanTextMechanics(): Light, safe cleanup of punctuation and grammar.
    - postProcess(): Main regex wrapper.
    
-6. GROQ 5-STAGE SANITY CHECKER MODULE
+6. GROQ 6-STAGE SANITY CHECKER MODULE
    - Stage 1: Vocabulary context fixes.
    - Stage 2: Syntactic AI tells (lists, em dashes, participles, etc.).
    - Stage 3: Staccato flow and transition fixes.
    - Stage 4: Repetitive sentence starters.
    - Stage 5: Lexical variety (root word repetition).
+   - Stage 6: Grammar and typo correction.
    
 7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -226,6 +227,9 @@ const AI_STERILE_SWAPS = {
     "fabric of reality": "structure of reality"
 };
 
+/**
+ * Cleans text mechanics (punctuation, grammar, double words).
+ */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -257,7 +261,9 @@ function cleanTextMechanics(text) {
     // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
+    // Specific fix for 'u' words that sound like 'y' (e.g., "an useful" -> "a useful")
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+    // Fix missing 'a' in "as means of"
     result = result.replace(/\bas means of/gi, 'as a means of');
 
     // SPACING & CAPITALIZATION
@@ -269,6 +275,17 @@ function cleanTextMechanics(text) {
 
     return result.trim();
 }
+
+/**
+ * Main post-processing function.
+ */
+function postProcess(text) {
+    let result = text;
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    return cleanTextMechanics(result);
+}
+
 
 // ==========================================================================
 // 6. GROQ 6-STAGE SANITY CHECKER MODULE
@@ -308,7 +325,6 @@ const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where t
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
 CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
 
-// NEW STAGE 6: Grammar & Typos
 const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), sentence fragments, or broken syntax (e.g., "but However,"). 
 Return a JSON object where keys are the EXACT broken sentences, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
 
