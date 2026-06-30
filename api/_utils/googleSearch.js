@@ -40,7 +40,6 @@ const GENERIC_WORDS = new Set([
     'pillar', 'foundation', 'key', 'tool'
 ]);
 
-// Updated to 8 as requested
 const MINIMUM_RESULTS = 8; 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -64,7 +63,14 @@ export const GoogleSearchAPI = {
         stats.queriesGenerated = queries.length;
 
         // OPTIMIZATION: We only make ONE OpenAlex call now.
-        const singleQuery = queries[0] || brief?.central_question || query;
+        // CRITICAL FIX: Ensure we NEVER pass the full essay text to OpenAlex.
+        let singleQuery = queries[0];
+        if (!singleQuery && brief?.central_question) {
+            singleQuery = brief.central_question;
+        }
+        if (!singleQuery) {
+            singleQuery = this._buildFallbackQuery(query);
+        }
 
         // Stage 3: Fetch from OpenAlex
         const openAlexResults = await this._searchOpenAlex(singleQuery, stats);
@@ -74,7 +80,7 @@ export const GoogleSearchAPI = {
         const scoredResults = this._filterAndScore(openAlexResults);
         stats.results.afterScoring = scoredResults.length;
 
-        // Stage 5: AI Relevance Filter (Now explicitly asks for 8 sources)
+        // Stage 5: AI Relevance Filter
         const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
         stats.results.afterFilter = relevantResults.length;
 
@@ -98,7 +104,7 @@ export const GoogleSearchAPI = {
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 3: STAGE 1 - TOPIC ANALYSIS
+    // MODULE 3: STAGE 1 - TOPIC ANALYSIS (YOUR GENERAL PROMPT)
     // ════════════════════════════════════════════════════════════════════════
 
     async _analyzeTopic(text, groqKey, stats) {
@@ -186,20 +192,6 @@ OUTPUT RULES:
 - Return ONLY valid JSON.
 - No commentary, no markdown.
 - All fields must be filled; if uncertain, choose the most precise plausible interpretation.
-
-CRITICAL DOMAIN CONSISTENCY RULE:
-
-All selected papers MUST belong to the same general research domain and problem space as the essay.
-
-Do NOT select:
-- high-quality papers from unrelated disciplines
-- general theoretical frameworks not used in the essay’s field
-- “famous” methods or theories unless directly applicable
-
-A paper is ONLY valid if it:
-- addresses the same type of system, phenomenon, or problem
-- OR uses a method directly applicable to the essay’s argument
-- OR is explicitly used as a comparative/contrasting framework in the essay
 `;
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -260,8 +252,11 @@ A paper is ONLY valid if it:
         stats.totals.httpRequests += 1;
 
         try {
-            // Single call, 50 results, sorted by most cited, strict OA + abstract filters
-            const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=has_abstract:true,is_oa:true&sort=cited_by_count:desc&per-page=50&mailto=research@example.com`;
+            // CRITICAL FIX: Removed &sort=cited_by_count:desc
+            // When you sort by citations, OpenAlex ignores relevance and just returns 
+            // the most cited papers in the entire database (which are almost always broad overviews).
+            // Removing it forces OpenAlex to rank by actual relevance to your specific query.
+            const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=has_abstract:true,is_oa:true&per-page=50&mailto=research@example.com`;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 12000);
 
@@ -276,7 +271,6 @@ A paper is ONLY valid if it:
             stage.ms = Date.now() - start;
 
             for (const work of (data.results || [])) {
-                // Client-side safety check to ensure we have an abstract and it's actually OA
                 if (!work.abstract_inverted_index || work.open_access?.is_oa !== true) continue;
 
                 const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
@@ -347,35 +341,29 @@ A paper is ONLY valid if it:
             const linkLower = (r.link || '').toLowerCase();
             const venueLower = (r.venue || '').toLowerCase();
             
-            // Boost preferred academic domains
             if (PREFERRED_DOMAINS.some(d => linkLower.includes(d) || venueLower.includes(d))) {
                 score += 10;
             }
-            
-            // Boost papers with substantial abstracts
             if (r.snippet && r.snippet.length > 150) {
                 score += 5;
             }
             
-            // Recency bonus (NO PENALTY FOR OLD PAPERS - crucial for philosophy!)
             const currentYear = new Date().getFullYear();
             if (r.year) {
                 if (r.year >= currentYear - 5) score += 3;
                 else if (r.year >= currentYear - 10) score += 1;
-                // REMOVED: else if (r.year < 2000) score -= 2;
             }
 
             r._score = score;
         });
 
-        // Pass top 30 to Groq
         return filtered
             .sort((a, b) => b._score - a._score)
             .slice(0, 30);
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (STRICT SELECTION)
+    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (YOUR GENERAL PROMPT + ENHANCEMENTS)
     // ════════════════════════════════════════════════════════════════════════
 
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
@@ -407,7 +395,7 @@ ESSAY TOPIC:
 
             const targetCount = Math.min(8, results.length);
 
-const prompt = `You are an expert academic research assistant.
+            const prompt = `You are an expert academic research assistant.
 
 Your task is to select the EXACTLY ${targetCount} MOST USEFUL academic papers for writing a strong student essay based on the provided research context.
 
@@ -436,7 +424,7 @@ A bad paper:
 - Matches keywords but addresses a different problem
 - Is purely historical or descriptive without analytical contribution
 - Is about education, teaching methods, or pedagogy (unless the essay is about education)
-- Is a general overview or textbook-style summary
+- Is a general overview, literature review, or textbook-style summary (STRICTLY REJECT titles containing "An overview", "A review", "Introduction to", "Survey of", or "Handbook")
 - Is only loosely related through terminology overlap
 
 SELECTION RULES:
@@ -465,20 +453,6 @@ SELECTION RULES:
 
 OUTPUT FORMAT:
 Return ONLY a JSON array of exactly ${targetCount} index numbers.
-
-CRITICAL DOMAIN CONSISTENCY RULE:
-
-All selected papers MUST belong to the same general research domain and problem space as the essay.
-
-Do NOT select:
-- high-quality papers from unrelated disciplines
-- general theoretical frameworks not used in the essay’s field
-- “famous” methods or theories unless directly applicable
-
-A paper is ONLY valid if it:
-- addresses the same type of system, phenomenon, or problem
-- OR uses a method directly applicable to the essay’s argument
-- OR is explicitly used as a comparative/contrasting framework in the essay
 
 Example:
 [0, 2, 5, 7, 12, 15, 18, 21]`;
