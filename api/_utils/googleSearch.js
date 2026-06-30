@@ -40,7 +40,8 @@ const GENERIC_WORDS = new Set([
     'pillar', 'foundation', 'key', 'tool'
 ]);
 
-const MINIMUM_RESULTS = 6; 
+// Updated to 8 as requested
+const MINIMUM_RESULTS = 8; 
 
 // ════════════════════════════════════════════════════════════════════════════
 // MODULE 2: CORE INTERFACE
@@ -63,19 +64,17 @@ export const GoogleSearchAPI = {
         stats.queriesGenerated = queries.length;
 
         // OPTIMIZATION: We only make ONE OpenAlex call now.
-        // We use queries[0] (a 4-8 word optimized search phrase) instead of 
-        // central_question (which is a long sentence that returns 0 results).
         const singleQuery = queries[0] || brief?.central_question || query;
 
         // Stage 3: Fetch from OpenAlex
         const openAlexResults = await this._searchOpenAlex(singleQuery, stats);
         stats.results.raw = openAlexResults.length;
 
-        // Stage 4: Score and Deduplicate
+        // Stage 4: Score and Deduplicate (Relaxed scoring)
         const scoredResults = this._filterAndScore(openAlexResults);
         stats.results.afterScoring = scoredResults.length;
 
-        // Stage 5: AI Relevance Filter
+        // Stage 5: AI Relevance Filter (Now explicitly asks for 8 sources)
         const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
         stats.results.afterFilter = relevantResults.length;
 
@@ -109,37 +108,85 @@ export const GoogleSearchAPI = {
         const start = Date.now();
 
         try {
-            const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
+           const prompt = `You are analyzing a student essay to generate a HIGH-PRECISION academic search brief for retrieving relevant scholarly sources across ANY discipline.
+
+Your goal is to extract the true research intent of the essay in a way that produces tightly relevant, high-quality academic search queries while minimizing noise, tangential results, and keyword-matching errors.
 
 ESSAY TEXT:
 "${text.substring(0, 2500)}"
 
-TASK: Analyze the essay and return a JSON object with these fields:
+OUTPUT FORMAT (return ONLY valid JSON):
 
 {
-  "core_thesis": "one-sentence summary of the essay's central argument",
-  "central_question": "the specific question the essay is trying to answer",
-  "philosophical_positions": ["list of named philosophical positions, theories, or frameworks the essay engages with"],
-  "discipline": "the academic discipline this essay belongs to",
-  "named_entities": [
-    {"name": "specific named thing from essay", "role": "how it's used in the argument", "abstract_framing": "the philosophical claim it supports"}
+  "core_thesis": "one-sentence summary of the essay's main claim or argument",
+  
+  "central_question": "the single most important question the essay is trying to answer",
+
+  "discipline": "primary academic field(s), inferred broadly (e.g. physics, psychology, economics, philosophy, computer science, sociology, biology, engineering, education)",
+
+  "key_concepts": [
+    "core ideas, theories, models, or mechanisms essential to the essay",
+    "only include concepts that are necessary to understand or evaluate the argument"
   ],
-  "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims"],
+
+  "named_entities": [
+    {
+      "name": "specific theory, model, author, method, dataset, or principle explicitly used",
+      "role": "why it matters in the argument",
+      "interpretation": "how the essay uses or frames it"
+    }
+  ],
+
+  "must_engage_with": [
+    "3–6 essential claims that define what a relevant academic source MUST address",
+    "these should represent evaluative or explanatory requirements, not surface topics"
+  ],
+
   "queries": [
-    "5-8 NATURAL SEARCH PHRASES — short, readable phrases of 4-8 words each",
-    "each phrase must read like a coherent description of a specific claim or question from the essay",
-    "phrases should be the kind of text likely to appear in an academic paper TITLE or ABSTRACT"
+    "5–8 HIGH-QUALITY academic search phrases",
+    "each phrase must be 5–10 words",
+    "each phrase must describe a specific research problem, mechanism, or debate",
+    "each phrase must be suitable as a paper title or abstract sentence fragment",
+    "each phrase must be semantically specific (NOT keyword lists)"
   ]
 }
 
-CRITICAL RULES:
-1. ALWAYS return PHRASES, not keyword lists.
-2. Each phrase must SELF-CONTEXTUALIZE.
-3. The "queries" must cover EVERY distinct section/argument of the essay.
-4. Each phrase must be 4-8 words.
+STRICT RELEVANCE RULES (CRITICAL):
 
-Return ONLY the raw JSON object, no markdown.`;
+1. PRIORITIZE SEMANTIC RELEVANCE OVER KEYWORDS
+   - Do NOT match words; match ideas, mechanisms, and claims.
 
+2. EACH QUERY MUST TARGET:
+   - a causal explanation, OR
+   - a theoretical model, OR
+   - a measurable phenomenon, OR
+   - a methodological approach, OR
+   - a formal debate in the field
+
+3. EXCLUDE GENERIC OR BROAD PHRASES SUCH AS:
+   - "introduction to X"
+   - "overview of X"
+   - "history of X"
+   - "basic concepts of X"
+
+4. ONLY INCLUDE BACKGROUND TOPICS IF THEY ARE ESSENTIAL TO THE ARGUMENT.
+
+5. QUERIES MUST BE TIGHTLY FOCUSED:
+   - If a query would retrieve textbooks, surveys, or general education materials, it is TOO BROAD.
+
+6. OPTIMIZE FOR ACADEMIC DATABASE RETRIEVAL:
+   - Prefer phrases that would appear in journal titles, abstracts, or theoretical sections of papers.
+
+7. DISCIPLINE FLEXIBILITY RULE:
+   - Adapt all outputs to the essay's domain.
+   - Do NOT assume philosophy unless explicitly present.
+   - Works equally for STEM, social sciences, humanities, and applied fields.
+
+OUTPUT RULES:
+- Return ONLY valid JSON.
+- No commentary, no markdown.
+- All fields must be filled; if uncertain, choose the most precise plausible interpretation.
+`;
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (!jsonMatch) throw new Error('No JSON object in response');
@@ -190,10 +237,6 @@ Return ONLY the raw JSON object, no markdown.`;
     // MODULE 5: STAGE 3 - DATA ACQUISITION (OPENALEX)
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Fetches papers from OpenAlex API.
-     * OPTIMIZED: Makes exactly ONE call, sorts by citations, and strictly filters for OA + Abstracts.
-     */
     async _searchOpenAlex(query, stats) {
         const allResults = [];
         const stage = stats.stages.openalex;
@@ -219,7 +262,7 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
 
             for (const work of (data.results || [])) {
-                // Client-side safety check (inspired by your HTML) to ensure we have an abstract and it's actually OA
+                // Client-side safety check to ensure we have an abstract and it's actually OA
                 if (!work.abstract_inverted_index || work.open_access?.is_oa !== true) continue;
 
                 const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
@@ -250,10 +293,6 @@ Return ONLY the raw JSON object, no markdown.`;
         return allResults;
     },
 
-    /**
-     * Decodes OpenAlex's inverted index, normalizes whitespace to save tokens, 
-     * and truncates to 300 characters.
-     */
     _reconstructAbstract(invertedIndex) {
         if (!invertedIndex || typeof invertedIndex !== 'object') return '';
         const positions = [];
@@ -261,7 +300,6 @@ Return ONLY the raw JSON object, no markdown.`;
             for (const i of idxs) positions.push([i, word]);
         }
         
-        // Join, normalize whitespace (collapse multiple spaces/newlines into one), and truncate to 300 chars
         return positions
             .sort((a, b) => a[0] - b[0])
             .map(p => p[1])
@@ -272,7 +310,7 @@ Return ONLY the raw JSON object, no markdown.`;
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION
+    // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION (RELAXED)
     // ════════════════════════════════════════════════════════════════════════
 
     _filterAndScore(results) {
@@ -295,28 +333,35 @@ Return ONLY the raw JSON object, no markdown.`;
             const linkLower = (r.link || '').toLowerCase();
             const venueLower = (r.venue || '').toLowerCase();
             
+            // Boost preferred academic domains
             if (PREFERRED_DOMAINS.some(d => linkLower.includes(d) || venueLower.includes(d))) {
                 score += 10;
             }
+            
+            // Boost papers with substantial abstracts
             if (r.snippet && r.snippet.length > 150) {
                 score += 5;
             }
+            
+            // Recency bonus (NO PENALTY FOR OLD PAPERS - crucial for philosophy!)
             const currentYear = new Date().getFullYear();
             if (r.year) {
                 if (r.year >= currentYear - 5) score += 3;
                 else if (r.year >= currentYear - 10) score += 1;
-                else if (r.year < 2000) score -= 2;
+                // REMOVED: else if (r.year < 2000) score -= 2;
             }
+
             r._score = score;
         });
 
+        // Pass top 30 to Groq
         return filtered
             .sort((a, b) => b._score - a._score)
             .slice(0, 30);
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING
+    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (STRICT SELECTION)
     // ════════════════════════════════════════════════════════════════════════
 
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
@@ -338,6 +383,7 @@ Return ONLY the raw JSON object, no markdown.`;
             const briefContext = brief ? `
 GROUND TRUTH:
 - Central question: ${brief.central_question || '(unspecified)'}
+- Core thesis: ${brief.core_thesis || '(unspecified)'}
 - Discipline: ${brief.discipline || '(unspecified)'}
 - Must engage with: ${JSON.stringify(brief.must_engage_with || [])}
 ` : `
@@ -345,9 +391,11 @@ ESSAY TOPIC:
 "${originalText.substring(0, 800)}"
 `;
 
-            const prompt = `You are pruning an academic search results list.
+            const targetCount = Math.min(8, results.length);
 
-Your job is to identify the FEW outlier papers that should be removed because they are not meaningfully relevant to the research topic.
+const prompt = `You are an expert academic research assistant.
+
+Your task is to select the EXACTLY ${targetCount} MOST USEFUL academic papers for writing a strong student essay based on the provided research context.
 
 RESEARCH CONTEXT:
 ${briefContext}
@@ -356,41 +404,56 @@ SEARCH RESULTS:
 ${summaries}
 
 TASK:
-Identify papers that are OFF-TOPIC and return ONLY their index numbers as a raw JSON array.
+Select the ${targetCount} papers that provide the HIGHEST RESEARCH VALUE for writing the essay.
 
-Delete a paper if it falls into ANY of these categories:
+Return ONLY their index numbers as a raw JSON array of exactly ${targetCount} integers.
 
-1. HISTORICAL ONLY
-   - Primarily describes historical events, people, or development without contributing to the research question.
+SELECTION PRINCIPLE (CRITICAL):
+Choose papers based on how useful they are for constructing, supporting, or critically evaluating the essay's argument — NOT based on keywords or surface topic similarity.
 
-2. PEDAGOGY, TEACHING, OR EDUCATION
-   - Focuses on teaching methods, curriculum, classrooms, student learning, "discovery learning", or "mathematics education".
-   - CRITICAL: Delete papers about "mathematics education", "undergraduate students", "peer collaboration", or "attitudes/beliefs", EVEN IF they use philosophical words like "constructivism", "epistemology", "platonism", or "discovery" in the title or abstract. We ONLY want pure philosophy and ontology, not teaching theory or student psychology.
+A good paper:
+- Helps explain a core concept in the essay
+- Provides a theoretical framework or model
+- Offers empirical evidence or formal analysis relevant to the argument
+- Engages directly with the same research question or problem structure
+- Represents a key position in an ongoing academic debate relevant to the essay
 
-3. TECHNICAL BUT IRRELEVANT
-   - Uses terminology related to the topic but is actually about a different technical problem or application.
+A bad paper:
+- Matches keywords but addresses a different problem
+- Is purely historical or descriptive without analytical contribution
+- Is about education, teaching methods, or pedagogy (unless the essay is about education)
+- Is a general overview or textbook-style summary
+- Is only loosely related through terminology overlap
 
-4. TANGENTIAL KEYWORD MATCH
-   - Appears because of shared keywords but addresses a substantially different subject.
+SELECTION RULES:
 
-5. BOOK REVIEW OR EDITORIAL
-   - Reviews another work or contains commentary without making a substantive contribution to the research question.
+1. STRICT RELEVANCE:
+   Every selected paper must directly improve the student's ability to write or defend the essay.
 
-6. LOW RELEVANCE
-   - The paper does not directly help answer the research question described in the context.
+2. DIVERSITY OF UTILITY:
+   Prefer a balanced set if applicable:
+   - theoretical frameworks
+   - empirical studies
+   - critical/contrasting perspectives
+   - foundational or highly influential works
 
-DO NOT delete papers that:
-- Directly address the central research question.
-- Present competing theories, perspectives, or conceptual frameworks relevant to the topic.
-- Provide empirical evidence, philosophical analysis, theoretical models, or systematic reviews that are useful for answering the research question.
+3. AVOID REDUNDANCY:
+   Do not select multiple papers that make the same argument unless necessary.
 
-Be conservative. Assume most search results are relevant. Delete only clear outliers.
+4. DISCIPLINE-AWARENESS:
+   Adapt to the essay's field automatically (do NOT assume philosophy or any fixed domain).
 
-Return ONLY a raw JSON array of index numbers.
-Examples:
-[]
-[3]
-[2, 7, 15]`;
+5. HARD CONSTRAINT:
+   You MUST return exactly ${targetCount} indices.
+
+6. BE STRICT:
+   If a paper is only weakly relevant, exclude it even if it shares keywords.
+
+OUTPUT FORMAT:
+Return ONLY a JSON array of exactly ${targetCount} index numbers.
+
+Example:
+[0, 2, 5, 7, 12, 15, 18, 21]`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             if (stage) stage.ms = Date.now() - start;
@@ -398,24 +461,24 @@ Examples:
             const jsonMatch = response.match(/\[[\s\S]*?\]/);
             if (!jsonMatch) throw new Error('No JSON array');
 
-            const indicesToDelete = new Set(JSON.parse(jsonMatch[0]));
-            let filtered = results.filter((_, index) => !indicesToDelete.has(index));
+            const selectedIndices = new Set(JSON.parse(jsonMatch[0]));
+            let filtered = results.filter((_, index) => selectedIndices.has(index));
 
             if (stage) stage.ok = true;
 
-            if (filtered.length >= MINIMUM_RESULTS) {
-                return filtered;
+            if (filtered.length >= targetCount) {
+                return filtered.slice(0, targetCount);
             }
 
-            if (filtered.length < MINIMUM_RESULTS) {
-                console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring top-scored fillers`);
+            if (filtered.length < targetCount) {
+                console.log(`[Search] Groq returned too few (${filtered.length}/${targetCount}), restoring top-scored fillers`);
                 const keptLinks = new Set(filtered.map(f => f.link));
                 
                 const fillers = results
                     .map((r, index) => ({ r, index }))
-                    .filter(({ r, index }) => !keptLinks.has(r.link) && !indicesToDelete.has(index))
+                    .filter(({ r, index }) => !keptLinks.has(r.link) && !selectedIndices.has(index))
                     .map(({ r }) => r)
-                    .slice(0, MINIMUM_RESULTS - filtered.length);
+                    .slice(0, targetCount - filtered.length);
                     
                 return [...filtered, ...fillers];
             }
@@ -425,7 +488,7 @@ Examples:
         } catch (e) {
             if (stage) { stage.ms = Date.now() - start; stage.failures += 1; }
             console.error('[Search] Relevance filter failed:', e.message);
-            return results.slice(0, MINIMUM_RESULTS);
+            return results.slice(0, Math.min(8, results.length));
         }
     },
 
