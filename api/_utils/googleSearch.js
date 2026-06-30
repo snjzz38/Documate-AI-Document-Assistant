@@ -63,8 +63,9 @@ export const GoogleSearchAPI = {
         stats.queriesGenerated = queries.length;
 
         // OPTIMIZATION: We only make ONE OpenAlex call now.
-        // We use the central question if available, otherwise the first generated query.
-        const singleQuery = brief?.central_question || queries[0] || query;
+        // We use queries[0] (a 4-8 word optimized search phrase) instead of 
+        // central_question (which is a long sentence that returns 0 results).
+        const singleQuery = queries[0] || brief?.central_question || query;
 
         // Stage 3: Fetch from OpenAlex
         const openAlexResults = await this._searchOpenAlex(singleQuery, stats);
@@ -191,8 +192,7 @@ Return ONLY the raw JSON object, no markdown.`;
 
     /**
      * Fetches papers from OpenAlex API.
-     * OPTIMIZED: Now makes exactly ONE call using a combined query, 
-     * and filters for Open Access works with abstracts.
+     * OPTIMIZED: Makes exactly ONE call, sorts by citations, and strictly filters for OA + Abstracts.
      */
     async _searchOpenAlex(query, stats) {
         const allResults = [];
@@ -203,8 +203,8 @@ Return ONLY the raw JSON object, no markdown.`;
         stats.totals.httpRequests += 1;
 
         try {
-            // Single call, increased per-page to 50 to get a massive pool from one query
-            const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=is_oa:true,has_abstract:true&per-page=50&mailto=research@example.com`;
+            // Single call, 50 results, sorted by most cited, strict OA + abstract filters
+            const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=has_abstract:true,is_oa:true&sort=cited_by_count:desc&per-page=50&mailto=research@example.com`;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 12000);
 
@@ -219,6 +219,9 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
 
             for (const work of (data.results || [])) {
+                // Client-side safety check (inspired by your HTML) to ensure we have an abstract and it's actually OA
+                if (!work.abstract_inverted_index || work.open_access?.is_oa !== true) continue;
+
                 const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
                 const link = doi || work.id;
                 const abstract = this._reconstructAbstract(work.abstract_inverted_index);
