@@ -156,21 +156,22 @@ function applyJsonReplacements(text, jsonMap) {
 
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
- * Uses positive reinforcement instead of negative constraints.
+ * Specifically engineered to defeat AI detectors by maximizing burstiness and perplexity.
  */
 function buildChunkPrompt(chunk) {
-    return `Rewrite the following text to sound like it was written by a skilled human writer. Keep the exact same meaning.
+    return `Rewrite the following text to completely bypass AI detectors like GPTZero. It must read exactly like a human wrote it, with all the natural quirks, rhythm changes, and stylistic choices of a real person.
 
-GUIDELINES FOR NATURAL WRITING:
-- RHYTHM & FLOW: Mix short, punchy sentences with longer, complex ones. Use commas naturally to separate clauses, but avoid run-on sentences. Connect related ideas smoothly using conjunctions (and, but, so, while).
-- TONE: Clear, engaging, and direct. Avoid academic stiffness, overly formal vocabulary, and AI clichés (e.g., "delves into", "tapestry", "crucial", "moreover").
-- VARIETY: Ensure consecutive sentences have different structures and starting words. Avoid repetitive phrasing.
-- NATURAL PHRASING: Use active voice. Avoid awkward constructions like "with [noun] [verb]ing" or excessive use of "which" clauses.
+CRITICAL RULES FOR BEATING AI DETECTORS:
+1. EXTREME BURSTINESS: You MUST vary sentence length drastically. Follow a long, complex sentence with a very short one (3-5 words). Then another long one. Do not write in a steady, metronomic rhythm.
+2. HIGH PERPLEXITY: Use unexpected, natural word choices. Avoid predictable AI collocations. 
+3. KILL ESSAY TRANSITIONS: NEVER use "However,", "Ultimately,", "Furthermore,", "According to this view,", "From this perspective,", "On the other hand,", or "In conclusion,". Humans don't write like high school essays. Use abrupt shifts, conversational connectors, or just start the next sentence directly.
+4. CONVERSATIONAL YET ACCURATE: Keep the facts 100% accurate, but write it as if you are explaining it to a smart friend. Use contractions (it's, we're, didn't). 
+5. NO PERFECT SYMMETRY: Do not balance clauses perfectly. Let some thoughts trail off or start abruptly.
 
 TEXT TO REWRITE:
 "${chunk}"
 
-Output ONLY the rewritten text:`;
+Output ONLY the rewritten text. No markdown, no quotes:`;
 }
 
 // ==========================================================================
@@ -207,8 +208,33 @@ const AI_STERILE_SWAPS = {
     "truly remarkable": "highly effective",
     "remarkable accomplishment": "major accomplishment",
     "fabric of the universe": "structure of reality",
-    "fabric of reality": "structure of reality"
+    "fabric of reality": "structure of reality",
+    "in the realm of": "in",
+    "plays a crucial role": "helps",
+    "sheds light on": "shows",
+    "delves into": "explores",
+    "navigating the": "handling the",
+    "a testament to": "shows",
+    "the fact that": ""
 };
+
+// AI Essay Transitions that must be killed or replaced to drop AI detection scores
+const AI_TRANSITION_KILLER = [
+    { regex: /^For centuries,?\s*/i, replacement: "" },
+    { regex: /\bFrom this perspective,?\s*/gi, replacement: "" },
+    { regex: /\bAccording to this view,?\s*/gi, replacement: "" },
+    { regex: /\bUltimately,?\s*/gi, replacement: "" },
+    { regex: /\bConsequently,?\s*/gi, replacement: "So, " },
+    { regex: /\bNevertheless,?\s*/gi, replacement: "Still, " },
+    { regex: /\bMoreover,?\s*/gi, replacement: "Also, " },
+    { regex: /\bFurthermore,?\s*/gi, replacement: "Plus, " },
+    { regex: /\bIn conclusion,?\s*/gi, replacement: "" },
+    { regex: /\bTo summarize,?\s*/gi, replacement: "" },
+    { regex: /\bOn the other hand,?\s*/gi, replacement: "But " },
+    { regex: /\bAs a result,?\s*/gi, replacement: "So, " },
+    { regex: /\bIt is important to note that,?\s*/gi, replacement: "" },
+    { regex: /\bIt is worth noting that,?\s*/gi, replacement: "" }
+];
 
 /**
  * Cleans text mechanics (punctuation, grammar, double words).
@@ -231,6 +257,11 @@ function cleanTextMechanics(text) {
         });
     }
 
+    // 2.5 KILL AI ESSAY TRANSITIONS
+    for (const { regex, replacement } of AI_TRANSITION_KILLER) {
+        result = result.replace(regex, replacement);
+    }
+
     // 3. FIX ARTIFACTS & EARLY SPACE COLLAPSE
     result = result.replace(/\.{2,}/g, '.'); // Double periods
     result = result.replace(/,{2,}/g, ','); // Double commas
@@ -248,12 +279,10 @@ function cleanTextMechanics(text) {
     // 4. GRAMMAR FIXES (a vs an) - Now tolerant of spacing
     result = result.replace(/\ba\s+([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    // Specific fix for 'u' words that sound like 'y' (e.g., "an useful" -> "a useful")
     result = result.replace(/\ban\s+(useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
-    // Fix missing 'a' in "as means of"
     result = result.replace(/\bas\s+means\s+of/gi, 'as a means of');
 
-    // 5. FIX COMMA SPLICES WITH CAPITAL LETTERS (e.g., "them, However," -> "them. However,")
+    // 5. FIX COMMA SPLICES WITH CAPITAL LETTERS
     result = result.replace(/,\s+([A-Z][a-z]+)\s/g, '. $1 ');
 
     // 6. SPACING & CAPITALIZATION
@@ -279,10 +308,13 @@ function postProcess(text) {
 // 6. GROQ COMPREHENSIVE EDITOR MODULE
 // ==========================================================================
 
-const GROQ_EDITOR_PROMPT = `You are an expert human copyeditor. Review the following text for grammar, typos, awkward phrasing, and robotic flow. 
-1. Fix any grammatical errors (like comma splices, wrong articles, or sentence fragments).
-2. Rewrite any sentences that sound unnatural, stiff, or overly formal.
-3. Ensure the text flows smoothly and reads like it was written by a human.
+const GROQ_EDITOR_PROMPT = `You are an expert human copyeditor specifically tasked with making text bypass AI detectors like GPTZero. 
+Review the following text and apply these specific changes:
+1. BURSTINESS: Break up any uniform sentence rhythms. Combine some short sentences into longer, flowing ones. Chop some long sentences into very short, punchy fragments. 
+2. KILL TRANSITIONS: Remove any lingering essay-style transitions (e.g., "However,", "Ultimately,", "According to this view,"). Replace them with abrupt shifts or conversational connectors.
+3. PERPLEXITY: Swap out predictable, boring word choices for slightly more unique, natural synonyms. 
+4. HUMANIZE: Ensure it uses contractions (it's, we're, didn't) where appropriate. Make it sound like a smart human explaining the topic, not a textbook.
+5. Fix any grammar or typo issues, but do NOT make it sound "perfectly polished" if that makes it sound robotic.
 
 Output ONLY the fully corrected text. Do not output JSON, explanations, or markdown formatting.
 
@@ -290,20 +322,17 @@ TEXT:
 `;
 
 /**
- * Runs a single, comprehensive Groq pass to polish the text.
- * Replaces the old 6-stage JSON pipeline for better reliability and speed.
+ * Runs a single, comprehensive Groq pass to polish the text and defeat AI detectors.
  */
 async function runGroqStages(text, groqKey) {
     const prompt = GROQ_EDITOR_PROMPT + text;
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-        // GroqAPI.chat returns the raw string content
         const content = await GroqAPI.chat(messages, groqKey, true); 
         
         return { 
             text: content.trim().replace(/^["']|["']$/g, ''), 
-            // Returning a mock 'fixes' object to maintain compatibility with the handler's logging
             fixes: { 
                 stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0,
                 comprehensivePolish: 1 
