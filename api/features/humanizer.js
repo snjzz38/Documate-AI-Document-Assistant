@@ -237,7 +237,8 @@ const AI_STERILE_SWAPS = {
     "infinite array": "large number",
     "vast array": "large number",
     "rigorous investigation": "detailed study",
-    "serves as a bridge": "acts as a link"
+    "serves as a bridge": "acts as a link",
+    "the nature world": "the natural world"
 };
 
 /**
@@ -270,6 +271,10 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
+    
+    // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
+    // This matches a comma followed by a space and a capital letter, but ignores proper nouns like "Earth"
+    result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
     
     // Fix "but However" or "but However,"
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
@@ -318,10 +323,10 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 1. Em dashes (—) or semicolons (;).
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
-4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
+4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
 5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods.
 6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
-7. TAUTOLOGIES: Phrases like "circular shape of circles". Fix them to be concise.
+7. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
@@ -335,7 +340,7 @@ Return a JSON object where keys are the EXACT original disjointed sentences (joi
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
 2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
-3. Sentences start with "This perspective suggests", "An opposing view posits", or "An opposing perspective suggests". Rewrite them to be direct.
+3. Sentences start with formulaic AI phrases like "This perspective suggests", "An opposing view posits", "The core evidence for this perspective highlights", or "This practice exposes". Rewrite them to be direct and concrete.
 Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
 const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -344,6 +349,7 @@ CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical con
 
 const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
 CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought (e.g., "With the Fibonacci sequence appearing in galaxies."), you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
+CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
 Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
