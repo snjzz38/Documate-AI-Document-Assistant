@@ -6,7 +6,7 @@
  * TABLE OF CONTENTS
  * -------------------------------------------------------
  * 1. CONFIGURATION & CONSTANTS
- *    - Banned domains, preferred academic domains, stop words
+ *    - Banned domains, preferred academic domains, stop words, pedagogy terms
  * 
  * 2. CORE INTERFACE
  *    - GoogleSearchAPI.search() - The main pipeline orchestrator
@@ -21,8 +21,8 @@
  *    - _searchOpenAlex() - Fetches real academic papers via API
  *    - _reconstructAbstract() - Decodes OpenAlex's inverted index format
  * 
- * 6. STAGE 4: SCORING & DEDUPLICATION
- *    - _filterAndScore() - Removes junk, fixes domain bugs, ranks results
+ * 6. STAGE 4: SCORING, DEDUPLICATION & PRE-FILTERING
+ *    - _filterAndScore() - Removes junk, kills pedagogy drift, ranks results
  * 
  * 7. STAGE 5: AI RELEVANCE FILTERING
  *    - _filterByRelevance() - Uses Groq to separate 5-star from 1-star papers
@@ -69,33 +69,51 @@ const GENERIC_WORDS = new Set([
     'pillar', 'foundation', 'key', 'tool'
 ]);
 
+// Used for the Programmatic Pedagogy Gate
+const PEDAGOGY_TERMS = [
+    'education', 'pedagogy', 'classroom', 'teaching', 'students', 
+    'curriculum', 'instruction', 'learning outcomes', 'pupil'
+];
+
 const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
 
 
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 2: CORE INTERFACE
+// ════════════════════════════════════════════════════════════════════════════
+
 export const GoogleSearchAPI = {
 
+    /**
+     * Main entry point. Orchestrates the 5-stage pipeline.
+     */
     async search(query, apiKey, cx, groqKey = null) {
         const stats = this._createStats();
         stats.startedAt = Date.now();
 
+        // Stage 1: Analyze Topic
         let brief = null;
         if (groqKey) {
             brief = await this._analyzeTopic(query, groqKey, stats);
         }
 
+        // Stage 2: Generate Queries
         const queries = brief ? brief.queries : [this._buildFallbackQuery(query)];
         stats.queriesGenerated = queries.length;
 
+        // Stage 3: Fetch from OpenAlex
         const openAlexResults = await this._searchOpenAlex(queries, stats);
         stats.results.raw = openAlexResults.length;
 
-        // PASS THE BRIEF TO SCORER FOR DYNAMIC PRE-FILTERING
+        // Stage 4: Score and Deduplicate (Pass brief for pre-filtering)
         const scoredResults = this._filterAndScore(openAlexResults, brief);
         stats.results.afterScoring = scoredResults.length;
 
+        // Stage 5: AI Relevance Filter
         const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
         stats.results.afterFilter = relevantResults.length;
 
+        // Finalize Stats
         stats.finishedAt = Date.now();
         stats.elapsedMs = stats.finishedAt - stats.startedAt;
         stats.totals.externalRequests = stats.totals.groqCalls + stats.totals.httpRequests;
@@ -103,6 +121,7 @@ export const GoogleSearchAPI = {
         stats.totals.successRate = stats.totals.externalRequests > 0 ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3) : 1;
 
         Object.defineProperty(relevantResults, 'stats', { value: stats, enumerable: false, writable: false });
+
         return relevantResults;
     },
 
@@ -111,6 +130,9 @@ export const GoogleSearchAPI = {
     // MODULE 3: STAGE 1 - TOPIC ANALYSIS
     // ════════════════════════════════════════════════════════════════════════
 
+    /**
+     * Uses Groq to read the essay and create a structured "Search Brief".
+     */
     async _analyzeTopic(text, groqKey, stats) {
         const stage = stats.stages.topicAnalysis;
         stage.calls += 1;
@@ -129,12 +151,12 @@ TASK: Analyze the essay and return a JSON object with these fields:
   "core_thesis": "one-sentence summary of the essay's central argument",
   "central_question": "the specific question the essay is trying to answer",
   "philosophical_positions": ["list of named positions, theories, or frameworks the essay engages with"],
-  "discipline": "the academic discipline this essay belongs to — e.g., 'philosophy of mathematics', 'epistemology', 'sociology of education'",
+  "discipline": "the academic discipline this essay belongs to — e.g., 'philosophy of mathematics', 'sociology of education'",
   "named_entities": [
     {"name": "specific named thing from essay", "role": "how it's used in the argument"}
   ],
   "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims"],
-  "exclude_fields": ["List 3-5 specific academic fields, topics, or domains that share keywords with this essay but should be STRICTLY EXCLUDED from search results because they are fundamentally different disciplines. e.g., if the essay is philosophy of math, exclude 'computer graphics', 'Jungian psychology', 'evolutionary biology', 'applied engineering'"],
+  "exclude_fields": ["List 3-5 specific academic fields that share keywords with this essay but should be STRICTLY EXCLUDED. e.g., if essay is philosophy of math, exclude 'computer graphics design', 'Jungian synchronicity psychology', 'evolutionary aesthetics'"],
   "queries": [
     "5-8 NATURAL SEARCH PHRASES of 4-8 words each",
     "each phrase must read like a coherent description of a specific claim",
@@ -147,7 +169,7 @@ CRITICAL RULES:
 2. Each phrase must SELF-CONTEXTUALIZE. Disambiguate terms.
 3. The "queries" must cover EVERY distinct section/argument of the essay.
 4. Each phrase must be 4-8 words.
-5. The "exclude_fields" must aggressively target fields that might cause semantic drift in search engines.
+5. "exclude_fields" must aggressively target fields that cause semantic drift.
 
 Return ONLY the raw JSON object, no markdown.`;
 
@@ -208,7 +230,6 @@ Return ONLY the raw JSON object, no markdown.`;
 
     /**
      * Fetches papers from OpenAlex API in parallel.
-     * UPGRADE: Added is_oa:true, has_abstract:true, type:article filters.
      */
     async _searchOpenAlex(queries, stats) {
         const allResults = [];
@@ -219,7 +240,6 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.calls += 1;
             stats.totals.httpRequests += 1;
             try {
-                // UPGRADE: Filters guarantee free access, abstracts exist, and no book chapters
                 const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&filter=is_oa:true,has_abstract:true,type:article&mailto=research@example.com`;
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 12000);
@@ -241,8 +261,6 @@ Return ONLY the raw JSON object, no markdown.`;
                     const authors = (work.authorships || []).map(a => a.author?.display_name).filter(Boolean).slice(0, 3).join(', ');
 
                     if (!work.title || !link) continue;
-                    
-                    // GHOST FIX: Skip papers with completely missing authors AND year
                     if (!authors && !work.publication_year) continue;
 
                     allResults.push({
@@ -285,15 +303,19 @@ Return ONLY the raw JSON object, no markdown.`;
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Removes junk, pre-filters drifted domains, deduplicates, and scores.
+     * Removes junk, applies dynamic pre-filtering, enforces the Pedagogy Gate, and scores.
      */
     _filterAndScore(results, brief = {}) {
         const seenUrls = new Set();
         const seenTitles = new Set();
         const seenDomains = new Set();
         
-        // DYNAMIC PRE-FILTER: Extract fields to exclude based on the specific essay
+        // 1. Dynamic Pre-Filter from Groq
         const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
+        
+        // 2. Programmatic Pedagogy Gate
+        const isEducationEssay = (brief.discipline || '').toLowerCase().includes('education') || 
+                                 (brief.discipline || '').toLowerCase().includes('pedagogy');
 
         return results
             .filter(r => {
@@ -308,9 +330,17 @@ Return ONLY the raw JSON object, no markdown.`;
                     const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
                     if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
 
-                    // ── LIGHTWEIGHT DISCIPLINE PRE-FILTER ──
-                    // Drops papers from fields Groq explicitly warned us about.
-                    // This prevents LLM token waste on obvious retrieval drift.
+                    // ── GATE 1: PEDAGOGY KILL-SWITCH ──
+                    // If the essay is NOT about education, nuke any paper about education.
+                    // This prevents LLMs from getting tricked by titles like "Rejecting Platonism in Mathematics Education"
+                    if (!isEducationEssay) {
+                        if (PEDAGOGY_TERMS.some(term => lowerTitle.includes(term))) {
+                            console.log(`[Search] Pedagogy Gate blocked: "${r.title}"`);
+                            return false;
+                        }
+                    }
+
+                    // ── GATE 2: DYNAMIC FIELD EXCLUSION ──
                     if (excludeFields.length > 0) {
                         const paperContext = `${r.title} ${r.venue}`.toLowerCase();
                         for (const exclude of excludeFields) {
@@ -358,7 +388,7 @@ Return ONLY the raw JSON object, no markdown.`;
                 return { ...r, _score: score };
             })
             .sort((a, b) => b._score - a._score)
-            .slice(0, 20);
+            .slice(0, 20); // Feed top 20 to the AI filter
     },
 
 
@@ -368,7 +398,6 @@ Return ONLY the raw JSON object, no markdown.`;
 
     /**
      * Uses Groq to separate 5-star sources from 1-star sources based on the Search Brief.
-     * UPGRADE: Added generalized Domain Type Constraint to prevent abstraction collapse.
      */
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
         const stage = stats ? stats.stages.filter : null;
@@ -417,7 +446,6 @@ TASK: Return ONLY the index numbers of results that satisfy ALL of:
 
 STRICTLY EXCLUDE:
 - Pure-math / pure-science papers that use a keyword but don't discuss the essay's implications
-- Pedagogy / education papers (unless the essay is specifically about pedagogy)
 - Dictionary / encyclopedia entries, book reviews
 - Commercial sites, blogs, forum threads
 
