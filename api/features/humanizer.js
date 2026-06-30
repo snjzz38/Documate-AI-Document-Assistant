@@ -175,15 +175,16 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary.
-2. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
-3. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-4. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
-5. NO EM DASHES (—) or SEMICOLONS (;). 
-6. NO COMMA CHAINS: A sentence must not have more than one comma.
-7. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-8. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-9. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", or "Furthermore".
-10. Do NOT repeat the same concept or premise in consecutive sentences.
+2. FLOW: Use natural conjunctions ("and", "so", "but", "while", "whereas") to connect closely related ideas. Do NOT output choppy, disconnected, or staccato sentences.
+3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+4. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
+6. NO EM DASHES (—) or SEMICOLONS (;). 
+7. NO COMMA CHAINS: A sentence must not have more than one comma.
+8. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+9. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+10. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+11. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -251,6 +252,7 @@ function cleanTextMechanics(text) {
     // FIX GROQ REPLACEMENT ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); // Double periods
     result = result.replace(/,{2,}/g, ','); // Double commas
+    result = result.replace(/,\./g, '.');   // Comma followed by period (e.g., "surroundings,." -> "surroundings.")
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
@@ -312,6 +314,7 @@ SPECIFIC INSTRUCTIONS:
 CRITICAL RULES: 
 - NEVER use ", which" to combine sentences.
 - NEVER create run-on sentences, dangling clauses, or tautologies.
+- NEVER overlap keys. A key must be the EXACT full sentences, and a value must be the EXACT full rewritten sentences.
 - Ensure the resulting grammar and punctuation are perfect.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
