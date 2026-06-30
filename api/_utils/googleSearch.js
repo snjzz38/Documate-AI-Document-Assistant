@@ -186,6 +186,20 @@ OUTPUT RULES:
 - Return ONLY valid JSON.
 - No commentary, no markdown.
 - All fields must be filled; if uncertain, choose the most precise plausible interpretation.
+
+CRITICAL DOMAIN CONSISTENCY RULE:
+
+All selected papers MUST belong to the same general research domain and problem space as the essay.
+
+Do NOT select:
+- high-quality papers from unrelated disciplines
+- general theoretical frameworks not used in the essay’s field
+- “famous” methods or theories unless directly applicable
+
+A paper is ONLY valid if it:
+- addresses the same type of system, phenomenon, or problem
+- OR uses a method directly applicable to the essay’s argument
+- OR is explicitly used as a comparative/contrasting framework in the essay
 `;
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -451,6 +465,20 @@ SELECTION RULES:
 
 OUTPUT FORMAT:
 Return ONLY a JSON array of exactly ${targetCount} index numbers.
+
+CRITICAL DOMAIN CONSISTENCY RULE:
+
+All selected papers MUST belong to the same general research domain and problem space as the essay.
+
+Do NOT select:
+- high-quality papers from unrelated disciplines
+- general theoretical frameworks not used in the essay’s field
+- “famous” methods or theories unless directly applicable
+
+A paper is ONLY valid if it:
+- addresses the same type of system, phenomenon, or problem
+- OR uses a method directly applicable to the essay’s argument
+- OR is explicitly used as a comparative/contrasting framework in the essay
 
 Example:
 [0, 2, 5, 7, 12, 15, 18, 21]`;
