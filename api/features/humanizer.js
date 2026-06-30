@@ -283,6 +283,14 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
+/**
+ * Main regex wrapper for post-processing.
+ * (This was missing in the original code, causing the ReferenceError)
+ */
+function postProcess(text) {
+    return cleanTextMechanics(text);
+}
+
 // ==========================================================================
 // 6. GROQ 6-STAGE SANITY CHECKER MODULE
 // ==========================================================================
