@@ -72,67 +72,30 @@ const GENERIC_WORDS = new Set([
 const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
 
 
-// ════════════════════════════════════════════════════════════════════════════
-// MODULE 2: CORE INTERFACE
-// ════════════════════════════════════════════════════════════════════════════
+export const GoogleSearchAPI = {
 
-    export const GoogleSearchAPI = {
+    async search(query, apiKey, cx, groqKey = null) {
+        const stats = this._createStats();
+        stats.startedAt = Date.now();
 
-        async search(query, apiKey, cx, groqKey = null) {
-            const stats = this._createStats();
-            stats.startedAt = Date.now();
-
-            let brief = null;
-            if (groqKey) {
-                brief = await this._analyzeTopic(query, groqKey, stats);
-            }
-
-            const queries = brief ? brief.queries : [this._buildFallbackQuery(query)];
-            stats.queriesGenerated = queries.length;
-
-            const openAlexResults = await this._searchOpenAlex(queries, stats);
-            stats.results.raw = openAlexResults.length;
-
-            // PASS THE BRIEF TO SCORER FOR DYNAMIC PRE-FILTERING
-            const scoredResults = this._filterAndScore(openAlexResults, brief);
-            stats.results.afterScoring = scoredResults.length;
-
-            const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
-            stats.results.afterFilter = relevantResults.length;
-
-            stats.finishedAt = Date.now();
-            stats.elapsedMs = stats.finishedAt - stats.startedAt;
-            stats.totals.externalRequests = stats.totals.groqCalls + stats.totals.httpRequests;
-            stats.totals.failedRequests = stats.stages.topicAnalysis.failures + stats.stages.openalex.failures + stats.stages.filter.failures;
-            stats.totals.successRate = stats.totals.externalRequests > 0 ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3) : 1;
-
-            Object.defineProperty(relevantResults, 'stats', { value: stats, enumerable: false, writable: false });
-            return relevantResults;
-        },
-
-        // Stage 1: Analyze Topic
         let brief = null;
         if (groqKey) {
             brief = await this._analyzeTopic(query, groqKey, stats);
         }
 
-        // Stage 2: Generate Queries
         const queries = brief ? brief.queries : [this._buildFallbackQuery(query)];
         stats.queriesGenerated = queries.length;
 
-        // Stage 3: Fetch from OpenAlex
         const openAlexResults = await this._searchOpenAlex(queries, stats);
         stats.results.raw = openAlexResults.length;
 
-        // Stage 4: Score and Deduplicate
-        const scoredResults = this._filterAndScore(openAlexResults);
+        // PASS THE BRIEF TO SCORER FOR DYNAMIC PRE-FILTERING
+        const scoredResults = this._filterAndScore(openAlexResults, brief);
         stats.results.afterScoring = scoredResults.length;
 
-        // Stage 5: AI Relevance Filter
         const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
         stats.results.afterFilter = relevantResults.length;
 
-        // Finalize Stats
         stats.finishedAt = Date.now();
         stats.elapsedMs = stats.finishedAt - stats.startedAt;
         stats.totals.externalRequests = stats.totals.groqCalls + stats.totals.httpRequests;
@@ -140,7 +103,6 @@ const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
         stats.totals.successRate = stats.totals.externalRequests > 0 ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3) : 1;
 
         Object.defineProperty(relevantResults, 'stats', { value: stats, enumerable: false, writable: false });
-
         return relevantResults;
     },
 
