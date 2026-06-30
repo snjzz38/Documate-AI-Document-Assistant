@@ -2,35 +2,6 @@
 // FILE PATH: api/_utils/googleSearch.js
 // ==========================================================================
 
-/*
- * TABLE OF CONTENTS
- * -------------------------------------------------------
- * 1. CONFIGURATION & CONSTANTS
- *    - Banned domains, preferred academic domains, stop words
- * 
- * 2. CORE INTERFACE
- *    - GoogleSearchAPI.search() - The main pipeline orchestrator
- * 
- * 3. STAGE 1: TOPIC ANALYSIS
- *    - _analyzeTopic() - Uses Groq to build a "Search Brief" from the essay
- * 
- * 4. STAGE 2: QUERY GENERATION
- *    - _buildFallbackQuery() - Creates queries if Groq fails
- * 
- * 5. STAGE 3: DATA ACQUISITION (OpenAlex)
- *    - _searchOpenAlex() - Fetches real academic papers via API
- *    - _reconstructAbstract() - Decodes OpenAlex's inverted index format
- * 
- * 6. STAGE 4: SCORING & DEDUPLICATION
- *    - _filterAndScore() - Removes junk, fixes domain bugs, ranks results
- * 
- * 7. STAGE 5: AI RELEVANCE FILTERING
- *    - _filterByRelevance() - Uses Groq to separate 5-star from 1-star papers
- * 
- * 8. UTILITIES & HELPERS
- *    - _createStats() - Initializes network tracking object
- */
-
 import { GroqAPI } from './groqAPI.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -69,8 +40,7 @@ const GENERIC_WORDS = new Set([
     'pillar', 'foundation', 'key', 'tool'
 ]);
 
-const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
-
+const MINIMUM_RESULTS = 6; 
 
 // ════════════════════════════════════════════════════════════════════════════
 // MODULE 2: CORE INTERFACE
@@ -78,9 +48,6 @@ const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
 
 export const GoogleSearchAPI = {
 
-    /**
-     * Main entry point. Orchestrates the 5-stage pipeline.
-     */
     async search(query, apiKey, cx, groqKey = null) {
         const stats = this._createStats();
         stats.startedAt = Date.now();
@@ -91,12 +58,16 @@ export const GoogleSearchAPI = {
             brief = await this._analyzeTopic(query, groqKey, stats);
         }
 
-        // Stage 2: Generate Master Query
-        const masterQuery = brief ? brief.master_search_query : this._buildFallbackQuery(query);
-        stats.queriesGenerated = 1; // Changed from queries.length
+        // Stage 2: Generate Queries
+        const queries = brief ? brief.queries : [this._buildFallbackQuery(query)];
+        stats.queriesGenerated = queries.length;
 
-        // Stage 3: Fetch from OpenAlex (1 call)
-        const openAlexResults = await this._searchOpenAlex(masterQuery, stats); // Pass string, not array
+        // OPTIMIZATION: We only make ONE OpenAlex call now.
+        // We use the central question if available, otherwise the first generated query.
+        const singleQuery = brief?.central_question || queries[0] || query;
+
+        // Stage 3: Fetch from OpenAlex
+        const openAlexResults = await this._searchOpenAlex(singleQuery, stats);
         stats.results.raw = openAlexResults.length;
 
         // Stage 4: Score and Deduplicate
@@ -107,6 +78,12 @@ export const GoogleSearchAPI = {
         const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
         stats.results.afterFilter = relevantResults.length;
 
+        // Create the filtered JSON object for abstracts {citation0: abstract0, ...}
+        const abstractMap = {};
+        relevantResults.forEach((r, i) => {
+            abstractMap[`citation${i}`] = r.snippet || '';
+        });
+
         // Finalize Stats
         stats.finishedAt = Date.now();
         stats.elapsedMs = stats.finishedAt - stats.startedAt;
@@ -115,18 +92,15 @@ export const GoogleSearchAPI = {
         stats.totals.successRate = stats.totals.externalRequests > 0 ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3) : 1;
 
         Object.defineProperty(relevantResults, 'stats', { value: stats, enumerable: false, writable: false });
+        Object.defineProperty(relevantResults, 'abstractMap', { value: abstractMap, enumerable: false, writable: false });
 
         return relevantResults;
     },
 
-
-      // ════════════════════════════════════════════════════════════════════════
-    // MODULE 3: STAGE 1 - TOPIC ANALYSIS (Updated for 1 Master Query)
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 3: STAGE 1 - TOPIC ANALYSIS
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Uses Groq to read the essay and create a single, highly-optimized search query.
-     */
     async _analyzeTopic(text, groqKey, stats) {
         const stage = stats.stages.topicAnalysis;
         stage.calls += 1;
@@ -134,7 +108,7 @@ export const GoogleSearchAPI = {
         const start = Date.now();
 
         try {
-            const prompt = `You are analyzing a student essay to prepare a search query for an academic database (OpenAlex).
+            const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
 
 ESSAY TEXT:
 "${text.substring(0, 2500)}"
@@ -142,15 +116,26 @@ ESSAY TEXT:
 TASK: Analyze the essay and return a JSON object with these fields:
 
 {
+  "core_thesis": "one-sentence summary of the essay's central argument",
   "central_question": "the specific question the essay is trying to answer",
-  "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims — e.g., 'mathematics as invention or discovery'"],
-  "master_search_query": "A SINGLE, highly optimized search string of 6-12 words designed to fetch the exact academic papers needed. Combine the central question with the discipline. Example: 'philosophy of mathematics invention versus discovery Platonism'"
+  "philosophical_positions": ["list of named philosophical positions, theories, or frameworks the essay engages with"],
+  "discipline": "the academic discipline this essay belongs to",
+  "named_entities": [
+    {"name": "specific named thing from essay", "role": "how it's used in the argument", "abstract_framing": "the philosophical claim it supports"}
+  ],
+  "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims"],
+  "queries": [
+    "5-8 NATURAL SEARCH PHRASES — short, readable phrases of 4-8 words each",
+    "each phrase must read like a coherent description of a specific claim or question from the essay",
+    "phrases should be the kind of text likely to appear in an academic paper TITLE or ABSTRACT"
+  ]
 }
 
-CRITICAL RULES FOR master_search_query:
-1. It must be a single natural language phrase, NOT a list of keywords.
-2. It must explicitly state the discipline (e.g., "philosophy of...", "sociology of...").
-3. It should be the kind of phrase that appears in the title or abstract of a perfect academic paper.
+CRITICAL RULES:
+1. ALWAYS return PHRASES, not keyword lists.
+2. Each phrase must SELF-CONTEXTUALIZE.
+3. The "queries" must cover EVERY distinct section/argument of the essay.
+4. Each phrase must be 4-8 words.
 
 Return ONLY the raw JSON object, no markdown.`;
 
@@ -162,10 +147,13 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
             stage.ok = true;
 
-            if (!brief.master_search_query || brief.master_search_query.length < 5) {
-                throw new Error('No valid master query');
-            }
+            brief.queries = brief.queries
+                .filter(q => typeof q === 'string')
+                .map(q => q.trim().substring(0, 150))
+                .filter(q => { const wc = q.split(/\s+/).length; return wc >= 4 && wc <= 8; })
+                .slice(0, 8);
 
+            if (brief.queries.length === 0) throw new Error('No valid queries');
             return brief;
 
         } catch (e) {
@@ -176,14 +164,10 @@ Return ONLY the raw JSON object, no markdown.`;
         }
     },
 
-
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 4: STAGE 2 - QUERY GENERATION
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Fallback if Groq topic analysis fails. Extracts keywords and joins them.
-     */
     _buildFallbackQuery(text) {
         const stopWords = new Set([
             'the','a','an','is','are','was','were','be','been','being','have','has','had',
@@ -201,28 +185,28 @@ Return ONLY the raw JSON object, no markdown.`;
         return (meaningful.join(' ') || 'education research') + ' academic study';
     },
 
-
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 5: STAGE 3 - DATA ACQUISITION (1 Call, Filtered at Source)
+    // MODULE 5: STAGE 3 - DATA ACQUISITION (OPENALEX)
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Makes exactly 1 call to OpenAlex.
-     * Filters for Open Access AND Has Abstract to guarantee clean data.
+     * Fetches papers from OpenAlex API.
+     * OPTIMIZED: Now makes exactly ONE call using a combined query, 
+     * and filters for Open Access works with abstracts.
      */
-    async _searchOpenAlex(masterQuery, stats) {
+    async _searchOpenAlex(query, stats) {
+        const allResults = [];
         const stage = stats.stages.openalex;
+        const start = Date.now();
+        
         stage.calls += 1;
         stats.totals.httpRequests += 1;
-        const start = Date.now();
-        const allResults = [];
 
         try {
-            // The Magic Filters: is_oa:true ensures no paywalls, has_abstract:true guarantees snippets
-            const url = `https://api.openalex.org/works?search=${encodeURIComponent(masterQuery)}&per-page=30&filter=is_oa:true,has_abstract:true&mailto=research@example.com`;
-            
+            // Single call, increased per-page to 50 to get a massive pool from one query
+            const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&filter=is_oa:true,has_abstract:true&per-page=50&mailto=research@example.com`;
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for 1 large request
+            const timeout = setTimeout(() => controller.abort(), 12000);
 
             const res = await fetch(url, {
                 signal: controller.signal,
@@ -237,7 +221,6 @@ Return ONLY the raw JSON object, no markdown.`;
             for (const work of (data.results || [])) {
                 const doi = work.doi || (work.ids?.doi ? `https://doi.org/${work.ids.doi}` : null);
                 const link = doi || work.id;
-                // Truncate abstract to 300 chars right at the source
                 const abstract = this._reconstructAbstract(work.abstract_inverted_index);
                 const authors = (work.authorships || []).map(a => a.author?.display_name).filter(Boolean).slice(0, 3).join(', ');
 
@@ -246,7 +229,7 @@ Return ONLY the raw JSON object, no markdown.`;
                 allResults.push({
                     title: work.title,
                     link,
-                    snippet: abstract, 
+                    snippet: abstract || '', 
                     authors,
                     year: work.publication_year,
                     venue: work.primary_location?.source?.display_name || '',
@@ -254,18 +237,19 @@ Return ONLY the raw JSON object, no markdown.`;
                     _score: 10
                 });
             }
-            stage.resultsReturned = (data.results || []).length;
+            stage.resultsReturned += (data.results || []).length;
         } catch (e) {
-            stage.ms = Date.now() - start;
+            stage.ms += Date.now() - start;
             stage.failures += 1;
-            console.error('[Search] OpenAlex failed:', e.message);
+            console.error('[Search] OpenAlex fetch failed:', e.message);
         }
 
         return allResults;
     },
 
     /**
-     * Truncates to 300 characters as requested.
+     * Decodes OpenAlex's inverted index, normalizes whitespace to save tokens, 
+     * and truncates to 300 characters.
      */
     _reconstructAbstract(invertedIndex) {
         if (!invertedIndex || typeof invertedIndex !== 'object') return '';
@@ -273,86 +257,65 @@ Return ONLY the raw JSON object, no markdown.`;
         for (const [word, idxs] of Object.entries(invertedIndex)) {
             for (const i of idxs) positions.push([i, word]);
         }
-        return positions.sort((a, b) => a[0] - b[0]).map(p => p[1]).join(' ').substring(0, 300);
+        
+        // Join, normalize whitespace (collapse multiple spaces/newlines into one), and truncate to 300 chars
+        return positions
+            .sort((a, b) => a[0] - b[0])
+            .map(p => p[1])
+            .join(' ')
+            .replace(/\s+/g, ' ') 
+            .trim()
+            .substring(0, 300);
     },
-
 
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Removes junk, deduplicates by URL/Title, and applies domain-based scoring.
-     * BUG FIX: Explicitly marks openalex.org and doi.org as academic so they
-     * aren't falsely deduplicated by domain limits.
-     */
     _filterAndScore(results) {
-        const seenUrls = new Set();
-        const seenTitles = new Set();
-        const seenDomains = new Set();
+        let filtered = results.filter(r => {
+            const linkLower = (r.link || '').toLowerCase();
+            const isBannedDomain = BANNED_DOMAINS.some(d => linkLower.includes(d));
+            const isBannedExt = BANNED_EXTENSIONS.some(ext => linkLower.endsWith(ext));
+            return !isBannedDomain && !isBannedExt;
+        });
 
-        return results
-            .filter(r => {
-                if (!r.title || !r.link) return false;
-                const lowerUrl = r.link.toLowerCase();
-                const lowerTitle = r.title.toLowerCase();
+        const seen = new Set();
+        filtered = filtered.filter(r => {
+            if (!r.link || seen.has(r.link)) return false;
+            seen.add(r.link);
+            return true;
+        });
 
-                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
-                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
+        filtered.forEach(r => {
+            let score = r._score || 0;
+            const linkLower = (r.link || '').toLowerCase();
+            const venueLower = (r.venue || '').toLowerCase();
+            
+            if (PREFERRED_DOMAINS.some(d => linkLower.includes(d) || venueLower.includes(d))) {
+                score += 10;
+            }
+            if (r.snippet && r.snippet.length > 150) {
+                score += 5;
+            }
+            const currentYear = new Date().getFullYear();
+            if (r.year) {
+                if (r.year >= currentYear - 5) score += 3;
+                else if (r.year >= currentYear - 10) score += 1;
+                else if (r.year < 2000) score -= 2;
+            }
+            r._score = score;
+        });
 
-                try {
-                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
-
-                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
-                    if (seenTitles.has(normalizedTitle)) return false;
-                    seenTitles.add(normalizedTitle);
-
-                    if (seenUrls.has(lowerUrl)) return false;
-                    seenUrls.add(lowerUrl);
-
-                    // THE FIX: Treat OpenAlex and DOI links as academic so we don't cap them at 1 per domain
-                    const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
-                                       domain.endsWith('.edu') ||
-                                       domain.endsWith('.gov') ||
-                                       domain.includes('openalex.org') ||
-                                       domain.includes('doi.org');
-
-                    if (!isAcademic) {
-                        if (seenDomains.has(domain)) return false;
-                        seenDomains.add(domain);
-                    }
-                    return true;
-                } catch { return false; }
-            })
-            .map(r => {
-                let score = r._score || 0;
-                try {
-                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
-                    if (PREFERRED_DOMAINS.some(p => domain.includes(p))) score += 5;
-                    if (domain.endsWith('.edu')) score += 3;
-                    if (domain.endsWith('.gov')) score += 3;
-                    if (r.link.includes('doi.org')) score += 4;
-                    if (domain.includes('blog')) score -= 3;
-                    if (r.title.length < 15) score -= 2;
-                    if (r.snippet && r.snippet.length > 100) score += 1;
-                    if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
-                    if (r.authors) score += 2;
-                } catch {}
-                return { ...r, _score: score };
-            })
+        return filtered
             .sort((a, b) => b._score - a._score)
-            .slice(0, 30); // Pass top 30 to Groq instead of 20
+            .slice(0, 30);
     },
 
-
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (JSON Key-Value Format)
+    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Sends a JSON object {citation: abstract} and asks Groq to return the keys to delete.
-     */
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
         const stage = stats ? stats.stages.filter : null;
         if (stage) { stage.calls += 1; stats.totals.groqCalls += 1; }
@@ -363,51 +326,68 @@ Return ONLY the raw JSON object, no markdown.`;
             return results;
         }
 
-        // Helper to generate the exact same citation string for the map and the filter
-        const getCitationKey = (r) => `${r.authors || 'Unknown'} (${r.year || 'n.d.'}). ${r.title}. ${r.venue}`;
-
         try {
-            // Build the { citation: abstract } JSON object
-            const citationMap = {};
-            results.forEach(r => {
-                citationMap[getCitationKey(r)] = r.snippet || 'No abstract available';
-            });
-            
-            const jsonPayload = JSON.stringify(citationMap, null, 2);
+            const summaries = results.map((r, i) => {
+                const absText = r.snippet || 'No abstract available';
+                return `[${i}] Title: "${r.title}"\nAbstract: ${absText}`;
+            }).join('\n\n---\n\n');
 
             const briefContext = brief ? `
 GROUND TRUTH:
 - Central question: ${brief.central_question || '(unspecified)'}
+- Discipline: ${brief.discipline || '(unspecified)'}
 - Must engage with: ${JSON.stringify(brief.must_engage_with || [])}
 ` : `
 ESSAY TOPIC:
 "${originalText.substring(0, 800)}"
 `;
 
-            const prompt = `You are pruning an academic search results list formatted as a JSON object.
+            const prompt = `You are pruning an academic search results list.
 
 Your job is to identify the FEW outlier papers that should be removed because they are not meaningfully relevant to the research topic.
 
 RESEARCH CONTEXT:
- ${briefContext}
+${briefContext}
 
-SEARCH RESULTS (JSON Object where keys are citations, values are abstracts):
- ${jsonPayload}
+SEARCH RESULTS:
+${summaries}
 
 TASK:
-Identify papers that are OFF-TOPIC. Delete a paper if it falls into ANY of these categories:
-1. HISTORICAL ONLY (describes history without contributing to the research question)
-2. PEDAGOGY / EDUCATION (focuses on teaching, classrooms, student learning)
-3. TECHNICAL BUT IRRELEVANT (uses topic terminology but solves a different problem)
-4. TANGENTIAL KEYWORD MATCH (shares keywords but addresses a different subject)
-5. LOW RELEVANCE (does not directly help answer the research question)
+Identify papers that are OFF-TOPIC and return ONLY their index numbers as a raw JSON array.
 
-DO NOT delete papers that directly address the central question, present competing theories, or provide relevant empirical/philosophical analysis.
+Delete a paper if it falls into ANY of these categories:
 
-Be conservative. Assume most are relevant. Delete only clear outliers.
+1. HISTORICAL ONLY
+   - Primarily describes historical events, people, or development without contributing to the research question.
 
-Return ONLY a raw JSON array of the EXACT citation keys to delete.
-Example: ["Smith (2020). Title. Journal", "Doe (2019). Title. Journal"]`;
+2. PEDAGOGY, TEACHING, OR EDUCATION
+   - Focuses on teaching methods, curriculum, classrooms, student learning, "discovery learning", or "mathematics education".
+   - CRITICAL: Delete papers about "mathematics education", "undergraduate students", "peer collaboration", or "attitudes/beliefs", EVEN IF they use philosophical words like "constructivism", "epistemology", "platonism", or "discovery" in the title or abstract. We ONLY want pure philosophy and ontology, not teaching theory or student psychology.
+
+3. TECHNICAL BUT IRRELEVANT
+   - Uses terminology related to the topic but is actually about a different technical problem or application.
+
+4. TANGENTIAL KEYWORD MATCH
+   - Appears because of shared keywords but addresses a substantially different subject.
+
+5. BOOK REVIEW OR EDITORIAL
+   - Reviews another work or contains commentary without making a substantive contribution to the research question.
+
+6. LOW RELEVANCE
+   - The paper does not directly help answer the research question described in the context.
+
+DO NOT delete papers that:
+- Directly address the central research question.
+- Present competing theories, perspectives, or conceptual frameworks relevant to the topic.
+- Provide empirical evidence, philosophical analysis, theoretical models, or systematic reviews that are useful for answering the research question.
+
+Be conservative. Assume most search results are relevant. Delete only clear outliers.
+
+Return ONLY a raw JSON array of index numbers.
+Examples:
+[]
+[3]
+[2, 7, 15]`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             if (stage) stage.ms = Date.now() - start;
@@ -415,24 +395,25 @@ Example: ["Smith (2020). Title. Journal", "Doe (2019). Title. Journal"]`;
             const jsonMatch = response.match(/\[[\s\S]*?\]/);
             if (!jsonMatch) throw new Error('No JSON array');
 
-            const keysToDelete = new Set(JSON.parse(jsonMatch[0]));
-            
-            // Filter using the exact keys instead of flaky array indexes
-            let filtered = results.filter(r => !keysToDelete.has(getCitationKey(r)));
+            const indicesToDelete = new Set(JSON.parse(jsonMatch[0]));
+            let filtered = results.filter((_, index) => !indicesToDelete.has(index));
 
             if (stage) stage.ok = true;
 
-            // ── MINIMUM THRESHOLD ──
             if (filtered.length >= MINIMUM_RESULTS) {
                 return filtered;
             }
 
             if (filtered.length < MINIMUM_RESULTS) {
-                console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring fillers`);
-                const keptKeys = new Set(filtered.map(getCitationKey));
+                console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring top-scored fillers`);
+                const keptLinks = new Set(filtered.map(f => f.link));
+                
                 const fillers = results
-                    .filter(r => !keptKeys.has(getCitationKey(r)))
+                    .map((r, index) => ({ r, index }))
+                    .filter(({ r, index }) => !keptLinks.has(r.link) && !indicesToDelete.has(index))
+                    .map(({ r }) => r)
                     .slice(0, MINIMUM_RESULTS - filtered.length);
+                    
                 return [...filtered, ...fillers];
             }
 
@@ -445,14 +426,10 @@ Example: ["Smith (2020). Title. Journal", "Doe (2019). Title. Journal"]`;
         }
     },
 
-
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 8: UTILITIES & HELPERS
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Initializes a fresh stats object per search() call.
-     */
     _createStats() {
         return {
             startedAt: null,
