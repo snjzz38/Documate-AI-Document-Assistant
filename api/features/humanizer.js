@@ -175,7 +175,7 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary.
-2. FLOW: Use natural conjunctions ("and", "so", "but", "while", "whereas") to connect closely related ideas. Do NOT output choppy, disconnected, or staccato sentences.
+2. SENTENCE FLOW: You MUST connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas"). Do NOT output choppy, disconnected, or staccato sentences. Do NOT leave sentence fragments.
 3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
 4. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
 5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
@@ -185,6 +185,7 @@ STRICT RULES:
 9. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
 10. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
 11. Do NOT repeat the same concept or premise in consecutive sentences.
+12. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -227,12 +228,11 @@ const AI_STERILE_SWAPS = {
     "fabric of the universe": "structure of reality",
     "fabric of reality": "structure of reality",
     "mortal invention": "human invention",
-    "mortal creation": "human creation"
+    "mortal creation": "human creation",
+    "facilitated by this methodology": "helped by this approach",
+    "in-depth analysis is facilitated": "detailed analysis is helped"
 };
 
-/**
- * Cleans text mechanics (punctuation, grammar, double words).
- */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -261,19 +261,16 @@ function cleanTextMechanics(text) {
     
     // Fix "but However" or "but However,"
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
-    // Fix missing period before "However" (e.g., "them, However," -> "them. However,")
+    // Fix missing period before "However"
     result = result.replace(/,\s*However,/gi, '. However,');
     result = result.replace(/,\s*However\s/gi, '. However ');
 
     // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    // Specific fix for 'u' words that sound like 'y'
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
-    // Fix specific Groq a/an hallucinations
     result = result.replace(/\ban discovery/gi, 'a discovery');
     result = result.replace(/\ban human/gi, 'a human');
-    // Fix missing 'a' in "as means of"
     result = result.replace(/\bas means of/gi, 'as a means of');
 
     // SPACING & CAPITALIZATION
@@ -285,17 +282,6 @@ function cleanTextMechanics(text) {
 
     return result.trim();
 }
-
-/**
- * Main post-processing function.
- */
-function postProcess(text) {
-    let result = text;
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
-    return cleanTextMechanics(result);
-}
-
 
 // ==========================================================================
 // 6. GROQ 6-STAGE SANITY CHECKER MODULE
@@ -310,21 +296,16 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods. Do not just replace commas with "and".
+5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods.
 6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
 7. TAUTOLOGIES: Phrases like "circular shape of circles". Fix them to be concise.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2 or MORE consecutive disjointed sentences. 
-SPECIFIC INSTRUCTIONS:
-1. If you find sentences comparing two subjects, combine them using ", while" or ", whereas".
-2. If you find 2-3 separated sentences that are logically sequential or share a subject, combine them into one smooth sentence using a comma and a conjunction (e.g., "and", "so", "but").
+const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
 CRITICAL RULES: 
-- NEVER use ", which" to combine sentences.
-- NEVER create run-on sentences, dangling clauses, or tautologies.
-- NEVER overlap keys. A key must be the EXACT full sentences, and a value must be the EXACT full rewritten sentences.
-- CRITICAL: The resulting combined sentence MUST NOT contain more than ONE comma. If it does, you are creating a comma chain.
-- Ensure the resulting grammar and punctuation are perfect.
+- NEVER change the meaning or add words. 
+- NEVER create run-on sentences or comma chains.
+- If you are not 100% sure the combination is perfect, return {}.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
@@ -378,7 +359,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
-    // Stage 6: Grammar and Typos
     const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
     currentText = applyJsonReplacements(currentText, s6);
     fixes.stage6 = Object.keys(s6).length;
