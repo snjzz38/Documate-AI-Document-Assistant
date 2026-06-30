@@ -76,14 +76,39 @@ const MINIMUM_RESULTS = 6; // Never return fewer than this many sources
 // MODULE 2: CORE INTERFACE
 // ════════════════════════════════════════════════════════════════════════════
 
-export const GoogleSearchAPI = {
+    export const GoogleSearchAPI = {
 
-    /**
-     * Main entry point. Orchestrates the 5-stage pipeline.
-     */
-    async search(query, apiKey, cx, groqKey = null) {
-        const stats = this._createStats();
-        stats.startedAt = Date.now();
+        async search(query, apiKey, cx, groqKey = null) {
+            const stats = this._createStats();
+            stats.startedAt = Date.now();
+
+            let brief = null;
+            if (groqKey) {
+                brief = await this._analyzeTopic(query, groqKey, stats);
+            }
+
+            const queries = brief ? brief.queries : [this._buildFallbackQuery(query)];
+            stats.queriesGenerated = queries.length;
+
+            const openAlexResults = await this._searchOpenAlex(queries, stats);
+            stats.results.raw = openAlexResults.length;
+
+            // PASS THE BRIEF TO SCORER FOR DYNAMIC PRE-FILTERING
+            const scoredResults = this._filterAndScore(openAlexResults, brief);
+            stats.results.afterScoring = scoredResults.length;
+
+            const relevantResults = await this._filterByRelevance(scoredResults, query, groqKey, brief, stats);
+            stats.results.afterFilter = relevantResults.length;
+
+            stats.finishedAt = Date.now();
+            stats.elapsedMs = stats.finishedAt - stats.startedAt;
+            stats.totals.externalRequests = stats.totals.groqCalls + stats.totals.httpRequests;
+            stats.totals.failedRequests = stats.stages.topicAnalysis.failures + stats.stages.openalex.failures + stats.stages.filter.failures;
+            stats.totals.successRate = stats.totals.externalRequests > 0 ? +(1 - stats.totals.failedRequests / stats.totals.externalRequests).toFixed(3) : 1;
+
+            Object.defineProperty(relevantResults, 'stats', { value: stats, enumerable: false, writable: false });
+            return relevantResults;
+        },
 
         // Stage 1: Analyze Topic
         let brief = null;
@@ -124,10 +149,6 @@ export const GoogleSearchAPI = {
     // MODULE 3: STAGE 1 - TOPIC ANALYSIS
     // ════════════════════════════════════════════════════════════════════════
 
-    /**
-     * Uses Groq to read the essay and create a structured "Search Brief".
-     * This brief acts as ground truth for later filtering.
-     */
     async _analyzeTopic(text, groqKey, stats) {
         const stage = stats.stages.topicAnalysis;
         stage.calls += 1;
@@ -151,6 +172,7 @@ TASK: Analyze the essay and return a JSON object with these fields:
     {"name": "specific named thing from essay", "role": "how it's used in the argument"}
   ],
   "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims"],
+  "exclude_fields": ["List 3-5 specific academic fields, topics, or domains that share keywords with this essay but should be STRICTLY EXCLUDED from search results because they are fundamentally different disciplines. e.g., if the essay is philosophy of math, exclude 'computer graphics', 'Jungian psychology', 'evolutionary biology', 'applied engineering'"],
   "queries": [
     "5-8 NATURAL SEARCH PHRASES of 4-8 words each",
     "each phrase must read like a coherent description of a specific claim",
@@ -163,6 +185,7 @@ CRITICAL RULES:
 2. Each phrase must SELF-CONTEXTUALIZE. Disambiguate terms.
 3. The "queries" must cover EVERY distinct section/argument of the essay.
 4. Each phrase must be 4-8 words.
+5. The "exclude_fields" must aggressively target fields that might cause semantic drift in search engines.
 
 Return ONLY the raw JSON object, no markdown.`;
 
@@ -296,18 +319,19 @@ Return ONLY the raw JSON object, no markdown.`;
 
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION
+    // MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Removes junk, deduplicates by URL/Title, and applies domain-based scoring.
-     * BUG FIX: Explicitly marks openalex.org and doi.org as academic so they 
-     * aren't falsely deduplicated by domain limits.
+     * Removes junk, pre-filters drifted domains, deduplicates, and scores.
      */
-    _filterAndScore(results) {
+    _filterAndScore(results, brief = {}) {
         const seenUrls = new Set();
         const seenTitles = new Set();
         const seenDomains = new Set();
+        
+        // DYNAMIC PRE-FILTER: Extract fields to exclude based on the specific essay
+        const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
 
         return results
             .filter(r => {
@@ -321,6 +345,19 @@ Return ONLY the raw JSON object, no markdown.`;
                 try {
                     const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
                     if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
+
+                    // ── LIGHTWEIGHT DISCIPLINE PRE-FILTER ──
+                    // Drops papers from fields Groq explicitly warned us about.
+                    // This prevents LLM token waste on obvious retrieval drift.
+                    if (excludeFields.length > 0) {
+                        const paperContext = `${r.title} ${r.venue}`.toLowerCase();
+                        for (const exclude of excludeFields) {
+                            if (paperContext.includes(exclude)) {
+                                console.log(`[Search] Pre-filtered drift: "${r.title}" (Matched: "${exclude}")`);
+                                return false;
+                            }
+                        }
+                    }
 
                     const normalizedTitle = lowerTitle.substring(0, 60).trim();
                     if (seenTitles.has(normalizedTitle)) return false;
@@ -359,7 +396,7 @@ Return ONLY the raw JSON object, no markdown.`;
                 return { ...r, _score: score };
             })
             .sort((a, b) => b._score - a._score)
-            .slice(0, 20); // Feed top 20 to the AI filter
+            .slice(0, 20);
     },
 
 
