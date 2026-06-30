@@ -178,7 +178,7 @@ STRICT RULES:
 2. SENTENCE FLOW: You MUST connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas"). Do NOT output choppy, disconnected, or staccato sentences. Do NOT leave sentence fragments.
 3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
 4. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
+5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
 6. NO EM DASHES (—) or SEMICOLONS (;). 
 7. NO COMMA CHAINS: A sentence must not have more than one comma.
 8. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
@@ -230,9 +230,18 @@ const AI_STERILE_SWAPS = {
     "mortal invention": "human invention",
     "mortal creation": "human creation",
     "facilitated by this methodology": "helped by this approach",
-    "in-depth analysis is facilitated": "detailed analysis is helped"
+    "in-depth analysis is facilitated": "detailed analysis is helped",
+    "striking resemblance": "close resemblance",
+    "product of human ingenuity": "human creation",
+    "infinite array": "large number",
+    "vast array": "large number",
+    "rigorous investigation": "detailed study",
+    "serves as a bridge": "acts as a link"
 };
 
+/**
+ * Cleans text mechanics (punctuation, grammar, double words).
+ */
 function cleanTextMechanics(text) {
     let result = text;
 
@@ -254,7 +263,8 @@ function cleanTextMechanics(text) {
     // FIX GROQ REPLACEMENT ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); // Double periods
     result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/,\./g, '.');   // Comma followed by period
+    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma (e.g., "world.," -> "world.")
+    result = result.replace(/,\s*\./g, '.');   // Comma followed by period
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
@@ -284,12 +294,15 @@ function cleanTextMechanics(text) {
 }
 
 /**
- * Main regex wrapper for post-processing.
- * (This was missing in the original code, causing the ReferenceError)
+ * Main post-processing function.
  */
 function postProcess(text) {
-    return cleanTextMechanics(text);
+    let result = text;
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    return cleanTextMechanics(result);
 }
+
 
 // ==========================================================================
 // 6. GROQ 6-STAGE SANITY CHECKER MODULE
@@ -319,7 +332,7 @@ Return a JSON object where keys are the EXACT original disjointed sentences (joi
 const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
 1. 2 or more consecutive sentences start with the exact same word.
 2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
-3. Sentences start with "This perspective suggests" or "An opposing perspective suggests". Rewrite them to be direct.
+3. Sentences start with "This perspective suggests", "An opposing view posits", or "An opposing perspective suggests". Rewrite them to be direct.
 Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
 
 const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -367,6 +380,7 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
+    // Stage 6: Grammar and Typos
     const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
     currentText = applyJsonReplacements(currentText, s6);
     fixes.stage6 = Object.keys(s6).length;
