@@ -149,7 +149,7 @@ function applyJsonReplacements(text, jsonMap) {
         
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
 
-        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings into the text
+        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings or meta-commentary into the text
         if (afterStr.includes('{') || afterStr.includes('}')) continue;
 
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -175,17 +175,18 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary.
-2. SENTENCE FLOW: You MUST connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas"). Do NOT output choppy, disconnected, or staccato sentences. Do NOT leave sentence fragments.
-3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
-4. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
-6. NO EM DASHES (—) or SEMICOLONS (;). 
-7. NO COMMA CHAINS: A sentence must not have more than one comma.
-8. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-9. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-10. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
-11. Do NOT repeat the same concept or premise in consecutive sentences.
-12. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
+2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+3. SENTENCE FLOW: Connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas") within a complete sentence. Do NOT output choppy, disconnected, or staccato sentences.
+4. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+5. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
+7. NO EM DASHES (—) or SEMICOLONS (;). 
+8. NO COMMA CHAINS: A sentence must not have more than one comma.
+9. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+10. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+11. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+12. Do NOT repeat the same concept or premise in consecutive sentences.
+13. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -245,8 +246,9 @@ const AI_STERILE_SWAPS = {
 function cleanTextMechanics(text) {
     let result = text;
 
-    // STRICT EM-DASH BANNING
+    // STRICT EM-DASH & SEMICOLON BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
+    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
     result = result.replace(/,\s*,/g, ',');
 
     // STERILE VOCABULARY SWAPS
@@ -263,7 +265,7 @@ function cleanTextMechanics(text) {
     // FIX GROQ REPLACEMENT ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); // Double periods
     result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma (e.g., "world.," -> "world.")
+    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma
     result = result.replace(/,\s*\./g, '.');   // Comma followed by period
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
@@ -326,6 +328,7 @@ const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, chop
 CRITICAL RULES: 
 - NEVER change the meaning or add words. 
 - NEVER create run-on sentences or comma chains.
+- NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 - If you are not 100% sure the combination is perfect, return {}.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
@@ -339,9 +342,11 @@ const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where t
 Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
 CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
 
-const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), sentence fragments, or broken syntax (e.g., "but However,"). 
-Also check for article errors (e.g., "an discovery" instead of "a discovery", "a apple" instead of "an apple").
-Return a JSON object where keys are the EXACT broken sentences, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
+const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought (e.g., "With the Fibonacci sequence appearing in galaxies."), you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
+CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
+Also check for article errors (e.g., "an discovery" instead of "a discovery").
+Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -380,7 +385,7 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
-    // Stage 6: Grammar and Typos
+    // Stage 6: Grammar, Typos, and Fragments
     const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
     currentText = applyJsonReplacements(currentText, s6);
     fixes.stage6 = Object.keys(s6).length;
