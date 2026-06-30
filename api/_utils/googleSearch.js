@@ -29,7 +29,6 @@
  * 
  * 8. UTILITIES & HELPERS
  *    - _createStats() - Initializes network tracking object
- *    - _time() - Async timing wrapper
  */
 
 import { GroqAPI } from './groqAPI.js';
@@ -239,7 +238,6 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.calls += 1;
             stats.totals.httpRequests += 1;
             try {
-                // Wider net: 25 results per query instead of 15
                 const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=25&mailto=research@example.com`;
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 12000);
@@ -265,7 +263,7 @@ Return ONLY the raw JSON object, no markdown.`;
                     allResults.push({
                         title: work.title,
                         link,
-                        snippet: abstract || '', // Now contains up to 800 chars of actual abstract
+                        snippet: abstract || '',
                         authors,
                         year: work.publication_year,
                         venue: work.primary_location?.source?.display_name || '',
@@ -301,57 +299,67 @@ Return ONLY the raw JSON object, no markdown.`;
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Filters out bad domains, deduplicates, and scores the results.
-     * Returns the top 30 results to pass to the AI filter.
+     * Removes junk, deduplicates by URL/Title, and applies domain-based scoring.
+     * BUG FIX: Explicitly marks openalex.org and doi.org as academic so they
+     * aren't falsely deduplicated by domain limits.
      */
     _filterAndScore(results) {
-        // 1. Filter out banned domains and extensions
-        let filtered = results.filter(r => {
-            const linkLower = (r.link || '').toLowerCase();
-            const isBannedDomain = BANNED_DOMAINS.some(d => linkLower.includes(d));
-            const isBannedExt = BANNED_EXTENSIONS.some(ext => linkLower.endsWith(ext));
-            return !isBannedDomain && !isBannedExt;
-        });
+        const seenUrls = new Set();
+        const seenTitles = new Set();
+        const seenDomains = new Set();
 
-        // 2. Deduplicate by link
-        const seen = new Set();
-        filtered = filtered.filter(r => {
-            if (!r.link || seen.has(r.link)) return false;
-            seen.add(r.link);
-            return true;
-        });
+        return results
+            .filter(r => {
+                if (!r.title || !r.link) return false;
+                const lowerUrl = r.link.toLowerCase();
+                const lowerTitle = r.title.toLowerCase();
 
-        // 3. Score results
-        filtered.forEach(r => {
-            let score = r._score || 0;
-            const linkLower = (r.link || '').toLowerCase();
-            const venueLower = (r.venue || '').toLowerCase();
-            
-            // Boost preferred academic domains
-            if (PREFERRED_DOMAINS.some(d => linkLower.includes(d) || venueLower.includes(d))) {
-                score += 10;
-            }
-            
-            // Boost papers with substantial abstracts
-            if (r.snippet && r.snippet.length > 150) {
-                score += 5;
-            }
-            
-            // Recency bonus
-            const currentYear = new Date().getFullYear();
-            if (r.year) {
-                if (r.year >= currentYear - 5) score += 3;
-                else if (r.year >= currentYear - 10) score += 1;
-                else if (r.year < 2000) score -= 2;
-            }
+                if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
+                if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
 
-            r._score = score;
-        });
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
 
-        // 4. Sort by score and return top 30 (Updated from 20)
-        return filtered
+                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
+                    if (seenTitles.has(normalizedTitle)) return false;
+                    seenTitles.add(normalizedTitle);
+
+                    if (seenUrls.has(lowerUrl)) return false;
+                    seenUrls.add(lowerUrl);
+
+                    // THE FIX: Treat OpenAlex and DOI links as academic so we don't cap them at 1 per domain
+                    const isAcademic = PREFERRED_DOMAINS.some(p => domain.includes(p)) ||
+                                       domain.endsWith('.edu') ||
+                                       domain.endsWith('.gov') ||
+                                       domain.includes('openalex.org') ||
+                                       domain.includes('doi.org');
+
+                    if (!isAcademic) {
+                        if (seenDomains.has(domain)) return false;
+                        seenDomains.add(domain);
+                    }
+                    return true;
+                } catch { return false; }
+            })
+            .map(r => {
+                let score = r._score || 0;
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (PREFERRED_DOMAINS.some(p => domain.includes(p))) score += 5;
+                    if (domain.endsWith('.edu')) score += 3;
+                    if (domain.endsWith('.gov')) score += 3;
+                    if (r.link.includes('doi.org')) score += 4;
+                    if (domain.includes('blog')) score -= 3;
+                    if (r.title.length < 15) score -= 2;
+                    if (r.snippet && r.snippet.length > 100) score += 1;
+                    if (/\b(definition|meaning|what is)\b/i.test(r.title)) score -= 5;
+                    if (r.authors) score += 2;
+                } catch {}
+                return { ...r, _score: score };
+            })
             .sort((a, b) => b._score - a._score)
-            .slice(0, 30);
+            .slice(0, 30); // Pass top 30 to Groq instead of 20
     },
 
 
@@ -360,7 +368,7 @@ Return ONLY the raw JSON object, no markdown.`;
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * "Delete Indexes" approach. 
+     * "Delete Indexes" approach.
      * Sends full abstracts to Groq and asks it to identify the outliers to prune.
      */
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
@@ -374,7 +382,6 @@ Return ONLY the raw JSON object, no markdown.`;
         }
 
         try {
-            // Send FULL abstracts (up to 800 chars) instead of tiny 250-char snippets
             const summaries = results.map((r, i) => {
                 const absText = r.snippet || 'No abstract available';
                 return `[${i}] Title: "${r.title}"\nAbstract: ${absText}`;
@@ -395,10 +402,10 @@ ESSAY TOPIC:
 Your job is to identify the FEW outlier papers that should be removed because they are not meaningfully relevant to the research topic.
 
 RESEARCH CONTEXT:
-${briefContext}
+ ${briefContext}
 
 SEARCH RESULTS:
-${summaries}
+ ${summaries}
 
 TASK:
 Identify papers that are OFF-TOPIC and return ONLY their index numbers as a raw JSON array.
@@ -440,13 +447,12 @@ Examples:
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             if (stage) stage.ms = Date.now() - start;
-            
+
             const jsonMatch = response.match(/\[[\s\S]*?\]/);
             if (!jsonMatch) throw new Error('No JSON array');
 
             const indicesToDelete = new Set(JSON.parse(jsonMatch[0]));
-            
-            // Filter OUT the deleted indexes
+
             let filtered = results.filter((_, index) => !indicesToDelete.has(index));
 
             if (stage) stage.ok = true;
@@ -460,14 +466,11 @@ Examples:
             if (filtered.length < MINIMUM_RESULTS) {
                 console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring top-scored fillers`);
                 const keptLinks = new Set(filtered.map(f => f.link));
-                
-                // Optimized fallback logic (avoids O(N^2) indexOf lookups)
                 const fillers = results
                     .map((r, index) => ({ r, index }))
                     .filter(({ r, index }) => !keptLinks.has(r.link) && !indicesToDelete.has(index))
                     .map(({ r }) => r)
                     .slice(0, MINIMUM_RESULTS - filtered.length);
-                    
                 return [...filtered, ...fillers];
             }
 
