@@ -76,7 +76,7 @@ export const GoogleSearchAPI = {
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 3: STAGE 1 - TOPIC ANALYSIS
+    // MODULE 3: STAGE 1 - TOPIC ANALYSIS (DISCIPLINE-LOCKED)
     // ════════════════════════════════════════════════════════════════════════
 
     async _analyzeTopic(text, groqKey, stats) {
@@ -86,23 +86,29 @@ export const GoogleSearchAPI = {
         const start = Date.now();
 
         try {
-            const prompt = `You are analyzing a student essay to prepare a "search brief" for finding academic sources.
+            const prompt = `You are generating search queries for an academic database. You MUST prevent "topic drift" into wrong disciplines.
 
 ESSAY TEXT:
-"${text.substring(0, 2500)}"
+"${text.substring(0, 2000)}"
 
 TASK: Return a JSON object:
 {
-  "central_question": "the specific question the essay is trying to answer",
-  "must_engage_with": ["3-6 short PHRASES that capture the essay's core claims"],
+  "discipline_prefix": "The exact academic discipline in 2-4 words. e.g., 'philosophy of mathematics', 'sociology of education', 'cognitive psychology'. This will be prepended to EVERY query.",
+  "central_question": "the specific question the essay asks",
+  "must_engage_with": ["3-6 short phrases capturing core claims"],
   "queries": [
-    "5-8 NATURAL SEARCH PHRASES of 4-8 words each",
-    "each phrase must self-contextualize the discipline",
-    "e.g., 'philosophy of mathematics invention versus discovery'"
+    "5-8 search phrases of 4-8 words. Each MUST start exactly with the discipline_prefix followed by a specific topic."
   ]
 }
 
-Return ONLY the raw JSON object, no markdown.`;
+CRITICAL ANTI-DRIFT RULES:
+1. If the essay is about the philosophy of math, the discipline_prefix MUST be "philosophy of mathematics". It CANNOT be just "mathematics" (which returns pure math/CS papers).
+2. Every single query MUST begin with the exact discipline_prefix. 
+   - BAD: "invention versus discovery mathematical Platonism" (Will return CS papers)
+   - GOOD: "philosophy of mathematics invention versus discovery" (Locks to philosophy)
+3. Do NOT include author names.
+
+Return ONLY raw JSON.`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -112,10 +118,21 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
             stage.ok = true;
 
+            // Hard validate that queries actually start with the discipline
+            const prefix = brief.discipline_prefix?.toLowerCase() || '';
+            if (!prefix) throw new Error('Missing discipline_prefix');
+
             brief.queries = brief.queries
                 .filter(q => typeof q === 'string')
-                .map(q => q.trim().substring(0, 150))
-                .filter(q => { const wc = q.split(/\s+/).length; return wc >= 4 && wc <= 8; })
+                .map(q => {
+                    let clean = q.trim().substring(0, 150);
+                    // Force prepend if Groq forgot
+                    if (!clean.toLowerCase().startsWith(prefix)) {
+                        clean = `${brief.discipline_prefix} ${clean}`;
+                    }
+                    return clean;
+                })
+                .filter(q => { const wc = q.split(/\s+/).length; return wc >= 5 && wc <= 10; })
                 .slice(0, 8);
 
             if (brief.queries.length === 0) throw new Error('No valid queries');
@@ -267,8 +284,8 @@ Return ONLY the raw JSON object, no markdown.`;
             .slice(0, 30); // Feed top 30 to Groq
     },
 
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (BULLETPROOF INTEGER INDEXES)
+     // ════════════════════════════════════════════════════════════════════════
+    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (STRUCTURED JSON RERANKER)
     // ════════════════════════════════════════════════════════════════════════
 
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
@@ -282,50 +299,40 @@ Return ONLY the raw JSON object, no markdown.`;
         }
 
         try {
-            // ── THE FIX: Use simple integer indexes. LLMs never mess this up. ──
-            const summaries = results.map((r, i) => {
-                const absText = r.snippet || 'No abstract available';
-                return `[${i}] "${r.title}" - ${absText}`;
-            }).join('\n\n');
+            // Implementing the "Hard Structured Input" from the pasted analysis
+            const structuredInput = results.map((r, i) => ({
+                id: i,
+                title: r.title,
+                abstract: r.snippet || 'No abstract',
+                venue: r.venue
+            }));
+
+            const jsonPayload = JSON.stringify(structuredInput, null, 1);
 
             const briefContext = brief ? `
-GROUND TRUTH:
-- Central question: ${brief.central_question || '(unspecified)'}
-- Must engage with: ${JSON.stringify(brief.must_engage_with || [])}
+DISCIPLINE: ${brief.discipline_prefix || 'Unknown'}
+CENTRAL QUESTION: ${brief.central_question || '(unspecified)'}
+MUST ENGAGE WITH: ${JSON.stringify(brief.must_engage_with || [])}
 ` : `
 ESSAY TOPIC:
 "${originalText.substring(0, 800)}"
 `;
 
-            const prompt = `You are pruning an academic search results list.
+            // Implementing the "Explicit Competition Frame" from the pasted analysis
+            const prompt = `You are a strict academic search reranker. 
 
-Your job is to identify the FEW outlier papers that should be removed because they are not meaningfully relevant to the research topic.
-
-RESEARCH CONTEXT:
+CONTEXT:
  ${briefContext}
 
-SEARCH RESULTS:
- ${summaries}
+INPUT DATA (Array of papers):
+ ${jsonPayload}
 
 TASK:
-Identify papers that are OFF-TOPIC and return ONLY their index numbers as a raw JSON array.
+Compare all papers against each other. Identify the papers that have drifted into the wrong academic discipline or do not directly answer the central question.
 
-Delete a paper if it falls into ANY of these categories:
-1. HISTORICAL ONLY (describes history without contributing to the research question)
-2. PEDAGOGY / EDUCATION (focuses on teaching, classrooms, student learning, curriculum)
-3. TECHNICAL BUT IRRELEVANT (uses topic terminology but solves a different problem)
-4. TANGENTIAL KEYWORD MATCH (shares keywords but addresses a different subject)
-5. LOW RELEVANCE (does not directly help answer the research question)
-
-DO NOT delete papers that directly address the central question, present competing theories, or provide relevant empirical/philosophical analysis.
-
-Be conservative. Assume most are relevant. Delete only clear outliers.
-
-Return ONLY a raw JSON array of index numbers.
+Return ONLY a raw JSON array of the "id" numbers of the papers to DELETE.
 Examples:
-[]
-[3]
-[2, 7, 15]`;
+[0, 4, 12]`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             if (stage) stage.ms = Date.now() - start;
@@ -346,7 +353,6 @@ Examples:
             if (filtered.length < MINIMUM_RESULTS) {
                 console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring fillers`);
                 const keptIndices = new Set(filtered.map((_, i) => results.indexOf(_))); 
-                // Simpler filler logic since we use array indexes now
                 const fillers = results
                     .map((r, i) => ({ r, i }))
                     .filter(({ i }) => !indicesToDelete.has(i))
