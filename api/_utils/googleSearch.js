@@ -76,7 +76,7 @@ export const GoogleSearchAPI = {
     },
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 3: STAGE 1 - TOPIC ANALYSIS (DISCIPLINE-LOCKED)
+    // MODULE 3: STAGE 1 - TOPIC ANALYSIS (DEBATE AWARE)
     // ════════════════════════════════════════════════════════════════════════
 
     async _analyzeTopic(text, groqKey, stats) {
@@ -86,27 +86,26 @@ export const GoogleSearchAPI = {
         const start = Date.now();
 
         try {
-            const prompt = `You are generating search queries for an academic database. You MUST prevent "topic drift" into wrong disciplines.
+            const prompt = `You are mapping the argumentative structure of an essay to find exactly the right academic sources.
 
 ESSAY TEXT:
 "${text.substring(0, 2000)}"
 
 TASK: Return a JSON object:
 {
-  "discipline_prefix": "The exact academic discipline in 2-4 words. e.g., 'philosophy of mathematics', 'sociology of education', 'cognitive psychology'. This will be prepended to EVERY query.",
-  "central_question": "the specific question the essay asks",
-  "must_engage_with": ["3-6 short phrases capturing core claims"],
+  "discipline_prefix": "The exact academic discipline in 2-4 words (e.g., 'philosophy of mathematics'). Every query MUST start with this.",
+  "central_debate": "The core tension the essay explores (e.g., 'is mathematics invented or discovered')",
+  "argument_roles_needed": [
+     "List the 4-5 distinct conceptual roles a source must play to prove this essay's thesis. e.g., ['Core Ontological Position', 'Epistemic Access', 'Competing Framework', 'Critical Objection']"
+  ],
   "queries": [
-    "5-8 search phrases of 4-8 words. Each MUST start exactly with the discipline_prefix followed by a specific topic."
+    "5-8 search phrases of 5-10 words. Each MUST start with the discipline_prefix."
   ]
 }
 
-CRITICAL ANTI-DRIFT RULES:
-1. If the essay is about the philosophy of math, the discipline_prefix MUST be "philosophy of mathematics". It CANNOT be just "mathematics" (which returns pure math/CS papers).
-2. Every single query MUST begin with the exact discipline_prefix. 
-   - BAD: "invention versus discovery mathematical Platonism" (Will return CS papers)
-   - GOOD: "philosophy of mathematics invention versus discovery" (Locks to philosophy)
-3. Do NOT include author names.
+CRITICAL RULES:
+1. Every query MUST begin exactly with the discipline_prefix to prevent topic drift.
+2. The "argument_roles_needed" should represent different STEPS in the logic, not just different keywords.
 
 Return ONLY raw JSON.`;
 
@@ -118,7 +117,6 @@ Return ONLY raw JSON.`;
             stage.ms = Date.now() - start;
             stage.ok = true;
 
-            // Hard validate that queries actually start with the discipline
             const prefix = brief.discipline_prefix?.toLowerCase() || '';
             if (!prefix) throw new Error('Missing discipline_prefix');
 
@@ -126,7 +124,6 @@ Return ONLY raw JSON.`;
                 .filter(q => typeof q === 'string')
                 .map(q => {
                     let clean = q.trim().substring(0, 150);
-                    // Force prepend if Groq forgot
                     if (!clean.toLowerCase().startsWith(prefix)) {
                         clean = `${brief.discipline_prefix} ${clean}`;
                     }
@@ -284,8 +281,8 @@ Return ONLY raw JSON.`;
             .slice(0, 30); // Feed top 30 to Groq
     },
 
-     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING (STRUCTURED JSON RERANKER)
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 7: STAGE 5 - THE SPINE SELECTOR (ARGUMENT NECESSITY)
     // ════════════════════════════════════════════════════════════════════════
 
     async _filterByRelevance(results, originalText, groqKey, brief, stats) {
@@ -295,11 +292,10 @@ Return ONLY raw JSON.`;
 
         if (!groqKey || results.length === 0) {
             if (stage) { stage.ms = Date.now() - start; stage.ok = true; }
-            return results;
+            return results.slice(0, MINIMUM_RESULTS);
         }
 
         try {
-            // Implementing the "Hard Structured Input" from the pasted analysis
             const structuredInput = results.map((r, i) => ({
                 id: i,
                 title: r.title,
@@ -309,30 +305,27 @@ Return ONLY raw JSON.`;
 
             const jsonPayload = JSON.stringify(structuredInput, null, 1);
 
-            const briefContext = brief ? `
-DISCIPLINE: ${brief.discipline_prefix || 'Unknown'}
-CENTRAL QUESTION: ${brief.central_question || '(unspecified)'}
-MUST ENGAGE WITH: ${JSON.stringify(brief.must_engage_with || [])}
-` : `
-ESSAY TOPIC:
-"${originalText.substring(0, 800)}"
-`;
+            const prompt = `You are an expert constructing a minimal, non-redundant citation backbone for an academic essay.
 
-            // Implementing the "Explicit Competition Frame" from the pasted analysis
-            const prompt = `You are a strict academic search reranker. 
+ESSAY CONTEXT:
+- Central Debate: ${brief?.central_debate || originalText.substring(0, 300)}
+- Argument Roles Needed: ${JSON.stringify(brief?.argument_roles_needed || ['Position', 'Counter-position'])}
 
-CONTEXT:
- ${briefContext}
-
-INPUT DATA (Array of papers):
+AVAILABLE PAPERS:
  ${jsonPayload}
 
 TASK:
-Compare all papers against each other. Identify the papers that have drifted into the wrong academic discipline or do not directly answer the central question.
+You must select exactly ${MINIMUM_RESULTS} papers that form a complete, non-redundant argumentative spine. 
 
-Return ONLY a raw JSON array of the "id" numbers of the papers to DELETE.
-Examples:
-[0, 4, 12]`;
+STRICT NON-REDUNDANCY RULES:
+1. Do NOT select multiple papers that argue the exact same philosophical position (e.g., do not pick two different papers defending "Mathematical Pluralism").
+2. Each selected paper must fulfill a distinct logical role in the essay's argument.
+3. Exclude "adjacent philosophy" (cognitive metaphors, historical anecdotes, theology tangents) unless absolutely necessary for the core debate.
+4. Prioritize papers that directly debate the "Central Debate" over papers that discuss peripheral topics.
+
+Return ONLY a raw JSON array of the "id" numbers of the papers you select.
+You MUST return exactly ${MINIMUM_RESULTS} ids.
+Example: [0, 4, 9, 12, 15, 18, 21, 24]`;
 
             const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
             if (stage) stage.ms = Date.now() - start;
@@ -340,33 +333,37 @@ Examples:
             const jsonMatch = response.match(/\[[\s\S]*?\]/);
             if (!jsonMatch) throw new Error('No JSON array');
 
-            const indicesToDelete = new Set(JSON.parse(jsonMatch[0]));
+            const selectedIds = JSON.parse(jsonMatch[0]);
             
-            let filtered = results.filter((_, index) => !indicesToDelete.has(index));
+            if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
+                throw new Error('Empty selection');
+            }
+
+            // Map selected IDs back to results
+            let filtered = selectedIds
+                .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
+                .map(i => results[i]);
 
             if (stage) stage.ok = true;
 
-            if (filtered.length >= MINIMUM_RESULTS) {
-                return filtered;
-            }
-
+            // If it failed to pick enough, pad with the top scored results
             if (filtered.length < MINIMUM_RESULTS) {
-                console.log(`[Search] Groq deleted too many (${filtered.length}/${MINIMUM_RESULTS}), restoring fillers`);
-                const keptIndices = new Set(filtered.map((_, i) => results.indexOf(_))); 
+                console.log(`[Search] Spine selector only picked ${filtered.length}, padding with top scored`);
+                const keptIds = new Set(selectedIds);
                 const fillers = results
                     .map((r, i) => ({ r, i }))
-                    .filter(({ i }) => !indicesToDelete.has(i))
-                    .filter(({ r }) => !filtered.includes(r))
-                    .map(({ r }) => r)
-                    .slice(0, MINIMUM_RESULTS - filtered.length);
-                return [...filtered, ...fillers];
+                    .filter(({ i }) => !keptIds.has(i))
+                    .map(({ r }) => r);
+                
+                filtered = [...filtered, ...fillers].slice(0, MINIMUM_RESULTS);
             }
 
             return filtered;
 
         } catch (e) {
             if (stage) { stage.ms = Date.now() - start; stage.failures += 1; }
-            console.error('[Search] Relevance filter failed:', e.message);
+            console.error('[Search] Spine selection failed:', e.message);
+            // Fallback to top scored if the complex prompt fails
             return results.slice(0, MINIMUM_RESULTS);
         }
     },
