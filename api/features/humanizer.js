@@ -3,8 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies a comprehensive 
-// single-pass Groq post-processing polish.
+// phrasing via strict prompt engineering, and applies safe 6-stage post-processing.
 // ==========================================================================
 
 /* 
@@ -17,11 +16,11 @@
 2. TEXT UTILITIES MODULE
    - splitIntoChunks(): Safely splits text into sentence groups.
    - applyWordSwaps(): Case-preserving replacement of banned words.
-   - parseGroqJson(): Safely parses JSON strings from Groq. (Retained for utility)
-   - applyJsonReplacements(): Safely applies JSON before/after maps to text. (Retained for utility)
+   - parseGroqJson(): Safely parses JSON strings from Groq.
+   - applyJsonReplacements(): Safely applies JSON before/after maps to text.
    
 3. PROMPT ENGINEERING MODULE
-   - buildChunkPrompt(): Constructs the LLM prompt with positive humanizing rules.
+   - buildChunkPrompt(): Constructs the LLM prompt with strict humanizing rules.
    
 4. LLM SERVICE MODULE
    - humanizeChunk(): Handles the API call to Gemini with safe temperature.
@@ -30,8 +29,13 @@
    - cleanTextMechanics(): Light, safe cleanup of punctuation and grammar.
    - postProcess(): Main regex wrapper.
    
-6. GROQ COMPREHENSIVE EDITOR MODULE
-   - runGroqStages(): Single-pass comprehensive grammar and flow polish.
+6. GROQ 6-STAGE SANITY CHECKER MODULE
+   - Stage 1: Vocabulary context fixes.
+   - Stage 2: Syntactic AI tells (lists, em dashes, participles, etc.).
+   - Stage 3: Staccato flow and transition fixes.
+   - Stage 4: Repetitive sentence starters.
+   - Stage 5: Lexical variety (root word repetition).
+   - Stage 6: Grammar and typo correction.
    
 7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -76,6 +80,7 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": ""
 };
+
 
 // ==========================================================================
 // 2. TEXT UTILITIES MODULE
@@ -127,6 +132,8 @@ function parseGroqJson(content) {
 
 /**
  * Applies a JSON map of { "before": "after" } to a text string.
+ * STRICT MATCH: Replaces ONLY the first instance of an exact string match.
+ * SAFETY: Prevents [object Object] and JSON string injection.
  */
 function applyJsonReplacements(text, jsonMap) {
     let result = text;
@@ -141,6 +148,8 @@ function applyJsonReplacements(text, jsonMap) {
         }
         
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
+
+        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings into the text
         if (afterStr.includes('{') || afterStr.includes('}')) continue;
 
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -150,29 +159,36 @@ function applyJsonReplacements(text, jsonMap) {
     return result;
 }
 
+
 // ==========================================================================
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
- * Specifically engineered to defeat AI detectors by maximizing burstiness and perplexity.
  */
 function buildChunkPrompt(chunk) {
-    return `Rewrite the following text to completely bypass AI detectors like GPTZero. It must read exactly like a human wrote it, with all the natural quirks, rhythm changes, and stylistic choices of a real person.
-
-CRITICAL RULES FOR BEATING AI DETECTORS:
-1. EXTREME BURSTINESS: You MUST vary sentence length drastically. Follow a long, complex sentence with a very short one (3-5 words). Then another long one. Do not write in a steady, metronomic rhythm.
-2. HIGH PERPLEXITY: Use unexpected, natural word choices. Avoid predictable AI collocations. 
-3. KILL ESSAY TRANSITIONS: NEVER use "However,", "Ultimately,", "Furthermore,", "According to this view,", "From this perspective,", "On the other hand,", or "In conclusion,". Humans don't write like high school essays. Use abrupt shifts, conversational connectors, or just start the next sentence directly.
-4. CONVERSATIONAL YET ACCURATE: Keep the facts 100% accurate, but write it as if you are explaining it to a smart friend. Use contractions (it's, we're, didn't). 
-5. NO PERFECT SYMMETRY: Do not balance clauses perfectly. Let some thoughts trail off or start abruptly.
+    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
 TEXT TO REWRITE:
 "${chunk}"
 
-Output ONLY the rewritten text. No markdown, no quotes:`;
+STRICT RULES:
+1. Output ONLY the rewritten text. No commentary.
+2. FLOW: Use natural conjunctions ("and", "so", "but", "while", "whereas") to connect closely related ideas. Do NOT output choppy, disconnected, or staccato sentences.
+3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+4. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+5. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", or "vast landscape". Use plain, literal words.
+6. NO EM DASHES (—) or SEMICOLONS (;). 
+7. NO COMMA CHAINS: A sentence must not have more than one comma.
+8. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+9. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+10. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+11. Do NOT repeat the same concept or premise in consecutive sentences.
+
+Output ONLY the rewritten chunk:`;
 }
+
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
@@ -186,6 +202,7 @@ async function humanizeChunk(chunk, apiKey, temperature) {
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
+
 
 // ==========================================================================
 // 5. REGEX POST-PROCESSING MODULE
@@ -209,32 +226,9 @@ const AI_STERILE_SWAPS = {
     "remarkable accomplishment": "major accomplishment",
     "fabric of the universe": "structure of reality",
     "fabric of reality": "structure of reality",
-    "in the realm of": "in",
-    "plays a crucial role": "helps",
-    "sheds light on": "shows",
-    "delves into": "explores",
-    "navigating the": "handling the",
-    "a testament to": "shows",
-    "the fact that": ""
+    "mortal invention": "human invention",
+    "mortal creation": "human creation"
 };
-
-// AI Essay Transitions that must be killed or replaced to drop AI detection scores
-const AI_TRANSITION_KILLER = [
-    { regex: /^For centuries,?\s*/i, replacement: "" },
-    { regex: /\bFrom this perspective,?\s*/gi, replacement: "" },
-    { regex: /\bAccording to this view,?\s*/gi, replacement: "" },
-    { regex: /\bUltimately,?\s*/gi, replacement: "" },
-    { regex: /\bConsequently,?\s*/gi, replacement: "So, " },
-    { regex: /\bNevertheless,?\s*/gi, replacement: "Still, " },
-    { regex: /\bMoreover,?\s*/gi, replacement: "Also, " },
-    { regex: /\bFurthermore,?\s*/gi, replacement: "Plus, " },
-    { regex: /\bIn conclusion,?\s*/gi, replacement: "" },
-    { regex: /\bTo summarize,?\s*/gi, replacement: "" },
-    { regex: /\bOn the other hand,?\s*/gi, replacement: "But " },
-    { regex: /\bAs a result,?\s*/gi, replacement: "So, " },
-    { regex: /\bIt is important to note that,?\s*/gi, replacement: "" },
-    { regex: /\bIt is worth noting that,?\s*/gi, replacement: "" }
-];
 
 /**
  * Cleans text mechanics (punctuation, grammar, double words).
@@ -242,11 +236,11 @@ const AI_TRANSITION_KILLER = [
 function cleanTextMechanics(text) {
     let result = text;
 
-    // 1. STRICT EM-DASH BANNING
+    // STRICT EM-DASH BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
     result = result.replace(/,\s*,/g, ',');
 
-    // 2. STERILE VOCABULARY SWAPS
+    // STERILE VOCABULARY SWAPS
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -257,12 +251,7 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // 2.5 KILL AI ESSAY TRANSITIONS
-    for (const { regex, replacement } of AI_TRANSITION_KILLER) {
-        result = result.replace(regex, replacement);
-    }
-
-    // 3. FIX ARTIFACTS & EARLY SPACE COLLAPSE
+    // FIX GROQ REPLACEMENT ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); // Double periods
     result = result.replace(/,{2,}/g, ','); // Double commas
     result = result.replace(/,\./g, '.');   // Comma followed by period
@@ -272,22 +261,25 @@ function cleanTextMechanics(text) {
     
     // Fix "but However" or "but However,"
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
+    // Fix missing period before "However" (e.g., "them, However," -> "them. However,")
+    result = result.replace(/,\s*However,/gi, '. However,');
+    result = result.replace(/,\s*However\s/gi, '. However ');
 
-    // CRITICAL FIX: Collapse multiple spaces EARLY so grammar regexes work properly
-    result = result.replace(/\s{2,}/g, ' ');
+    // GRAMMAR FIXES (a vs an)
+    result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
+    result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
+    // Specific fix for 'u' words that sound like 'y'
+    result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+    // Fix specific Groq a/an hallucinations
+    result = result.replace(/\ban discovery/gi, 'a discovery');
+    result = result.replace(/\ban human/gi, 'a human');
+    // Fix missing 'a' in "as means of"
+    result = result.replace(/\bas means of/gi, 'as a means of');
 
-    // 4. GRAMMAR FIXES (a vs an) - Now tolerant of spacing
-    result = result.replace(/\ba\s+([aeiouAEIOU])/g, 'an $1');
-    result = result.replace(/\ban\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    result = result.replace(/\ban\s+(useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
-    result = result.replace(/\bas\s+means\s+of/gi, 'as a means of');
-
-    // 5. FIX COMMA SPLICES WITH CAPITAL LETTERS
-    result = result.replace(/,\s+([A-Z][a-z]+)\s/g, '. $1 ');
-
-    // 6. SPACING & CAPITALIZATION
+    // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
+    result = result.replace(/\s{2,}/g, ' ');
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
 
@@ -304,48 +296,98 @@ function postProcess(text) {
     return cleanTextMechanics(result);
 }
 
+
 // ==========================================================================
-// 6. GROQ COMPREHENSIVE EDITOR MODULE
+// 6. GROQ 6-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const GROQ_EDITOR_PROMPT = `You are an expert human copyeditor specifically tasked with making text bypass AI detectors like GPTZero. 
-Review the following text and apply these specific changes:
-1. BURSTINESS: Break up any uniform sentence rhythms. Combine some short sentences into longer, flowing ones. Chop some long sentences into very short, punchy fragments. 
-2. KILL TRANSITIONS: Remove any lingering essay-style transitions (e.g., "However,", "Ultimately,", "According to this view,"). Replace them with abrupt shifts or conversational connectors.
-3. PERPLEXITY: Swap out predictable, boring word choices for slightly more unique, natural synonyms. 
-4. HUMANIZE: Ensure it uses contractions (it's, we're, didn't) where appropriate. Make it sound like a smart human explaining the topic, not a textbook.
-5. Fix any grammar or typo issues, but do NOT make it sound "perfectly polished" if that makes it sound robotic.
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
+Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
-Output ONLY the fully corrected text. Do not output JSON, explanations, or markdown formatting.
+const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
+1. Em dashes (—) or semicolons (;).
+2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
+3. Excessive ", which" clauses (more than 1 per paragraph).
+4. Participial phrases (e.g., "perspectives, acting as..."). Replace with "and [verb]".
+5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods. Do not just replace commas with "and".
+6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
+7. TAUTOLOGIES: Phrases like "circular shape of circles". Fix them to be concise.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-TEXT:
-`;
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, staccato groups of 2 or MORE consecutive disjointed sentences. 
+SPECIFIC INSTRUCTIONS:
+1. If you find sentences comparing two subjects, combine them using ", while" or ", whereas".
+2. If you find 2-3 separated sentences that are logically sequential or share a subject, combine them into one smooth sentence using a comma and a conjunction (e.g., "and", "so", "but").
+CRITICAL RULES: 
+- NEVER use ", which" to combine sentences.
+- NEVER create run-on sentences, dangling clauses, or tautologies.
+- NEVER overlap keys. A key must be the EXACT full sentences, and a value must be the EXACT full rewritten sentences.
+- CRITICAL: The resulting combined sentence MUST NOT contain more than ONE comma. If it does, you are creating a comma chain.
+- Ensure the resulting grammar and punctuation are perfect.
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-/**
- * Runs a single, comprehensive Groq pass to polish the text and defeat AI detectors.
- */
-async function runGroqStages(text, groqKey) {
-    const prompt = GROQ_EDITOR_PROMPT + text;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
+1. 2 or more consecutive sentences start with the exact same word.
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
+3. Sentences start with "This perspective suggests" or "An opposing perspective suggests". Rewrite them to be direct.
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
+
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
+
+const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), sentence fragments, or broken syntax (e.g., "but However,"). 
+Also check for article errors (e.g., "an discovery" instead of "a discovery", "a apple" instead of "an apple").
+Return a JSON object where keys are the EXACT broken sentences, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
+
+async function groqChat(text, groqKey, instructions) {
+    const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-        const content = await GroqAPI.chat(messages, groqKey, true); 
-        
-        return { 
-            text: content.trim().replace(/^["']|["']$/g, ''), 
-            fixes: { 
-                stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0,
-                comprehensivePolish: 1 
-            } 
-        };
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        return parseGroqJson(content);
     } catch (error) {
-        console.error('Groq Polish Failed:', error);
-        return { 
-            text, 
-            fixes: { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0, comprehensivePolish: 0 } 
-        };
+        console.error('Groq Stage Failed:', error);
+        return {};
     }
 }
+
+async function runGroqStages(text, groqKey) {
+    let currentText = text;
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+
+    const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
+    currentText = applyJsonReplacements(currentText, s1);
+    fixes.stage1 = Object.keys(s1).length;
+
+    const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
+    currentText = applyJsonReplacements(currentText, s2);
+    fixes.stage2 = Object.keys(s2).length;
+
+    const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
+    currentText = applyJsonReplacements(currentText, s3);
+    fixes.stage3 = Object.keys(s3).length;
+
+    const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
+    currentText = applyJsonReplacements(currentText, s4);
+    fixes.stage4 = Object.keys(s4).length;
+
+    const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
+    currentText = applyJsonReplacements(currentText, s5);
+    fixes.stage5 = Object.keys(s5).length;
+
+    // Stage 6: Grammar and Typos
+    const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
+    currentText = applyJsonReplacements(currentText, s6);
+    fixes.stage6 = Object.keys(s6).length;
+
+    currentText = cleanTextMechanics(currentText);
+
+    return { text: currentText, fixes };
+}
+
 
 // ==========================================================================
 // 7. API HANDLER
@@ -407,14 +449,19 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq Comprehensive Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0, comprehensivePolish: 0 };
+        // Step 5: Groq 6-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq comprehensive polish...');
+            logs.push('Starting Groq 6-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
-            logs.push(`Groq comprehensive polish completed successfully.`);
+            logs.push(`Groq Stage 1 (Vocab) fixes: ${groqFixes.stage1}`);
+            logs.push(`Groq Stage 2 (Syntax) fixes: ${groqFixes.stage2}`);
+            logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
+            logs.push(`Groq Stage 4 (Starters) fixes: ${groqFixes.stage4}`);
+            logs.push(`Groq Stage 5 (Lexical) fixes: ${groqFixes.stage5}`);
+            logs.push(`Groq Stage 6 (Grammar) fixes: ${groqFixes.stage6}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
