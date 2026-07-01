@@ -242,11 +242,13 @@ Return ONLY the raw JSON object, no markdown.`;
     },
 
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════
     // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION
-    // ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════
 
-    _filterAndScore(results, brief = {}) {
+    _filterAndScore(results, brief) {
+        brief = brief || {}; // FIX: Coerce null to empty object if arguments are passed out of order
+        
         const seenUrls = new Set();
         const seenTitles = new Set();
         const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
