@@ -197,7 +197,7 @@ Return ONLY the raw JSON object, no markdown.`;
 
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 5: STAGE 3 - DATA ACQUISITION (OPENALEX + API KEY)
+    // MODULE 5: STAGE 3 - DATA ACQUISITION (OPENALEX + API KEY VIA URL)
     // ════════════════════════════════════════════════════════════════════════
 
     async _searchOpenAlex(queries, stats, openAlexKey) {
@@ -209,22 +209,22 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.calls += 1;
             stats.totals.httpRequests += 1;
             try {
-                const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&filter=is_oa:true,has_abstract:true,type:article&mailto=research@example.com`;
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 15000); // Increased timeout slightly for safety
-
-                const headers = { 
-                    'User-Agent': 'AcademicCitationTool/1.0 (mailto:research@example.com)' 
-                };
+                // Base URL with standard filters
+                let url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&filter=is_oa:true,has_abstract:true,type:article&mailto=research@example.com`;
                 
-                // API KEY INJECTION: Routes to polite pool, prevents 504s
+                // API KEY INJECTION: Appended directly to URL to bypass header stripping
                 if (openAlexKey) {
-                    headers["Authorization"] = `Bearer ${openAlexKey}`;
+                    url += `&api_key=${encodeURIComponent(openAlexKey)}`;
                 }
+
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 15000);
 
                 const res = await fetch(url, {
                     signal: controller.signal,
-                    headers
+                    headers: { 
+                        'User-Agent': 'AcademicCitationTool/1.0 (mailto:research@example.com)' 
+                    }
                 });
                 clearTimeout(timeout);
 
