@@ -214,6 +214,10 @@ export const SourceFinderAPI = {
 
     async search(query, limit = 12, openAlexKey = null) {
         if (!query || query.trim().length < 3) return [];
+        
+        // FALLBACK: If the orchestrator forgot to pass the key, grab it directly from the environment
+        const key = openAlexKey || process.env.OPENALEX_API_KEY;
+        
         try {
             const cleanQuery = query.trim().toLowerCase();
             const params = new URLSearchParams({
@@ -225,20 +229,12 @@ export const SourceFinderAPI = {
             
             let url = `${OPENALEX_BASE}?${params}`;
             
-            // DEBUG: Check if key is present
-            if (!openAlexKey) {
-                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING!');
+            // API KEY INJECTION
+            if (key) {
+                url += `&api_key=${key}`;
             } else {
-                console.log(`[SourceFinder] ✅ OPENALEX_API_KEY loaded (length: ${openAlexKey.length})`);
+                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING from both params and process.env!');
             }
-
-            // API KEY INJECTION: Direct append (no encodeURIComponent for strict safety)
-            if (openAlexKey) {
-                url += `&api_key=${openAlexKey}`;
-            }
-
-            // DEBUG: Log exact URL
-            console.log(`[SourceFinder] Final URL: ${url}`);
 
             const response = await fetch(url, {
                 headers: { 'User-Agent': 'DocuMate Academic Tool (mailto:contact@documate.app)' }
@@ -266,44 +262,6 @@ export const SourceFinderAPI = {
             console.error('[SourceFinder] Search failed:', e.message);
             return [];
         }
-    },
-
-    _transformWork(work) {
-        const abstract = this._reconstructAbstract(work.abstract_inverted_index);
-        const authors = (work.authorships || []).slice(0, 5).map(a => {
-            const name = a.author?.display_name || '';
-            const parts = name.split(' ');
-            if (parts.length >= 2) return { given: parts.slice(0, -1).join(' '), family: parts[parts.length - 1] };
-            return { given: '', family: name };
-        }).filter(a => a.family);
-
-        let displayAuthor = 'Unknown';
-        if (authors.length > 0) {
-            displayAuthor = authors.length > 2 ? `${authors[0].family} et al.` : authors.map(a => a.family).join(' & ');
-        }
-
-        const venue = work.primary_location?.source?.display_name || work.host_venue?.display_name || '';
-        const doi = work.doi ? work.doi.replace('https://doi.org/', '') : null;
-
-        return {
-            id: work.id, title: work.title || 'Untitled',
-            authors, author: displayAuthor, displayName: displayAuthor,
-            year: work.publication_year || 'n.d.',
-            venue, citationCount: work.cited_by_count || 0,
-            url: doi ? `https://doi.org/${doi}` : work.id,
-            doi, abstract, text: abstract
-        };
-    },
-
-    _reconstructAbstract(invertedIndex) {
-        if (!invertedIndex || typeof invertedIndex !== 'object') return null;
-        try {
-            const words = [];
-            for (const [word, positions] of Object.entries(invertedIndex)) {
-                for (const pos of positions) words[pos] = word;
-            }
-            return words.filter(Boolean).join(' ');
-        } catch (e) { return null; }
     },
 
 
