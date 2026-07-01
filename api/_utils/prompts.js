@@ -1,4 +1,4 @@
-// api/utils/prompts.js
+// api/_utils/prompts.js
 
 // ==========================================================================
 // PROMPT TEMPLATES (Modular & Reusable)

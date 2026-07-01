@@ -1,7 +1,7 @@
 // api/features/citation.js
-import { GoogleSearchAPI } from '../utils/googleSearch.js';
-import { ScraperAPI } from '../utils/scraper.js';
-import { GroqAPI } from '../utils/groqAPI.js';
+import { GoogleSearchAPI } from '../_utils/googleSearch.js';
+import { ScraperAPI } from '../_utils/scraper.js';
+import { GroqAPI } from '../_utils/groqAPI.js';
 
 const TODAY = () => new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -320,7 +320,7 @@ export default async function handler(req, res) {
         const GKEY = googleKey || process.env.GOOGLE_SEARCH_API_KEY;
         const GCX = process.env.SEARCH_ENGINE_ID;
 
-        // QUOTES MODE
+        // QUOTES MODE — no search performed; no stats to report
         if (preLoadedSources?.length) {
             const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
@@ -353,7 +353,13 @@ FORMAT:
 > "Exact quote..."`;
 
             let result = await GroqAPI.chat([{ role: 'user', content: prompt }], GROQ, false);
-            return res.status(200).json({ success: true, text: result });
+            return res.status(200).json({ 
+                success: true, 
+                text: result,
+                citations: sourcesWithContent,
+                stats: null,
+                count: sourcesWithContent.length
+            });
         }
 
         // SEARCH & SCRAPE
@@ -366,7 +372,10 @@ FORMAT:
                 success: false, 
                 error: 'No search results. The search service may be temporarily unavailable.',
                 sources: [],
-                text: ''
+                text: '',
+                citations: [],
+                stats: raw?.stats || null,
+                count: 0
             });
         }
         
@@ -383,7 +392,14 @@ FORMAT:
                 return true;
             });
             const bibs = uniqueSources.map(s => formatBib(s, style)).join('\n\n');
-            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs });
+            return res.status(200).json({ 
+                success: true, 
+                sources: uniqueSources, 
+                text: bibs,
+                citations: uniqueSources,
+                stats: raw.stats,
+                count: uniqueSources.length
+            });
         }
 
         // CITATION MODE
@@ -399,7 +415,14 @@ FORMAT:
         }
 
         const result = processInsertions(context, insertions, sources, style, outputType);
-        return res.status(200).json({ success: true, sources, text: result });
+        return res.status(200).json({ 
+            success: true, 
+            sources, 
+            text: result,
+            citations: sources,
+            stats: raw.stats,
+            count: sources.length
+        });
 
     } catch (error) {
         console.error('[Citation] Error:', error);
