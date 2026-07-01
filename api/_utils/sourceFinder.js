@@ -1,58 +1,41 @@
-// api/_utils/sourceFinder.js
+// ==========================================================================
+// FILE PATH: api/_utils/sourceFinder.js
+// ==========================================================================
+
+/*
+ * TABLE OF CONTENTS
+ * -------------------------------------------------------
+ * 1. CONFIGURATION & CONSTANTS
+ * 2. CITATION FORMATTING
+ *    - _formatCitation, _formatApa, _formatMla, _formatChicago
+ * 3. DATA ENRICHMENT
+ *    - fetchAllCitations (Merges Crossref data)
+ * 4. QUERY GENERATION
+ *    - _generateQueries (Dynamic topic splitting)
+ * 5. DATA ACQUISITION
+ *    - search (OpenAlex fetcher with API Key)
+ *    - _transformWork (Parses OpenAlex JSON)
+ *    - _reconstructAbstract (Inverted index decoder)
+ * 6. ORCHESTRATION
+ *    - searchTopic (Main pipeline)
+ * 7. API HANDLER
+ *    - handler() (Vercel/Netlify entry point)
+ */
+
 import { DoiAPI } from './doiAPI.js';
+
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 1: CONFIGURATION & CONSTANTS
+// ════════════════════════════════════════════════════════════════════════════
 
 const OPENALEX_BASE = 'https://api.openalex.org/works';
 
 export const SourceFinderAPI = {
 
-    async fetchAllCitations(sources, style = 'apa7') {
-        if (!sources?.length) return sources;
-        console.log(`[SourceFinder] Fetching ${sources.length} citations in ${style} format...`);
 
-        const results = [];
-        const batchSize = 3;
-
-        for (let i = 0; i < sources.length; i += batchSize) {
-            const batch = sources.slice(i, i + batchSize);
-            const enriched = await Promise.all(batch.map(async src => {
-                if (!src.doi) {
-                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
-                }
-                const meta = await DoiAPI.fetchFromCrossref(src.doi);
-                if (!meta) {
-                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
-                }
-
-                // Merge Crossref metadata — fill gaps from OpenAlex
-                let mergedAuthors = meta.authors?.length ? meta.authors : src.authors;
-                // Filter out bad single-letter family names
-                mergedAuthors = mergedAuthors.filter(a => a.family && a.family.length > 1 && !/^\d+$/.test(a.family));
-                if (mergedAuthors.length === 0) mergedAuthors = (src.authors || []).filter(a => a.family && a.family.length > 1);
-
-                const enrichedSrc = {
-                    ...src,
-                    authors: mergedAuthors,
-                    title: meta.title || src.title,
-                    venue: meta.journal || src.venue,
-                    year: (meta.year && meta.year !== 'n.d.') ? meta.year : src.year,
-                    volume: meta.volume || null,
-                    issue: meta.issue || null,
-                    pages: meta.pages || null,
-                };
-                enrichedSrc.citation = this._formatCitation(enrichedSrc, style);
-                enrichedSrc.citationSource = 'crossref';
-                return enrichedSrc;
-            }));
-            results.push(...enriched);
-            if (i + batchSize < sources.length) {
-                await new Promise(r => setTimeout(r, 300));
-            }
-        }
-
-        const crossrefCount = results.filter(s => s.citationSource === 'crossref').length;
-        console.log(`[SourceFinder] ${crossrefCount}/${results.length} enriched from Crossref`);
-        return results;
-    },
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 2: CITATION FORMATTING
+    // ════════════════════════════════════════════════════════════════════════
 
     _formatCitation(source, style = 'apa7') {
         if (style.includes('mla')) return this._formatMla(source);
@@ -145,7 +128,91 @@ export const SourceFinderAPI = {
         return citation.trim();
     },
 
-    async search(query, limit = 12) {
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 3: DATA ENRICHMENT
+    // ════════════════════════════════════════════════════════════════════════
+
+    async fetchAllCitations(sources, style = 'apa7') {
+        if (!sources?.length) return sources;
+        console.log(`[SourceFinder] Fetching ${sources.length} citations in ${style} format...`);
+
+        const results = [];
+        const batchSize = 3;
+
+        for (let i = 0; i < sources.length; i += batchSize) {
+            const batch = sources.slice(i, i + batchSize);
+            const enriched = await Promise.all(batch.map(async src => {
+                if (!src.doi) {
+                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
+                }
+                
+                const meta = await DoiAPI.fetchFromCrossref(src.doi);
+                if (!meta) {
+                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
+                }
+
+                // Merge Crossref metadata — fill gaps from OpenAlex
+                let mergedAuthors = meta.authors?.length ? meta.authors : src.authors;
+                mergedAuthors = mergedAuthors.filter(a => a.family && a.family.length > 1 && !/^\d+$/.test(a.family));
+                if (mergedAuthors.length === 0) mergedAuthors = (src.authors || []).filter(a => a.family && a.family.length > 1);
+
+                const enrichedSrc = {
+                    ...src,
+                    authors: mergedAuthors,
+                    title: meta.title || src.title,
+                    venue: meta.journal || src.venue,
+                    year: (meta.year && meta.year !== 'n.d.') ? meta.year : src.year,
+                    volume: meta.volume || null,
+                    issue: meta.issue || null,
+                    pages: meta.pages || null,
+                };
+                enrichedSrc.citation = this._formatCitation(enrichedSrc, style);
+                enrichedSrc.citationSource = 'crossref';
+                return enrichedSrc;
+            }));
+            results.push(...enriched);
+            if (i + batchSize < sources.length) {
+                await new Promise(r => setTimeout(r, 300)); // Rate limit avoidance
+            }
+        }
+
+        const crossrefCount = results.filter(s => s.citationSource === 'crossref').length;
+        console.log(`[SourceFinder] ${crossrefCount}/${results.length} enriched from Crossref`);
+        return results;
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 4: QUERY GENERATION
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Dynamically generates 1-2 search queries from any given topic.
+     * Splits longer topics into a primary search and a half-topic search 
+     * to cast a wider net without hardcoded topics.
+     */
+    _generateQueries(topic) {
+        const words = topic.trim().split(/\s+/).filter(w => w.length > 3);
+        const queries = [topic]; // Always use the full topic first
+
+        // If the topic is a long sentence, also try just the first half
+        if (words.length > 4) {
+            const halfTopic = words.slice(0, Math.ceil(words.length / 2)).join(' ');
+            if (halfTopic !== topic) {
+                queries.push(halfTopic);
+            }
+        }
+
+        return queries.slice(0, 2);
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 5: DATA ACQUISITION
+    // ════════════════════════════════════════════════════════════════════════
+
+    async search(query, limit = 12, openAlexKey = null) {
         if (!query || query.trim().length < 3) return [];
         try {
             const cleanQuery = query.trim().toLowerCase();
@@ -155,9 +222,18 @@ export const SourceFinderAPI = {
                 'per-page': '25',
                 sort: 'relevance_score:desc'
             });
-            const response = await fetch(`${OPENALEX_BASE}?${params}`, {
+            
+            let url = `${OPENALEX_BASE}?${params}`;
+            
+            // API KEY INJECTION: Appended directly to URL to prevent 503s
+            if (openAlexKey) {
+                url += `&api_key=${encodeURIComponent(openAlexKey)}`;
+            }
+
+            const response = await fetch(url, {
                 headers: { 'User-Agent': 'DocuMate Academic Tool (mailto:contact@documate.app)' }
             });
+            
             if (!response.ok) throw new Error(`OpenAlex returned ${response.status}`);
             const data = await response.json();
             if (!data.results?.length) return [];
@@ -180,46 +256,6 @@ export const SourceFinderAPI = {
             console.error('[SourceFinder] Search failed:', e.message);
             return [];
         }
-    },
-
-    async searchTopic(topic, limit = 12, citationStyle = null) {
-        const queries = this._generateQueries(topic);
-        console.log('[SourceFinder] Generated queries:', queries);
-
-        const allResults = await Promise.all(queries.map(q => this.search(q, 8)));
-
-        const seen = new Set();
-        const deduplicated = [];
-        for (const results of allResults) {
-            for (const paper of results) {
-                if (paper.doi && !seen.has(paper.doi)) {
-                    seen.add(paper.doi);
-                    deduplicated.push(paper);
-                }
-            }
-        }
-
-        const topResults = deduplicated
-            .sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0))
-            .slice(0, limit);
-
-        if (citationStyle) {
-            return await this.fetchAllCitations(topResults, citationStyle);
-        }
-        return topResults;
-    },
-
-    _generateQueries(topic) {
-        const lower = topic.toLowerCase();
-        const queries = [topic];
-        if (lower.includes('designer bab') || lower.includes('gene edit') || lower.includes('crispr')) {
-            queries.push('designer babies ethics genetic engineering', 'CRISPR human embryo editing ethics', 'germline editing ethical implications', 'preimplantation genetic diagnosis ethics');
-        } else if (lower.includes('climate') || lower.includes('global warming')) {
-            queries.push('climate change mitigation policy', 'global warming environmental impact', 'carbon emissions reduction strategies');
-        } else if (lower.includes('artificial intelligence') || lower.includes(' ai ')) {
-            queries.push('artificial intelligence ethics society', 'machine learning bias fairness', 'AI regulation governance policy');
-        }
-        return queries.slice(0, 4);
     },
 
     _transformWork(work) {
@@ -258,18 +294,59 @@ export const SourceFinderAPI = {
             }
             return words.filter(Boolean).join(' ');
         } catch (e) { return null; }
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 6: ORCHESTRATION
+    // ════════════════════════════════════════════════════════════════════════
+
+    async searchTopic(topic, limit = 12, citationStyle = null, openAlexKey = null) {
+        const queries = this._generateQueries(topic);
+        console.log('[SourceFinder] Generated queries:', queries);
+
+        const allResults = await Promise.all(queries.map(q => this.search(q, 8, openAlexKey)));
+
+        const seen = new Set();
+        const deduplicated = [];
+        for (const results of allResults) {
+            for (const paper of results) {
+                if (paper.doi && !seen.has(paper.doi)) {
+                    seen.add(paper.doi);
+                    deduplicated.push(paper);
+                }
+            }
+        }
+
+        const topResults = deduplicated
+            .sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0))
+            .slice(0, limit);
+
+        if (citationStyle) {
+            return await this.fetchAllCitations(topResults, citationStyle);
+        }
+        return topResults;
     }
 };
+
+
+// ════════════════════════════════════════════════════════════════════════
+// MODULE 7: API HANDLER
+// ════════════════════════════════════════════════════════════════════════
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') return res.status(200).end();
+    
     try {
         const query = req.query.q;
         if (!query) return res.status(400).json({ success: false, error: 'Missing ?q=' });
-        const results = await SourceFinderAPI.searchTopic(query, 12);
+        
+        const OPENALEX_KEY = process.env.OPENALEX_API_KEY;
+        const results = await SourceFinderAPI.searchTopic(query, 12, null, OPENALEX_KEY);
+        
         return res.status(200).json({ success: true, count: results.length, results });
     } catch (err) {
         console.error('[SourceFinder]', err);
