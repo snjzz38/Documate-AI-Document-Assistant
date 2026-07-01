@@ -215,7 +215,7 @@ export const SourceFinderAPI = {
     async search(query, limit = 12, openAlexKey = null) {
         if (!query || query.trim().length < 3) return [];
         
-        // FALLBACK: If the orchestrator forgot to pass the key, grab it directly from the environment
+        // FALLBACK: Grab from environment if orchestrator forgot to pass it
         const key = openAlexKey || process.env.OPENALEX_API_KEY;
         
         try {
@@ -232,8 +232,6 @@ export const SourceFinderAPI = {
             // API KEY INJECTION
             if (key) {
                 url += `&api_key=${key}`;
-            } else {
-                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING from both params and process.env!');
             }
 
             const response = await fetch(url, {
@@ -245,7 +243,8 @@ export const SourceFinderAPI = {
             if (!data.results?.length) return [];
 
             return data.results
-                .map(work => this._transformWork(work))
+                // FIX: Changed this._transformWork to SourceFinderAPI._transformWork
+                .map(work => SourceFinderAPI._transformWork(work))
                 .filter(p => {
                     if (!p.doi) return false;
                     if (!p.abstract || p.abstract.length < 150) return false;
@@ -264,16 +263,56 @@ export const SourceFinderAPI = {
         }
     },
 
+    _transformWork(work) {
+        const abstract = SourceFinderAPI._reconstructAbstract(work.abstract_inverted_index);
+        const authors = (work.authorships || []).slice(0, 5).map(a => {
+            const name = a.author?.display_name || '';
+            const parts = name.split(' ');
+            if (parts.length >= 2) return { given: parts.slice(0, -1).join(' '), family: parts[parts.length - 1] };
+            return { given: '', family: name };
+        }).filter(a => a.family);
+
+        let displayAuthor = 'Unknown';
+        if (authors.length > 0) {
+            displayAuthor = authors.length > 2 ? `${authors[0].family} et al.` : authors.map(a => a.family).join(' & ');
+        }
+
+        const venue = work.primary_location?.source?.display_name || work.host_venue?.display_name || '';
+        const doi = work.doi ? work.doi.replace('https://doi.org/', '') : null;
+
+        return {
+            id: work.id, title: work.title || 'Untitled',
+            authors, author: displayAuthor, displayName: displayAuthor,
+            year: work.publication_year || 'n.d.',
+            venue, citationCount: work.cited_by_count || 0,
+            url: doi ? `https://doi.org/${doi}` : work.id,
+            doi, abstract, text: abstract
+        };
+    },
+
+    _reconstructAbstract(invertedIndex) {
+        if (!invertedIndex || typeof invertedIndex !== 'object') return null;
+        try {
+            const words = [];
+            for (const [word, positions] of Object.entries(invertedIndex)) {
+                for (const pos of positions) words[pos] = word;
+            }
+            return words.filter(Boolean).join(' ');
+        } catch (e) { return null; }
+    },
+
 
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 6: ORCHESTRATION
     // ════════════════════════════════════════════════════════════════════════
 
     async searchTopic(topic, limit = 12, citationStyle = null, openAlexKey = null) {
-        const queries = this._generateQueries(topic);
+        // FIX: Replaced this._generateQueries with SourceFinderAPI._generateQueries
+        const queries = SourceFinderAPI._generateQueries(topic);
         console.log('[SourceFinder] Generated queries:', queries);
 
-        const allResults = await Promise.all(queries.map(q => this.search(q, 8, openAlexKey)));
+        // FIX: Replaced this.search with SourceFinderAPI.search
+        const allResults = await Promise.all(queries.map(q => SourceFinderAPI.search(q, 8, openAlexKey)));
 
         const seen = new Set();
         const deduplicated = [];
@@ -291,11 +330,11 @@ export const SourceFinderAPI = {
             .slice(0, limit);
 
         if (citationStyle) {
-            return await this.fetchAllCitations(topResults, citationStyle);
+            // FIX: Replaced this.fetchAllCitations with SourceFinderAPI.fetchAllCitations
+            return await SourceFinderAPI.fetchAllCitations(topResults, citationStyle);
         }
         return topResults;
     }
-};
 
 
     // ════════════════════════════════════════════════════════════════════════
