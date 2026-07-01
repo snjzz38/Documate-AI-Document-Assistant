@@ -225,10 +225,20 @@ export const SourceFinderAPI = {
             
             let url = `${OPENALEX_BASE}?${params}`;
             
-            // API KEY INJECTION: Appended directly to URL to prevent 503s
-            if (openAlexKey) {
-                url += `&api_key=${encodeURIComponent(openAlexKey)}`;
+            // DEBUG: Check if key is present
+            if (!openAlexKey) {
+                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING!');
+            } else {
+                console.log(`[SourceFinder] ✅ OPENALEX_API_KEY loaded (length: ${openAlexKey.length})`);
             }
+
+            // API KEY INJECTION: Direct append (no encodeURIComponent for strict safety)
+            if (openAlexKey) {
+                url += `&api_key=${openAlexKey}`;
+            }
+
+            // DEBUG: Log exact URL
+            console.log(`[SourceFinder] Final URL: ${url}`);
 
             const response = await fetch(url, {
                 headers: { 'User-Agent': 'DocuMate Academic Tool (mailto:contact@documate.app)' }
@@ -330,9 +340,9 @@ export const SourceFinderAPI = {
 };
 
 
-// ════════════════════════════════════════════════════════════════════════
-// MODULE 7: API HANDLER
-// ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 7: API HANDLER
+    // ════════════════════════════════════════════════════════════════════════
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -344,7 +354,10 @@ export default async function handler(req, res) {
         const query = req.query.q;
         if (!query) return res.status(400).json({ success: false, error: 'Missing ?q=' });
         
+        // DEBUG: Verify environment variable is loaded at the handler level
         const OPENALEX_KEY = process.env.OPENALEX_API_KEY;
+        console.log('[SourceFinder] Handler ENV check -> OPENALEX_API_KEY:', OPENALEX_KEY ? `EXISTS (len: ${OPENALEX_KEY.length})` : 'UNDEFINED');
+        
         const results = await SourceFinderAPI.searchTopic(query, 12, null, OPENALEX_KEY);
         
         return res.status(200).json({ success: true, count: results.length, results });
