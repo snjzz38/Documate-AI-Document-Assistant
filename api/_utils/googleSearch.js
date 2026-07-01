@@ -242,7 +242,7 @@ Return ONLY the raw JSON object, no markdown.`;
             try {
                 const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&filter=is_oa:true,has_abstract:true,type:article&mailto=research@example.com`;
                 const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 12000);
+                const timeout = setTimeout(() => controller.abort(), 30000);
 
                 const res = await fetch(url, {
                     signal: controller.signal,
