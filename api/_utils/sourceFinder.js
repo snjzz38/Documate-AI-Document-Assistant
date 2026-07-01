@@ -238,20 +238,15 @@ export const SourceFinderAPI = {
         try {
             const cleanQuery = query.trim().toLowerCase();
             
-            // Build parameters using URLSearchParams for safe encoding
             const params = new URLSearchParams({
                 search: cleanQuery,
                 filter: 'has_abstract:true,is_oa:true,type:article',
-                'per-page': '25',
-                sort: 'relevance_score:desc',
-                mailto: mailto // REQUIRED for OpenAlex Polite Pool
+                'per-page': '30', // Increased to give OpenAlex more good results to sort
+                sort: 'relevance_score:desc' // OpenAlex's native semantic search is much smarter than string.includes()
             });
             
-            // Safely append API Key if available
             if (key) {
                 params.append('api_key', key);
-            } else {
-                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING!');
             }
 
             const url = `${OPENALEX_BASE}?${params.toString()}`;
@@ -264,18 +259,14 @@ export const SourceFinderAPI = {
             const data = await response.json();
             if (!data.results?.length) return [];
 
+            // REMOVED: The broken string.includes() filter that let in "AI ethics" for "designer babies"
+            // We now trust OpenAlex's relevance_score, only enforcing hard constraints (must have DOI and abstract)
             return data.results
                 .map(work => SourceFinderAPI._transformWork(work))
                 .filter(p => {
                     if (!p.doi) return false;
                     if (!p.abstract || p.abstract.length < 150) return false;
-                    const queryWords = cleanQuery.split(/\s+/).filter(w => w.length > 3);
-                    const titleLower = p.title.toLowerCase();
-                    const abstractLower = p.abstract.toLowerCase();
-                    const matchCount = queryWords.filter(w =>
-                        titleLower.includes(w) || abstractLower.includes(w)
-                    ).length;
-                    return matchCount >= Math.ceil(queryWords.length / 2);
+                    return true;
                 })
                 .slice(0, limit);
         } catch (e) {
