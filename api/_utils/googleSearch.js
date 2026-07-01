@@ -204,6 +204,13 @@ Return ONLY the raw JSON object, no markdown.`;
         const allResults = [];
         const stage = stats.stages.openalex;
 
+        // DEBUG: Check if the key is actually making it here
+        if (!openAlexKey) {
+            console.warn('[Search] ⚠️ OPENALEX_API_KEY is MISSING! Falling back to public pool (will likely 503).');
+        } else {
+            console.log(`[Search] ✅ OPENALEX_API_KEY loaded successfully (length: ${openAlexKey.length})`);
+        }
+
         await Promise.all(queries.map(async (query) => {
             const start = Date.now();
             stage.calls += 1;
@@ -212,10 +219,13 @@ Return ONLY the raw JSON object, no markdown.`;
                 // Base URL with standard filters
                 let url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=15&filter=is_oa:true,has_abstract:true,type:article&mailto=research@example.com`;
                 
-                // API KEY INJECTION: Appended directly to URL to bypass header stripping
+                // API KEY INJECTION: Appended directly to URL
                 if (openAlexKey) {
                     url += `&api_key=${encodeURIComponent(openAlexKey)}`;
                 }
+
+                // DEBUG: Log the EXACT final URL so you can copy/paste it into your browser to test
+                console.log(`[Search] Final OpenAlex URL: ${url}`);
 
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 15000);
