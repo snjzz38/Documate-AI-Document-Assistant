@@ -6,22 +6,19 @@
  * TABLE OF CONTENTS
  * -------------------------------------------------------
  * 1. CONFIGURATION & CONSTANTS
- * 2. CITATION FORMATTING
- *    - _formatCitation, _formatApa, _formatMla, _formatChicago
- * 3. DATA ENRICHMENT
- *    - fetchAllCitations (Merges Crossref data)
- * 4. QUERY GENERATION
- *    - _generateQueries (Dynamic topic splitting for ANY topic)
- * 5. DATA ACQUISITION
- *    - search (OpenAlex fetcher with API Key & Mailto)
- *    - _transformWork (Parses OpenAlex JSON)
- *    - _reconstructAbstract (Inverted index decoder)
- * 6. ORCHESTRATION
- *    - searchTopic (Main pipeline)
- * 7. API HANDLER
- *    - handler() (Vercel/Netlify entry point)
+ * 2. CORE INTERFACE
+ * 3. STAGE 1: TOPIC ANALYSIS (Groq)
+ * 4. STAGE 2: QUERY GENERATION (Fallback)
+ * 5. STAGE 3: DATA ACQUISITION (OpenAlex + API Key)
+ * 6. STAGE 4: SCORING & DEDUPLICATION
+ * 7. STAGE 5: AI RELEVANCE FILTERING (Groq)
+ * 8. DATA ENRICHMENT (Crossref Integration)
+ * 9. CITATION FORMATTING (APA, MLA, Chicago)
+ * 10. UTILITIES & HELPERS
+ * 11. API HANDLER
  */
 
+import { GroqAPI } from './groqAPI.js';
 import { DoiAPI } from './doiAPI.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -29,27 +26,417 @@ import { DoiAPI } from './doiAPI.js';
 // ════════════════════════════════════════════════════════════════════════════
 
 const OPENALEX_BASE = 'https://api.openalex.org/works';
-// Fallbacks if env vars are missing, but ideally these are set in .env
 const DEFAULT_MAILTO = process.env.OPENALEX_MAILTO || 'research@example.com';
+
+const BANNED_DOMAINS = [
+    'reddit', 'quora', 'stackoverflow', 'stackexchange',
+    'youtube', 'tiktok', 'instagram', 'facebook', 'twitter', 'pinterest',
+    'amazon', 'ebay', 'etsy', 'alibaba',
+    'merriam-webster.com', 'dictionary.cambridge.org', 'wordreference',
+    'thesaurus.com', 'vocabulary.com', 'definitions.net', 'urbandictionary',
+    'wikipedia.org', 'britannica.com', 'wikihow.com', 'investopedia.com'
+];
+
+const MINIMUM_RESULTS = 8;
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 2: CORE INTERFACE
+// ════════════════════════════════════════════════════════════════════════════
 
 export const SourceFinderAPI = {
 
+    async searchTopic(topic, limit = 12, citationStyle = null, openAlexKey = null, groqKey = null) {
+        const stats = SourceFinderAPI._createStats();
+        stats.startedAt = Date.now();
+
+        // Stage 1: Analyze Topic (If Groq key provided)
+        let brief = null;
+        if (groqKey) {
+            brief = await SourceFinderAPI._analyzeTopic(topic, groqKey, stats);
+        }
+
+        // Stage 2: Generate Queries
+        const queries = brief ? brief.queries : [SourceFinderAPI._buildFallbackQuery(topic)];
+        stats.queriesGenerated = queries.length;
+
+        // Stage 3: Fetch from OpenAlex
+        const openAlexResults = await SourceFinderAPI._searchOpenAlex(queries, stats, openAlexKey);
+        stats.results.raw = openAlexResults.length;
+
+        // Stage 4: Score and Deduplicate
+        const scoredResults = SourceFinderAPI._filterAndScore(openAlexResults, brief);
+        stats.results.afterScoring = scoredResults.length;
+
+        // Stage 5: AI Relevance Filter
+        const relevantResults = await SourceFinderAPI._filterByRelevance(scoredResults, topic, groqKey, brief, stats);
+        stats.results.afterFilter = relevantResults.length;
+
+        // Finalize Stats
+        stats.finishedAt = Date.now();
+        stats.elapsedMs = stats.finishedAt - stats.startedAt;
+
+        if (citationStyle) {
+            return await SourceFinderAPI.fetchAllCitations(relevantResults, citationStyle);
+        }
+        return relevantResults;
+    },
+
+
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 2: CITATION FORMATTING
+    // MODULE 3: STAGE 1 - TOPIC ANALYSIS
+    // ════════════════════════════════════════════════════════════════════════
+
+    async _analyzeTopic(text, groqKey, stats) {
+        const stage = stats.stages.topicAnalysis;
+        stage.calls += 1;
+        stats.totals.groqCalls += 1;
+        const start = Date.now();
+
+        try {
+            const prompt = `You are analyzing a research topic to prepare a "search brief" for finding academic sources.
+
+TOPIC:
+"${text.substring(0, 1500)}"
+
+TASK: Return a JSON object:
+{
+  "central_question": "the specific question this topic seeks to answer",
+  "discipline": "the academic discipline (e.g., 'genetic engineering ethics', 'CRISPR biology')",
+  "must_engage_with": ["3-6 short PHRASES that capture the core claims"],
+  "exclude_fields": ["3-5 fields that share keywords but should be STRICTLY EXCLUDED (e.g., 'AI algorithmic fairness', 'business ethics')"],
+  "queries": [
+    "5-8 NATURAL SEARCH PHRASES of 4-8 words each",
+    "each phrase must read like a coherent description of a specific claim",
+    "phrases should be the kind of text likely to appear in an academic paper TITLE or ABSTRACT"
+  ]
+}
+
+CRITICAL RULES:
+1. ALWAYS return PHRASES, not keyword lists.
+2. Each phrase must SELF-CONTEXTUALIZE to prevent topic drift (e.g., use "CRISPR germline editing" not just "ethics").
+3. Each phrase must be 4-8 words.
+
+Return ONLY the raw JSON object, no markdown.`;
+
+            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error('No JSON object');
+
+            const brief = JSON.parse(jsonMatch[0]);
+            stage.ms = Date.now() - start;
+            stage.ok = true;
+
+            brief.queries = brief.queries
+                .filter(q => typeof q === 'string')
+                .map(q => q.trim().substring(0, 150))
+                .filter(q => { const wc = q.split(/\s+/).length; return wc >= 4 && wc <= 8; })
+                .slice(0, 8);
+
+            if (brief.queries.length === 0) throw new Error('No valid queries');
+            return brief;
+
+        } catch (e) {
+            stage.ms = Date.now() - start;
+            stage.failures += 1;
+            console.error('[SourceFinder] _analyzeTopic failed:', e.message);
+            return null;
+        }
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 4: STAGE 2 - QUERY GENERATION
+    // ════════════════════════════════════════════════════════════════════════
+
+    _buildFallbackQuery(text) {
+        const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+        const meaningful = [...new Set(words)].slice(0, 4);
+        return (meaningful.join(' ') || 'academic research') + ' academic study';
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 5: STAGE 3 - DATA ACQUISITION
+    // ════════════════════════════════════════════════════════════════════════
+
+    async _searchOpenAlex(queries, stats, openAlexKey) {
+        const allResults = [];
+        const stage = stats.stages.openalex;
+        const key = openAlexKey || process.env.OPENALEX_API_KEY;
+        const mailto = process.env.OPENALEX_MAILTO || DEFAULT_MAILTO;
+
+        await Promise.all(queries.map(async (query) => {
+            const start = Date.now();
+            stage.calls += 1;
+            stats.totals.httpRequests += 1;
+            try {
+                const params = new URLSearchParams({
+                    search: query,
+                    filter: 'is_oa:true,has_abstract:true,type:article',
+                    'per-page': '15',
+                    mailto: mailto
+                });
+                
+                if (key) params.append('api_key', key);
+
+                const url = `${OPENALEX_BASE}?${params.toString()}`;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 15000);
+
+                const res = await fetch(url, { signal: controller.signal });
+                clearTimeout(timeout);
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                stage.ms += Date.now() - start;
+
+                for (const work of (data.results || [])) {
+                    const doi = work.doi ? work.doi.replace('https://doi.org/', '') : null;
+                    const link = doi ? `https://doi.org/${doi}` : work.id;
+                    const abstract = SourceFinderAPI._reconstructAbstract(work.abstract_inverted_index);
+                    const authors = (work.authorships || []).slice(0, 5).map(a => {
+                        const name = a.author?.display_name || '';
+                        const parts = name.split(' ');
+                        if (parts.length >= 2) return { given: parts.slice(0, -1).join(' '), family: parts[parts.length - 1] };
+                        return { given: '', family: name };
+                    }).filter(a => a.family);
+
+                    if (!work.title || !link) continue;
+                    if (!authors.length && !work.publication_year) continue;
+
+                    allResults.push({
+                        id: work.id,
+                        title: work.title,
+                        link,
+                        snippet: abstract || '',
+                        authors,
+                        author: authors.length > 2 ? `${authors[0].family} et al.` : authors.map(a => a.family).join(' & '),
+                        year: work.publication_year,
+                        venue: work.primary_location?.source?.display_name || '',
+                        citationCount: work.cited_by_count || 0,
+                        doi,
+                        abstract,
+                        source: 'openalex',
+                        _score: 10
+                    });
+                }
+                stage.resultsReturned += (data.results || []).length;
+            } catch (e) {
+                stage.ms += Date.now() - start;
+                stage.failures += 1;
+                console.error('[SourceFinder] OpenAlex failed:', e.message);
+            }
+        }));
+
+        return allResults;
+    },
+
+    _reconstructAbstract(invertedIndex) {
+        if (!invertedIndex || typeof invertedIndex !== 'object') return '';
+        const positions = [];
+        for (const [word, idxs] of Object.entries(invertedIndex)) {
+            for (const i of idxs) positions.push([i, word]);
+        }
+        return positions.sort((a, b) => a[0] - b[0]).map(p => p[1]).join(' ').substring(0, 400);
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 6: STAGE 4 - SCORING & DEDUPLICATION
+    // ════════════════════════════════════════════════════════════════════════
+
+    _filterAndScore(results, brief = {}) {
+        const seenUrls = new Set();
+        const seenTitles = new Set();
+        const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
+
+        return results
+            .filter(r => {
+                if (!r.title || !r.link) return false;
+                const lowerUrl = r.link.toLowerCase();
+                const lowerTitle = r.title.toLowerCase();
+
+                try {
+                    const domain = new URL(r.link).hostname.replace('www.', '').toLowerCase();
+                    if (BANNED_DOMAINS.some(b => domain.includes(b))) return false;
+
+                    // Dynamic field exclusion
+                    if (excludeFields.length > 0) {
+                        const paperContext = `${r.title} ${r.venue}`.toLowerCase();
+                        for (const exclude of excludeFields) {
+                            if (paperContext.includes(exclude)) return false;
+                        }
+                    }
+
+                    const normalizedTitle = lowerTitle.substring(0, 60).trim();
+                    if (seenTitles.has(normalizedTitle)) return false;
+                    seenTitles.add(normalizedTitle);
+
+                    if (seenUrls.has(lowerUrl)) return false;
+                    seenUrls.add(lowerUrl);
+                    return true;
+                } catch { return false; }
+            })
+            .map(r => {
+                let score = r._score || 0;
+                try {
+                    if (r.link.includes('doi.org')) score += 4;
+                    if (r.citationCount > 50) score += 3;
+                    if (r.citationCount > 10) score += 1;
+                } catch {}
+                return { ...r, _score: score };
+            })
+            .sort((a, b) => b._score - a._score)
+            .slice(0, 20);
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING
+    // ════════════════════════════════════════════════════════════════════════
+
+    async _filterByRelevance(results, originalText, groqKey, brief, stats) {
+        const stage = stats ? stats.stages.filter : null;
+        if (stage) { stage.calls += 1; stats.totals.groqCalls += 1; }
+        const start = stats ? Date.now() : 0;
+
+        if (!groqKey || results.length === 0) {
+            if (stage) { stage.ms = Date.now() - start; stage.ok = true; }
+            return results.slice(0, MINIMUM_RESULTS);
+        }
+
+        try {
+            const summaries = results.map((r, i) => `${i}: "${r.title}" — ${(r.snippet || '').substring(0, 250)}`).join('\n');
+
+            const briefContext = brief ? `
+GROUND TRUTH:
+- Central question: ${brief.central_question || '(unspecified)'}
+- Discipline: ${brief.discipline || '(unspecified)'}
+- Must engage with: ${JSON.stringify(brief.must_engage_with || [])}
+
+DOMAIN TYPE CONSTRAINT:
+Only include papers where concepts are SPECIFICALLY ABOUT "${brief.discipline || 'the topic'}".
+STRICT EXCLUSION: Reject generic methodology papers that don't analyze the specific topic.
+` : `TOPIC: "${originalText.substring(0, 800)}"`;
+
+            const prompt = `You are filtering search results.
+
+ ${briefContext}
+
+SEARCH RESULTS:
+ ${summaries}
+
+TASK: Return ONLY the index numbers of results that are highly relevant to the topic.
+STRICTLY EXCLUDE papers that discuss generic ethics, AI, or algorithms UNLESS specifically tied to the topic.
+
+Return ONLY a raw JSON array of index numbers, e.g.: [0, 1, 3, 5]`;
+
+            const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+            if (stage) stage.ms = Date.now() - start;
+            
+            const jsonMatch = response.match(/\[[\s\S]*?\]/);
+            if (!jsonMatch) throw new Error('No JSON array');
+
+            const indices = JSON.parse(jsonMatch[0]);
+            if (!Array.isArray(indices)) throw new Error('Not an array');
+
+            let filtered = indices
+                .filter(i => typeof i === 'number' && i >= 0 && i < results.length)
+                .map(i => results[i]);
+
+            if (stage) stage.ok = true;
+
+            if (filtered.length >= MINIMUM_RESULTS) {
+                return filtered;
+            }
+
+            // Fallback if too strict
+            if (filtered.length > 0 && filtered.length < MINIMUM_RESULTS) {
+                const approvedIds = new Set(filtered.map(f => f.link));
+                const fillers = results
+                    .filter(r => !approvedIds.has(r.link))
+                    .slice(0, MINIMUM_RESULTS - filtered.length);
+                return [...filtered, ...fillers];
+            }
+
+            return results.slice(0, MINIMUM_RESULTS);
+
+        } catch (e) {
+            if (stage) { stage.ms = Date.now() - start; stage.failures += 1; }
+            console.error('[SourceFinder] Relevance filter failed:', e.message);
+            return results.slice(0, MINIMUM_RESULTS);
+        }
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 8: DATA ENRICHMENT
+    // ════════════════════════════════════════════════════════════════════════
+
+    async fetchAllCitations(sources, style = 'apa7') {
+        if (!sources?.length) return sources;
+        console.log(`[SourceFinder] Fetching ${sources.length} citations in ${style} format...`);
+
+        const results = [];
+        const batchSize = 3;
+
+        for (let i = 0; i < sources.length; i += batchSize) {
+            const batch = sources.slice(i, i + batchSize);
+            const enriched = await Promise.all(batch.map(async src => {
+                if (!src.doi) {
+                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
+                }
+                
+                const meta = await DoiAPI.fetchFromCrossref(src.doi);
+                if (!meta) {
+                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
+                }
+
+                let mergedAuthors = meta.authors?.length ? meta.authors : src.authors;
+                mergedAuthors = mergedAuthors.filter(a => a.family && a.family.length > 1 && !/^\d+$/.test(a.family));
+                if (mergedAuthors.length === 0) mergedAuthors = (src.authors || []).filter(a => a.family && a.family.length > 1);
+
+                const enrichedSrc = {
+                    ...src,
+                    authors: mergedAuthors,
+                    title: meta.title || src.title,
+                    venue: meta.journal || src.venue,
+                    year: (meta.year && meta.year !== 'n.d.') ? meta.year : src.year,
+                    volume: meta.volume || null,
+                    issue: meta.issue || null,
+                    pages: meta.pages || null,
+                };
+                enrichedSrc.citation = SourceFinderAPI._formatCitation(enrichedSrc, style);
+                enrichedSrc.citationSource = 'crossref';
+                return enrichedSrc;
+            }));
+            results.push(...enriched);
+            if (i + batchSize < sources.length) {
+                await new Promise(r => setTimeout(r, 300));
+            }
+        }
+
+        const crossrefCount = results.filter(s => s.citationSource === 'crossref').length;
+        console.log(`[SourceFinder] ${crossrefCount}/${results.length} enriched from Crossref`);
+        return results;
+    },
+
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODULE 9: CITATION FORMATTING
     // ════════════════════════════════════════════════════════════════════════
 
     _formatCitation(source, style = 'apa7') {
-        if (style.includes('mla')) return this._formatMla(source);
-        if (style.includes('chicago')) return this._formatChicago(source);
-        return this._formatApa(source);
+        if (style.includes('mla')) return SourceFinderAPI._formatMla(source);
+        if (style.includes('chicago')) return SourceFinderAPI._formatChicago(source);
+        return SourceFinderAPI._formatApa(source);
     },
 
     _formatApa(source) {
         const authors = (source.authors || []).filter(a => a.family && a.family.length > 1);
         const formatAuthor = a => {
-            const initials = a.given
-                ? a.given.split(/[\s\-]+/).filter(Boolean).map(n => n[0].toUpperCase() + '.').join(' ')
-                : '';
+            const initials = a.given ? a.given.split(/[\s\-]+/).filter(Boolean).map(n => n[0].toUpperCase() + '.').join(' ') : '';
             return initials ? `${a.family}, ${initials}` : a.family;
         };
 
@@ -131,224 +518,30 @@ export const SourceFinderAPI = {
 
 
     // ════════════════════════════════════════════════════════════════════════
-    // MODULE 3: DATA ENRICHMENT
+    // MODULE 10: UTILITIES & HELPERS
     // ════════════════════════════════════════════════════════════════════════
 
-    async fetchAllCitations(sources, style = 'apa7') {
-        if (!sources?.length) return sources;
-        console.log(`[SourceFinder] Fetching ${sources.length} citations in ${style} format...`);
-
-        const results = [];
-        const batchSize = 3;
-
-        for (let i = 0; i < sources.length; i += batchSize) {
-            const batch = sources.slice(i, i + batchSize);
-            const enriched = await Promise.all(batch.map(async src => {
-                if (!src.doi) {
-                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
-                }
-                
-                const meta = await DoiAPI.fetchFromCrossref(src.doi);
-                if (!meta) {
-                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
-                }
-
-                // Merge Crossref metadata — fill gaps from OpenAlex
-                let mergedAuthors = meta.authors?.length ? meta.authors : src.authors;
-                mergedAuthors = mergedAuthors.filter(a => a.family && a.family.length > 1 && !/^\d+$/.test(a.family));
-                if (mergedAuthors.length === 0) mergedAuthors = (src.authors || []).filter(a => a.family && a.family.length > 1);
-
-                const enrichedSrc = {
-                    ...src,
-                    authors: mergedAuthors,
-                    title: meta.title || src.title,
-                    venue: meta.journal || src.venue,
-                    year: (meta.year && meta.year !== 'n.d.') ? meta.year : src.year,
-                    volume: meta.volume || null,
-                    issue: meta.issue || null,
-                    pages: meta.pages || null,
-                };
-                enrichedSrc.citation = SourceFinderAPI._formatCitation(enrichedSrc, style);
-                enrichedSrc.citationSource = 'crossref';
-                return enrichedSrc;
-            }));
-            results.push(...enriched);
-            if (i + batchSize < sources.length) {
-                await new Promise(r => setTimeout(r, 300)); // Rate limit avoidance
-            }
-        }
-
-        const crossrefCount = results.filter(s => s.citationSource === 'crossref').length;
-        console.log(`[SourceFinder] ${crossrefCount}/${results.length} enriched from Crossref`);
-        return results;
-    },
-
-
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 4: QUERY GENERATION
-    // ════════════════════════════════════════════════════════════════════════
-
-    /**
-     * Dynamically generates search queries for ANY topic.
-     * 1. Uses the full topic.
-     * 2. Extracts core keywords (removing stop words).
-     * 3. Splits long topics into halves to ensure broad coverage.
-     */
-    _generateQueries(topic) {
-        const queries = new Set([topic]);
-        const words = topic.split(/\s+/).filter(w => w.length > 2);
-        
-        // Common stop words to filter out for keyword-only searches
-        const stopWords = new Set([
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
-            'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-            'impact', 'effects', 'role', 'influence', 'study', 'analysis',
-            'how', 'does', 'do', 'what', 'why', 'where', 'when', 'which', 'who'
-        ]);
-        
-        const keywords = words.filter(w => !stopWords.has(w.toLowerCase()));
-        
-        // Add a query with just the core keywords
-        if (keywords.length > 0) {
-            queries.add(keywords.join(' '));
-        }
-        
-        // If we have enough keywords, split them into two halves for broader/narrower matches
-        if (keywords.length > 3) {
-            const mid = Math.floor(keywords.length / 2);
-            queries.add(keywords.slice(0, mid + 1).join(' '));
-            queries.add(keywords.slice(mid).join(' '));
-        }
-
-        return Array.from(queries).slice(0, 4);
-    },
-
-
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 5: DATA ACQUISITION
-    // ════════════════════════════════════════════════════════════════════════
-
-    async search(query, limit = 12, openAlexKey = null) {
-        if (!query || query.trim().length < 3) return [];
-        
-        // FALLBACK: Grab from environment if orchestrator forgot to pass it
-        const key = openAlexKey || process.env.OPENALEX_API_KEY;
-        const mailto = process.env.OPENALEX_MAILTO || DEFAULT_MAILTO;
-        
-        try {
-            const cleanQuery = query.trim().toLowerCase();
-            
-            const params = new URLSearchParams({
-                search: cleanQuery,
-                filter: 'has_abstract:true,is_oa:true,type:article',
-                'per-page': '30', // Increased to give OpenAlex more good results to sort
-                sort: 'relevance_score:desc' // OpenAlex's native semantic search is much smarter than string.includes()
-            });
-            
-            if (key) {
-                params.append('api_key', key);
-            }
-
-            const url = `${OPENALEX_BASE}?${params.toString()}`;
-
-            const response = await fetch(url, {
-                headers: { 'User-Agent': `DocuMate Academic Tool (mailto:${mailto})` }
-            });
-            
-            if (!response.ok) throw new Error(`OpenAlex returned ${response.status}`);
-            const data = await response.json();
-            if (!data.results?.length) return [];
-
-            // REMOVED: The broken string.includes() filter that let in "AI ethics" for "designer babies"
-            // We now trust OpenAlex's relevance_score, only enforcing hard constraints (must have DOI and abstract)
-            return data.results
-                .map(work => SourceFinderAPI._transformWork(work))
-                .filter(p => {
-                    if (!p.doi) return false;
-                    if (!p.abstract || p.abstract.length < 150) return false;
-                    return true;
-                })
-                .slice(0, limit);
-        } catch (e) {
-            console.error('[SourceFinder] Search failed:', e.message);
-            return [];
-        }
-    },
-
-    _transformWork(work) {
-        const abstract = SourceFinderAPI._reconstructAbstract(work.abstract_inverted_index);
-        const authors = (work.authorships || []).slice(0, 5).map(a => {
-            const name = a.author?.display_name || '';
-            const parts = name.split(' ');
-            if (parts.length >= 2) return { given: parts.slice(0, -1).join(' '), family: parts[parts.length - 1] };
-            return { given: '', family: name };
-        }).filter(a => a.family);
-
-        let displayAuthor = 'Unknown';
-        if (authors.length > 0) {
-            displayAuthor = authors.length > 2 ? `${authors[0].family} et al.` : authors.map(a => a.family).join(' & ');
-        }
-
-        const venue = work.primary_location?.source?.display_name || work.host_venue?.display_name || '';
-        const doi = work.doi ? work.doi.replace('https://doi.org/', '') : null;
-
+    _createStats() {
         return {
-            id: work.id, title: work.title || 'Untitled',
-            authors, author: displayAuthor, displayName: displayAuthor,
-            year: work.publication_year || 'n.d.',
-            venue, citationCount: work.cited_by_count || 0,
-            url: doi ? `https://doi.org/${doi}` : work.id,
-            doi, abstract, text: abstract
+            startedAt: null,
+            finishedAt: null,
+            elapsedMs: 0,
+            queriesGenerated: 0,
+            stages: {
+                topicAnalysis: { calls: 0, failures: 0, ms: 0, ok: false },
+                openalex: { calls: 0, failures: 0, ms: 0, resultsReturned: 0 },
+                filter: { calls: 0, failures: 0, ms: 0, ok: false }
+            },
+            results: { raw: 0, afterScoring: 0, afterFilter: 0 },
+            totals: { externalRequests: 0, groqCalls: 0, httpRequests: 0, failedRequests: 0, successRate: 1 }
         };
-    },
-
-    _reconstructAbstract(invertedIndex) {
-        if (!invertedIndex || typeof invertedIndex !== 'object') return null;
-        try {
-            const words = [];
-            for (const [word, positions] of Object.entries(invertedIndex)) {
-                for (const pos of positions) words[pos] = word;
-            }
-            return words.filter(Boolean).join(' ');
-        } catch (e) { return null; }
-    },
-
-
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 6: ORCHESTRATION
-    // ════════════════════════════════════════════════════════════════════════
-
-    async searchTopic(topic, limit = 12, citationStyle = null, openAlexKey = null) {
-        const queries = SourceFinderAPI._generateQueries(topic);
-        console.log('[SourceFinder] Generated queries:', queries);
-
-        const allResults = await Promise.all(queries.map(q => SourceFinderAPI.search(q, 8, openAlexKey)));
-
-        const seen = new Set();
-        const deduplicated = [];
-        for (const results of allResults) {
-            for (const paper of results) {
-                if (paper.doi && !seen.has(paper.doi)) {
-                    seen.add(paper.doi);
-                    deduplicated.push(paper);
-                }
-            }
-        }
-
-        const topResults = deduplicated
-            .sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0))
-            .slice(0, limit);
-
-        if (citationStyle) {
-            return await SourceFinderAPI.fetchAllCitations(topResults, citationStyle);
-        }
-        return topResults;
     }
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// MODULE 7: API HANDLER
-// ════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════
+// MODULE 11: API HANDLER
+// ════════════════════════════════════════════════════════════════════════
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -358,13 +551,13 @@ export default async function handler(req, res) {
     
     try {
         const query = req.query.q;
+        const style = req.query.style || 'apa7';
         if (!query) return res.status(400).json({ success: false, error: 'Missing ?q=' });
         
-        // DEBUG: Verify environment variable is loaded at the handler level
         const OPENALEX_KEY = process.env.OPENALEX_API_KEY;
-        console.log('[SourceFinder] Handler ENV check -> OPENALEX_API_KEY:', OPENALEX_KEY ? `EXISTS (len: ${OPENALEX_KEY.length})` : 'UNDEFINED');
+        const GROQ_KEY = process.env.GROQ_API_KEY;
         
-        const results = await SourceFinderAPI.searchTopic(query, 12, null, OPENALEX_KEY);
+        const results = await SourceFinderAPI.searchTopic(query, 12, style, OPENALEX_KEY, GROQ_KEY);
         
         return res.status(200).json({ success: true, count: results.length, results });
     } catch (err) {
