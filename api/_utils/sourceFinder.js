@@ -11,9 +11,9 @@
  * 3. DATA ENRICHMENT
  *    - fetchAllCitations (Merges Crossref data)
  * 4. QUERY GENERATION
- *    - _generateQueries (Dynamic topic splitting)
+ *    - _generateQueries (Dynamic topic splitting for ANY topic)
  * 5. DATA ACQUISITION
- *    - search (OpenAlex fetcher with API Key)
+ *    - search (OpenAlex fetcher with API Key & Mailto)
  *    - _transformWork (Parses OpenAlex JSON)
  *    - _reconstructAbstract (Inverted index decoder)
  * 6. ORCHESTRATION
@@ -29,9 +29,10 @@ import { DoiAPI } from './doiAPI.js';
 // ════════════════════════════════════════════════════════════════════════════
 
 const OPENALEX_BASE = 'https://api.openalex.org/works';
+// Fallbacks if env vars are missing, but ideally these are set in .env
+const DEFAULT_MAILTO = process.env.OPENALEX_MAILTO || 'research@example.com';
 
 export const SourceFinderAPI = {
-
 
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 2: CITATION FORMATTING
@@ -144,12 +145,12 @@ export const SourceFinderAPI = {
             const batch = sources.slice(i, i + batchSize);
             const enriched = await Promise.all(batch.map(async src => {
                 if (!src.doi) {
-                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
+                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
                 }
                 
                 const meta = await DoiAPI.fetchFromCrossref(src.doi);
                 if (!meta) {
-                    return { ...src, citation: this._formatCitation(src, style), citationSource: 'generated' };
+                    return { ...src, citation: SourceFinderAPI._formatCitation(src, style), citationSource: 'generated' };
                 }
 
                 // Merge Crossref metadata — fill gaps from OpenAlex
@@ -167,7 +168,7 @@ export const SourceFinderAPI = {
                     issue: meta.issue || null,
                     pages: meta.pages || null,
                 };
-                enrichedSrc.citation = this._formatCitation(enrichedSrc, style);
+                enrichedSrc.citation = SourceFinderAPI._formatCitation(enrichedSrc, style);
                 enrichedSrc.citationSource = 'crossref';
                 return enrichedSrc;
             }));
@@ -188,23 +189,38 @@ export const SourceFinderAPI = {
     // ════════════════════════════════════════════════════════════════════════
 
     /**
-     * Dynamically generates 1-2 search queries from any given topic.
-     * Splits longer topics into a primary search and a half-topic search 
-     * to cast a wider net without hardcoded topics.
+     * Dynamically generates search queries for ANY topic.
+     * 1. Uses the full topic.
+     * 2. Extracts core keywords (removing stop words).
+     * 3. Splits long topics into halves to ensure broad coverage.
      */
     _generateQueries(topic) {
-        const words = topic.trim().split(/\s+/).filter(w => w.length > 3);
-        const queries = [topic]; // Always use the full topic first
-
-        // If the topic is a long sentence, also try just the first half
-        if (words.length > 4) {
-            const halfTopic = words.slice(0, Math.ceil(words.length / 2)).join(' ');
-            if (halfTopic !== topic) {
-                queries.push(halfTopic);
-            }
+        const queries = new Set([topic]);
+        const words = topic.split(/\s+/).filter(w => w.length > 2);
+        
+        // Common stop words to filter out for keyword-only searches
+        const stopWords = new Set([
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+            'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            'impact', 'effects', 'role', 'influence', 'study', 'analysis',
+            'how', 'does', 'do', 'what', 'why', 'where', 'when', 'which', 'who'
+        ]);
+        
+        const keywords = words.filter(w => !stopWords.has(w.toLowerCase()));
+        
+        // Add a query with just the core keywords
+        if (keywords.length > 0) {
+            queries.add(keywords.join(' '));
+        }
+        
+        // If we have enough keywords, split them into two halves for broader/narrower matches
+        if (keywords.length > 3) {
+            const mid = Math.floor(keywords.length / 2);
+            queries.add(keywords.slice(0, mid + 1).join(' '));
+            queries.add(keywords.slice(mid).join(' '));
         }
 
-        return queries.slice(0, 2);
+        return Array.from(queries).slice(0, 4);
     },
 
 
@@ -217,25 +233,31 @@ export const SourceFinderAPI = {
         
         // FALLBACK: Grab from environment if orchestrator forgot to pass it
         const key = openAlexKey || process.env.OPENALEX_API_KEY;
+        const mailto = process.env.OPENALEX_MAILTO || DEFAULT_MAILTO;
         
         try {
             const cleanQuery = query.trim().toLowerCase();
+            
+            // Build parameters using URLSearchParams for safe encoding
             const params = new URLSearchParams({
                 search: cleanQuery,
-                filter: 'is_oa:true,has_abstract:true,has_doi:true',
+                filter: 'has_abstract:true,is_oa:true,type:article',
                 'per-page': '25',
-                sort: 'relevance_score:desc'
+                sort: 'relevance_score:desc',
+                mailto: mailto // REQUIRED for OpenAlex Polite Pool
             });
             
-            let url = `${OPENALEX_BASE}?${params}`;
-            
-            // API KEY INJECTION
+            // Safely append API Key if available
             if (key) {
-                url += `&api_key=${key}`;
+                params.append('api_key', key);
+            } else {
+                console.warn('[SourceFinder] ⚠️ OPENALEX_API_KEY is MISSING!');
             }
 
+            const url = `${OPENALEX_BASE}?${params.toString()}`;
+
             const response = await fetch(url, {
-                headers: { 'User-Agent': 'DocuMate Academic Tool (mailto:contact@documate.app)' }
+                headers: { 'User-Agent': `DocuMate Academic Tool (mailto:${mailto})` }
             });
             
             if (!response.ok) throw new Error(`OpenAlex returned ${response.status}`);
@@ -243,7 +265,6 @@ export const SourceFinderAPI = {
             if (!data.results?.length) return [];
 
             return data.results
-                // FIX: Changed this._transformWork to SourceFinderAPI._transformWork
                 .map(work => SourceFinderAPI._transformWork(work))
                 .filter(p => {
                     if (!p.doi) return false;
@@ -307,11 +328,9 @@ export const SourceFinderAPI = {
     // ════════════════════════════════════════════════════════════════════════
 
     async searchTopic(topic, limit = 12, citationStyle = null, openAlexKey = null) {
-        // FIX: Replaced this._generateQueries with SourceFinderAPI._generateQueries
         const queries = SourceFinderAPI._generateQueries(topic);
         console.log('[SourceFinder] Generated queries:', queries);
 
-        // FIX: Replaced this.search with SourceFinderAPI.search
         const allResults = await Promise.all(queries.map(q => SourceFinderAPI.search(q, 8, openAlexKey)));
 
         const seen = new Set();
@@ -330,16 +349,15 @@ export const SourceFinderAPI = {
             .slice(0, limit);
 
         if (citationStyle) {
-            // FIX: Replaced this.fetchAllCitations with SourceFinderAPI.fetchAllCitations
             return await SourceFinderAPI.fetchAllCitations(topResults, citationStyle);
         }
         return topResults;
     }
+};
 
-
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 7: API HANDLER
-    // ════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 7: API HANDLER
+// ════════════════════════════════════════════════════════════════════════════
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
