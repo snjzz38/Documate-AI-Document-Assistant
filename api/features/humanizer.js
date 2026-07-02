@@ -298,6 +298,15 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
+/**
+ * Main post-processing function.
+ */
+function postProcess(text) {
+    let result = text;
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    return cleanTextMechanics(result);
+}
 
 // ==========================================================================
 // 6. GROQ 4-STAGE SANITY CHECKER MODULE (Optimized for speed)
