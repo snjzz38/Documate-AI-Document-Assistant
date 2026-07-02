@@ -88,8 +88,13 @@ const AI_VOCAB_SWAPS = {
 
 /**
  * Splits text into chunks of sentences without breaking on common abbreviations.
+ * Increased minimum chunk size from 4 to 6 to give the LLM more context for
+ * producing coherent, flowing paragraphs rather than isolated sentence groups.
  */
-function splitIntoChunks(text, sentencesPerChunk = 4) {
+function splitIntoChunks(text, sentencesPerChunk = 6) {
+    // Enforce a minimum chunk size of 6 for better inter-sentence context
+    sentencesPerChunk = Math.max(sentencesPerChunk || 6, 6);
+
     const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$|\n)/g;
     const sentences = text.match(sentenceRegex) || [text];
     
@@ -166,6 +171,15 @@ function applyJsonReplacements(text, jsonMap) {
 
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
+ * 
+ * CHANGES FROM ORIGINAL:
+ * - Removed "one comma max" rule → now allows up to two commas per sentence
+ * - Removed ban on "with [noun] [verb]ing" constructions (natural in human writing)
+ * - Removed ban on participial phrases (natural in human writing)
+ * - Removed ban on semicolons (now allowed sparingly)
+ * - Removed ban on starting sentences with "And", "With", "As" (natural when complete)
+ * - Softened "no lists of three" to "no lists of more than three"
+ * - Added stronger paragraph coherence and flow instructions
  */
 function buildChunkPrompt(chunk) {
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
@@ -175,18 +189,16 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary.
-2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-3. SENTENCE FLOW: Connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas") within a complete sentence. Do NOT output choppy, disconnected, or staccato sentences.
+2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments. NEVER start a sentence with "Which" unless it is a question.
+3. PARAGRAPH FLOW: Write as a coherent paragraph, NOT as a list of disconnected facts. Connect related ideas naturally using conjunctions ("and", "so", "but", "while", "whereas", "although", "because"). Use transitional phrases where appropriate to maintain smooth flow between sentences.
 4. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
-5. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+5. AVOID LONG LISTS: Do not list more than three items in a single sentence.
 6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
-7. NO EM DASHES (—) or SEMICOLONS (;). 
-8. NO COMMA CHAINS: A sentence must not have more than one comma.
-9. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-10. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-11. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
-12. Do NOT repeat the same concept or premise in consecutive sentences.
-13. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
+7. NO EM DASHES (—). Semicolons (;) are allowed but use them sparingly.
+8. AVOID EXCESSIVE COMMAS: Do not use more than two commas in a single sentence. If a sentence needs more, restructure it into two sentences or use a conjunction.
+9. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+10. Do NOT repeat the same concept or premise in consecutive sentences.
+11. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -243,13 +255,22 @@ const AI_STERILE_SWAPS = {
 
 /**
  * Cleans text mechanics (punctuation, grammar, double words).
+ *
+ * CHANGES FROM ORIGINAL:
+ * - REMOVED: result.replace(/;/g, '.') — was converting ALL semicolons to periods,
+ *   shattering connected ideas into disjointed sentences. Semicolons are now
+ *   allowed (prompt permits them sparingly).
+ * - REMOVED: result.replace(/,(\s+[A-Z][a-z])/g, '.$1') — was converting ANY comma
+ *   followed by a capitalized word into a period. This destroyed legitimate
+ *   constructions like "On the Moon, ice is found…" → "On the Moon. Ice is found…"
+ *   which was the PRIMARY cause of the scattered, list-like output.
+ *   Actual comma splices are now handled by Groq Stage 6.
  */
 function cleanTextMechanics(text) {
     let result = text;
 
-    // STRICT EM-DASH & SEMICOLON BANNING
+    // EM-DASH BANNING (convert to commas for flow — em-dashes are still banned)
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
     result = result.replace(/,\s*,/g, ',');
 
     // STERILE VOCABULARY SWAPS
@@ -271,11 +292,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
-    
-    // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
-    // This matches a comma followed by a space and a capital letter, but ignores proper nouns like "Earth"
-    result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
-    
+
     // Fix "but However" or "but However,"
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
     // Fix missing period before "However"
@@ -320,16 +337,14 @@ Return a JSON object where keys are the exact unnatural phrases from the text, a
 Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
-1. Em dashes (—) or semicolons (;).
-2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
+1. Em dashes (—).
+2. LISTS OF FOUR OR MORE: Any list of 4 or more items. Reduce them to exactly two or three items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
-4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods.
-6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
-7. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
+4. COMMA CHAINS: Any sentence containing more than TWO commas. Break these into separate, shorter sentences using periods.
+5. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
+const STAGE_3_PROMPT = `You are a minimal flow editor. Find choppy pairs of consecutive short sentences (up to 8 words each) that would read more naturally as a single sentence (e.g., "Math is a tool. It helps us." -> "Math is a tool and it helps us."). Combine them into one sentence using "and", "so", "but", or "while". 
 CRITICAL RULES: 
 - NEVER change the meaning or add words. 
 - NEVER create run-on sentences or comma chains.
