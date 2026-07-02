@@ -300,11 +300,11 @@ function cleanTextMechanics(text) {
 
 
 // ==========================================================================
-// 6. GROQ 6-STAGE SANITY CHECKER MODULE
+// 6. GROQ 4-STAGE SANITY CHECKER MODULE (Optimized for speed)
 // ==========================================================================
 
-const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
-Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text, AND find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
+Return a JSON object where keys are the exact unnatural/repeated phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
 Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
 const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
@@ -313,7 +313,8 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
 5. COMMA CHAINS & RUN-ONS: Any sentence containing more than one comma, or any long sentence (over 20 words) with multiple clauses joined by "and" or "but". You MUST break these into separate, shorter sentences using periods.
-6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
+6. "WITH [NOUN] [VERB]ING" constructions. Break them into separate sentences.
+7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
@@ -324,19 +325,9 @@ CRITICAL RULES:
 - If you are not 100% sure the combination is perfect, return {}.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
-1. 2 or more consecutive sentences start with the exact same word.
-2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
-3. Sentences start with formulaic AI phrases like "This perspective suggests", "An opposing view posits", "The core evidence for this perspective highlights", or "This practice exposes". Rewrite them to be direct and concrete.
-Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
-
-const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
-Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
-CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
-
-const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
-CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought (e.g., "With the Fibonacci sequence appearing in galaxies."), you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
-CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same subject or concept (e.g., "The parent-child relationship is compromised by the unconditional nature of the parent-child relationship"), rewrite it to be concise and non-repetitive.
+const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
+CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same subject or concept, rewrite it to be concise and non-repetitive.
 CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
@@ -357,32 +348,27 @@ async function groqChat(text, groqKey, instructions) {
 
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
 
+    // Stage 1: Vocab & Lexical Variety
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
     fixes.stage1 = Object.keys(s1).length;
 
+    // Stage 2: Syntax & Sentence Variety
     const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
     currentText = applyJsonReplacements(currentText, s2);
     fixes.stage2 = Object.keys(s2).length;
 
+    // Stage 3: Flow
     const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
     currentText = applyJsonReplacements(currentText, s3);
     fixes.stage3 = Object.keys(s3).length;
 
+    // Stage 4: Grammar, Typos, Fragments, and Tautologies
     const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
-
-    const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
-    currentText = applyJsonReplacements(currentText, s5);
-    fixes.stage5 = Object.keys(s5).length;
-
-    // Stage 6: Grammar, Typos, Fragments, and Tautologies
-    const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
-    currentText = applyJsonReplacements(currentText, s6);
-    fixes.stage6 = Object.keys(s6).length;
 
     currentText = cleanTextMechanics(currentText);
 
