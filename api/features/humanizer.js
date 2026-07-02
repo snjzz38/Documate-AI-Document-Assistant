@@ -430,8 +430,12 @@ export default async function handler(req, res) {
         // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
+            // Pass previous humanized chunk and next original chunk for context
+            let prevChunk = i > 0 ? humanizedChunks[i - 1] : "";
+            let nextChunk = i < chunks.length - 1 ? chunks[i + 1] : "";
+            
             try {
-                const humanized = await humanizeChunk(chunks[i], GEMINI_KEY, temperature);
+                const humanized = await humanizeChunk(chunks[i], prevChunk, nextChunk, GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
