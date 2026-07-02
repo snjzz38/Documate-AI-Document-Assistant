@@ -175,18 +175,17 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary.
-2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-3. SENTENCE FLOW: Connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas") within a complete sentence. Do NOT output choppy, disconnected, or staccato sentences.
-4. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+2. BURSTINESS IS CRITICAL: You MUST vary sentence lengths drastically. Include several very short, direct sentences (5-8 words). Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
+3. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+4. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Alleviating pain fulfills the duty to alleviate pain").
 5. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
+6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", or "intrinsic value". Use plain, literal words.
 7. NO EM DASHES (—) or SEMICOLONS (;). 
 8. NO COMMA CHAINS: A sentence must not have more than one comma.
 9. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
 10. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
 11. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
 12. Do NOT repeat the same concept or premise in consecutive sentences.
-13. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -273,7 +272,6 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
     
     // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
-    // This matches a comma followed by a space and a capital letter, but ignores proper nouns like "Earth"
     result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
     
     // Fix "but However" or "but However,"
@@ -300,16 +298,6 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
-/**
- * Main post-processing function.
- */
-function postProcess(text) {
-    let result = text;
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
-    return cleanTextMechanics(result);
-}
-
 
 // ==========================================================================
 // 6. GROQ 6-STAGE SANITY CHECKER MODULE
@@ -324,9 +312,8 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods.
+5. COMMA CHAINS & RUN-ONS: Any sentence containing more than one comma, or any long sentence (over 20 words) with multiple clauses joined by "and" or "but". You MUST break these into separate, shorter sentences using periods.
 6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
-7. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
@@ -349,6 +336,7 @@ CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical con
 
 const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
 CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought (e.g., "With the Fibonacci sequence appearing in galaxies."), you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
+CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same subject or concept (e.g., "The parent-child relationship is compromised by the unconditional nature of the parent-child relationship"), rewrite it to be concise and non-repetitive.
 CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
@@ -391,7 +379,7 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
 
-    // Stage 6: Grammar, Typos, and Fragments
+    // Stage 6: Grammar, Typos, Fragments, and Tautologies
     const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
     currentText = applyJsonReplacements(currentText, s6);
     fixes.stage6 = Object.keys(s6).length;
