@@ -167,14 +167,19 @@ function applyJsonReplacements(text, jsonMap) {
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
  */
-function buildChunkPrompt(chunk) {
+function buildChunkPrompt(chunk, prevChunk, nextChunk) {
+    let contextBlock = "";
+    if (prevChunk || nextChunk) {
+        contextBlock = `\nSURROUNDING CONTEXT (Do NOT rewrite the context, ONLY use it to understand what comes before/after so your rewritten chunk flows perfectly):\nPREVIOUS TEXT: "${prevChunk || 'None'}"\nNEXT TEXT: "${nextChunk || 'None'}"\n`;
+    }
+    
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
-
+ ${contextBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary.
+1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
 2. BURSTINESS IS CRITICAL: You MUST vary sentence lengths drastically. Include several very short, direct sentences (5-8 words). Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
 3. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
 4. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Alleviating pain fulfills the duty to alleviate pain").
@@ -190,7 +195,6 @@ STRICT RULES:
 Output ONLY the rewritten chunk:`;
 }
 
-
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
@@ -198,8 +202,8 @@ Output ONLY the rewritten chunk:`;
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
  */
-async function humanizeChunk(chunk, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk);
+async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
+    const prompt = buildChunkPrompt(chunk, prevChunk, nextChunk);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
@@ -309,7 +313,7 @@ function postProcess(text) {
 }
 
 // ==========================================================================
-// 6. GROQ 4-STAGE SANITY CHECKER MODULE (Optimized for speed)
+// 6. GROQ 4-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text, AND find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -321,7 +325,7 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
-5. COMMA CHAINS & RUN-ONS: Any sentence containing more than one comma, or any long sentence (over 20 words) with multiple clauses joined by "and" or "but". You MUST break these into separate, shorter sentences using periods.
+5. COMMA CHAINS & RUN-ONS: Any sentence containing more than one comma. ALSO, find long sentences where two completely independent clauses are jammed together with "and" or "but" (e.g., "X is true, and Y is also true"). You MUST break these into separate, shorter sentences using periods.
 6. "WITH [NOUN] [VERB]ING" constructions. Break them into separate sentences.
 7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
@@ -359,22 +363,18 @@ async function runGroqStages(text, groqKey) {
     let currentText = text;
     const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
 
-    // Stage 1: Vocab & Lexical Variety
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
     fixes.stage1 = Object.keys(s1).length;
 
-    // Stage 2: Syntax & Sentence Variety
     const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
     currentText = applyJsonReplacements(currentText, s2);
     fixes.stage2 = Object.keys(s2).length;
 
-    // Stage 3: Flow
     const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
     currentText = applyJsonReplacements(currentText, s3);
     fixes.stage3 = Object.keys(s3).length;
 
-    // Stage 4: Grammar, Typos, Fragments, and Tautologies
     const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
