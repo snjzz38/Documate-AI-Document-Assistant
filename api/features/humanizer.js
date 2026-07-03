@@ -180,18 +180,19 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
-2. SENTENCE FLOW & COHERENCE: You MUST connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. Combine related sentences into fluid, coherent thoughts.
-3. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
-6. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
-8. NO EM DASHES (—) or SEMICOLONS (;). 
-9. NO COMMA CHAINS: A sentence must not have more than one comma.
-10. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-11. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-12. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
-13. Do NOT repeat the same concept or premise in consecutive sentences.
+2. SYNTACTIC VARIETY (CRITICAL): Do NOT use ", and" or ", but" to glue clauses together in consecutive sentences. You MUST vary your sentence structures. Use subordinating conjunctions (e.g., "Because", "Although", "When", "While", "Since") or write short, direct Subject-Verb-Object sentences.
+3. SENTENCE FLOW & COHERENCE: Connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. 
+4. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
+5. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+6. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
+7. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+8. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
+9. NO EM DASHES (—) or SEMICOLONS (;). 
+10. NO COMMA CHAINS: A sentence must not have more than one comma.
+11. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+12. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+13. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+14. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -333,13 +334,13 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
+const STAGE_3_PROMPT = `You are a syntactic flow editor. Find instances where 2 or more consecutive sentences use ", and" or ", but" to connect clauses (e.g., "X is true, and Y is false. A happens, but B stops."). This creates a robotic metronome rhythm. 
+Rewrite these sentences to break the pattern. Use subordinating conjunctions (e.g., "Because", "Although", "While") or split them into separate, shorter sentences.
 CRITICAL RULES: 
-- NEVER change the meaning or add words. 
+- NEVER change the meaning or add new facts. 
 - NEVER create run-on sentences or comma chains.
 - NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
-- If you are not 100% sure the combination is perfect, return {}.
-Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
+Return a JSON object where keys are the EXACT original sentences (joined by a space), and values are the rewritten, naturally varied sentences. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax (e.g., missing conjunctions like "and" or "which", resulting in "...changes, can permanently modify..."). 
 CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, combine it with the previous sentence.
