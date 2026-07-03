@@ -317,7 +317,7 @@ function postProcess(text) {
 }
 
 // ==========================================================================
-// 6. GROQ 4-STAGE SANITY CHECKER MODULE
+// 6. GROQ 5-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text, AND find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -350,6 +350,14 @@ CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your outp
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
 Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
 
+// NEW EXPERIMENTAL STAGE 5: Humanization Injection
+const STAGE_5_PROMPT = `You are an experimental humanization editor. Your goal is to increase perplexity (unpredictability) to bypass AI detectors. Do the following:
+1. CONTRACTIONS: Change "does not" to "doesn't", "is not" to "isn't", "will not" to "won't", "cannot" to "can't", "do not" to "don't".
+2. PREAMBLES: Replace "to [verb]" with "in order to [verb]" or "as a way to [verb]" where it fits naturally.
+3. ACTIVE VOICE: Change passive voice to active voice where possible (e.g., "is needed" -> "requires").
+4. "THIS" STARTERS: Rewrite sentences that start with "This [verb]" (e.g., "This raises...") to use a specific noun (e.g., "This gap raises...").
+Return a JSON object where keys are the EXACT original sentences, and values are the rewritten sentences. Do not change the meaning. If none, return {}.`;
+
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
@@ -365,7 +373,7 @@ async function groqChat(text, groqKey, instructions) {
 
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
 
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
@@ -382,6 +390,11 @@ async function runGroqStages(text, groqKey) {
     const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
+
+    // Experimental Stage 5
+    const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
+    currentText = applyJsonReplacements(currentText, s5);
+    fixes.stage5 = Object.keys(s5).length;
 
     currentText = cleanTextMechanics(currentText);
 
@@ -453,10 +466,10 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 4-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
+        // Step 5: Groq 5-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 4-stage post-processing...');
+            logs.push('Starting Groq 5-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
@@ -464,6 +477,7 @@ export default async function handler(req, res) {
             logs.push(`Groq Stage 2 (Syntax/Variety) fixes: ${groqFixes.stage2}`);
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
             logs.push(`Groq Stage 4 (Grammar) fixes: ${groqFixes.stage4}`);
+            logs.push(`Groq Stage 5 (Experimental) fixes: ${groqFixes.stage5}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
