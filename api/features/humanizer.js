@@ -341,10 +341,10 @@ CRITICAL RULES:
 - If you are not 100% sure the combination is perfect, return {}.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
-CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
-CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same subject, word, or concept (e.g., "Commodifying children commodifies human life" or "Family decisions allow families to bestow"), rewrite it to be concise and non-repetitive.
-CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
+const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax. 
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, combine it with the previous sentence.
+CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word or concept (e.g., "Treating people as PRODUCTS... view their children as PRODUCTS"), rewrite it to be concise and non-repetitive.
+CRITICAL: Find and fix COMMA SPLICES & RUN-ONS. If two independent clauses are jammed together with a comma and "and/but" (e.g., "...changes DNA, and reducing diversity..."), fix it by changing the comma to a period.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
 Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
