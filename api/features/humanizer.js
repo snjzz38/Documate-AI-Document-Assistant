@@ -305,6 +305,16 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
+/**
+ * Main post-processing function.
+ */
+function postProcess(text) {
+    let result = text;
+    result = result.replace(/[''`´]/g, "'");
+    result = result.replace(/[""„]/g, '"');
+    return cleanTextMechanics(result);
+}
+
 // ==========================================================================
 // 6. GROQ 4-STAGE SANITY CHECKER MODULE
 // ==========================================================================
@@ -442,19 +452,17 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 6-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+        // Step 5: Groq 4-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 6-stage post-processing...');
+            logs.push('Starting Groq 4-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
-            logs.push(`Groq Stage 1 (Vocab) fixes: ${groqFixes.stage1}`);
-            logs.push(`Groq Stage 2 (Syntax) fixes: ${groqFixes.stage2}`);
+            logs.push(`Groq Stage 1 (Vocab/Lexical) fixes: ${groqFixes.stage1}`);
+            logs.push(`Groq Stage 2 (Syntax/Variety) fixes: ${groqFixes.stage2}`);
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
-            logs.push(`Groq Stage 4 (Starters) fixes: ${groqFixes.stage4}`);
-            logs.push(`Groq Stage 5 (Lexical) fixes: ${groqFixes.stage5}`);
-            logs.push(`Groq Stage 6 (Grammar) fixes: ${groqFixes.stage6}`);
+            logs.push(`Groq Stage 4 (Grammar) fixes: ${groqFixes.stage4}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
