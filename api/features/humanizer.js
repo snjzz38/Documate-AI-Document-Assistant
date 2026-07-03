@@ -180,10 +180,10 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
-2. SENTENCE FLOW & COHERENCE: You MUST connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. Combine related sentences into fluid, coherent thoughts. 
+2. SENTENCE FLOW & COHERENCE: You MUST connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. Combine related sentences into fluid, coherent thoughts.
 3. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
 4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Commodifying children commodifies human life").
+5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
 6. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
 7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
 8. NO EM DASHES (—) or SEMICOLONS (;). 
@@ -328,12 +328,12 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
-5. COMMA CHAINS & RUN-ONS: Any sentence containing more than one comma, or any long sentence where two completely independent clauses are jammed together with "and" or "but". You MUST break these into separate, shorter sentences using periods.
+5. COMMA CHAINS: Any sentence containing more than one comma. Fix it by removing unnecessary clauses or splitting it, but DO NOT delete conjunctions like "and" or "which" if they are necessary for grammar.
 6. "WITH [NOUN] [VERB]ING" constructions. Break them into separate sentences.
 7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a flow editor. Find choppy, disconnected pairs or groups of sentences that lack logical transitions (e.g., "Genetic modification helps embryos survive. However, commodifying children commodifies human life."). Combine these disjointed sentences into one smooth, coherent sentence using natural transitions (e.g., "and", "so", "but", "while", "whereas").
+const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
 CRITICAL RULES: 
 - NEVER change the meaning or add words. 
 - NEVER create run-on sentences or comma chains.
@@ -341,10 +341,10 @@ CRITICAL RULES:
 - If you are not 100% sure the combination is perfect, return {}.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax. 
+const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax (e.g., missing conjunctions like "and" or "which", resulting in "...changes, can permanently modify..."). 
 CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, combine it with the previous sentence.
 CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word or concept (e.g., "Treating people as PRODUCTS... view their children as PRODUCTS"), rewrite it to be concise and non-repetitive.
-CRITICAL: Find and fix COMMA SPLICES & RUN-ONS. If two independent clauses are jammed together with a comma and "and/but" (e.g., "...changes DNA, and reducing diversity..."), fix it by changing the comma to a period.
+CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
 Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
