@@ -1,10 +1,10 @@
 // ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
-// A highly optimized, surgical sentence-replacement humanizer. It identifies 
-// and replaces every sentence containing heavy AI-predictability patterns, 
-// preserves formal academic tone, avoids awkward programmatic pace-breakers, 
-// and parses pure JSON response maps safely.
+// A highly optimized, surgical sentence-replacement humanizer. It analyzes the 
+// original clean draft first to maintain natural phrasing, forces aggressive 
+// syntactic clause-flipping on robotic sentences, and applies vocabulary 
+// swaps to the finalized draft to eliminate AI patterns.
 // ==========================================================================
 
 import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
@@ -135,23 +135,24 @@ function postProcess(text) {
 // 4. GROQ SURGICAL SENTENCE REPLACER MODULE
 // ==========================================================================
 
-const SURGICAL_PROMPT = `You are an expert academic editor. Analyze the formal/academic text below and identify every sentence that sounds robotic, has a predictable AI structure, or relies on common generative AI clichés (such as highly balanced parallel clauses, "rely on", "is crucial for", "plays a key role", passive verb chains, or formal introductory clauses like "To establish permanent outposts...").
+const SURGICAL_PROMPT = `You are an expert academic editor rewriting sentences to sound completely natural and human-written. Analyze the formal/academic text below and identify every sentence that sounds robotic, has a highly predictable AI structure, or relies on common generative AI clichés.
 
-For each identified sentence, provide a human-written rewrite that fits seamlessly within the surrounding context of the essay.
+For each identified sentence, provide an aggressive, human-written rewrite that fits seamlessly within the context of the essay.
 
-CRITICAL RULES:
-1. NO CONVERSATIONAL FLUFF: Do NOT make the text informal, casual, or conversational. Do NOT add pacing phrases like "Think about it", "Let's be honest", or parenthetical fillers. The rewritten sentences must maintain a completely formal, analytical, scholarly, and academic tone.
-2. ELIMINATE AI CLICHÉS: Do NOT use phrases like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", or "crucial enabler". Use plain, active, and direct phrasing.
-3. PRESERVE ALL FACTS: Keep every name (like MOXIE), number, data point, and scientific concept exactly as they are.
-4. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text EXACTLY, character-for-character, including capitalization and punctuation.
-5. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
+CRITICAL RULES FOR REWRITES:
+1. COMPLETELY FLIP THE SENTENCE STRUCTURE: Do not just swap words or use synonyms. Reorder the clauses entirely. If the original sentence starts with the cause and ends with the effect, make your rewrite start with the effect and end with the cause. If it is passive, make it active.
+2. NO CLINICAL OR CORPORATE NOUNS: Do not make the sentences longer or add clinical expansions (e.g., do not change "revolutionize construction" to "transform construction capabilities"). Keep the replacements lean, direct, and punchy.
+3. FORBIDDEN PHRASES: Do NOT use standard AI tropes like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", "crucial enabler", or "plays a key role". Use direct, human phrasing.
+4. NO CONVERSATIONAL FLUFF: Do NOT make the text informal or casual. Do NOT add pacing phrases like "Think about it" or "Let's be honest." The rewritten sentences must maintain a completely formal, analytical, scholarly, and academic tone.
+5. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text EXACTLY, character-for-character, including capitalization and punctuation.
+6. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
 
 JSON SCHEMA:
 {
   "replacements": [
     {
       "original": "The exact robotic sentence from the text",
-      "replacement": "The highly natural, formal academic replacement"
+      "replacement": "The highly natural, restructured formal academic replacement"
     }
   ]
 }
@@ -238,16 +239,16 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        // Step 1: Initial vocabulary replacements
-        let result = applyWordSwaps(text, AI_VOCAB_SWAPS);
-        result = applyWordSwaps(result, AI_STERILE_SWAPS);
-        logs.push('Applied initial word replacements');
-
-        // Step 2: Groq Surgical Replacements Pass
+        // Step 1: Run Groq Surgical Replacements Pass FIRST (analyzes original raw context)
         logs.push('Running targeted surgical replacement pass on Groq...');
-        const surgicalResult = await runSurgicalReplacements(result, GROQ_KEY, logs);
-        result = surgicalResult.text;
+        const surgicalResult = await runSurgicalReplacements(text, GROQ_KEY, logs);
+        let result = surgicalResult.text;
         logs.push('Surgical replacements complete');
+
+        // Step 2: Apply vocabulary swaps SECOND (eliminates remaining AI words globally)
+        result = applyWordSwaps(result, AI_VOCAB_SWAPS);
+        result = applyWordSwaps(result, AI_STERILE_SWAPS);
+        logs.push('Applied global word replacements');
 
         // Step 3: Normalization and cleanup
         result = postProcess(result);
@@ -274,7 +275,6 @@ export default async function handler(req, res) {
             }
         };
 
-        // We return surgicalReplacements directly in the payload so you can debug the JSON in real time
         return res.status(200).json({ 
             success: true, 
             result, 
