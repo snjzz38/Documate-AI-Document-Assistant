@@ -3,7 +3,7 @@
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
 // text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies safe 6-stage post-processing.
+// phrasing via strict prompt engineering, and applies safe 5-stage post-processing.
 // ==========================================================================
 
 /* 
@@ -14,7 +14,8 @@
    - AI_VOCAB_SWAPS: Dictionary of formal/AI words to natural words.
    
 2. TEXT UTILITIES MODULE
-   - splitIntoChunks(): Safely splits text into sentence groups.
+   - splitIntoChunks(): Safely splits text into sentence groups (Fallback).
+   - groqLogicalChunk(): Uses Groq to group sentences into logical paragraphs.
    - applyWordSwaps(): Case-preserving replacement of banned words.
    - parseGroqJson(): Safely parses JSON strings from Groq.
    - applyJsonReplacements(): Safely applies JSON before/after maps to text.
@@ -29,13 +30,12 @@
    - cleanTextMechanics(): Light, safe cleanup of punctuation and grammar.
    - postProcess(): Main regex wrapper.
    
-6. GROQ 6-STAGE SANITY CHECKER MODULE
+6. GROQ 5-STAGE SANITY CHECKER MODULE
    - Stage 1: Vocabulary context fixes.
    - Stage 2: Syntactic AI tells (lists, em dashes, participles, etc.).
-   - Stage 3: Staccato flow and transition fixes.
+   - Stage 3: Border transition fixes (Staccato flow and chunk borders).
    - Stage 4: Repetitive sentence starters.
-   - Stage 5: Lexical variety (root word repetition).
-   - Stage 6: Grammar and typo correction.
+   - Stage 5: Grammar, typo, and tautology correction.
    
 7. API HANDLER
    - handler(): Main entry point orchestrating the modules.
@@ -127,6 +127,23 @@ JSON OUTPUT:`;
 }
 
 /**
+ * Replaces banned AI words while preserving the original capitalization.
+ */
+function applyWordSwaps(text) {
+    let result = text;
+    for (const [bad, good] of Object.entries(AI_VOCAB_SWAPS)) {
+        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (match[0] === match[0].toUpperCase()) {
+                return good.charAt(0).toUpperCase() + good.slice(1);
+            }
+            return good;
+        });
+    }
+    return result;
+}
+
+/**
  * Safely parses a string into a JSON object.
  */
 function parseGroqJson(content) {
@@ -157,6 +174,8 @@ function applyJsonReplacements(text, jsonMap) {
         }
         
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
+
+        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings or meta-commentary into the text
         if (afterStr.includes('{') || afterStr.includes('}')) continue;
 
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -203,6 +222,7 @@ STRICT RULES:
 
 Output ONLY the rewritten chunk:`;
 }
+
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
@@ -323,6 +343,7 @@ function postProcess(text) {
     return cleanTextMechanics(result);
 }
 
+
 // ==========================================================================
 // 6. GROQ 5-STAGE SANITY CHECKER MODULE
 // ==========================================================================
@@ -427,7 +448,6 @@ export default async function handler(req, res) {
     resetGroqModelUsage();
 
     try {
-        // Frontend only sends { text, apiKey }. We use the server env for Groq.
         const { text, apiKey, groqApiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
         const GROQ_KEY = groqApiKey || process.env.GROQ_API_KEY;
@@ -450,11 +470,13 @@ export default async function handler(req, res) {
             chunks = splitIntoChunks(processed, 4);
         }
         logs.push(`Split into ${chunks.length} logical chunks`);
-       
+
+        const temperature = 0.7 + Math.random() * 0.3;
+        logs.push(`Temperature: ${temperature.toFixed(2)}`);
+
         // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
-            // Pass previous humanized chunk and next original chunk for context
             let prevChunk = i > 0 ? humanizedChunks[i - 1] : "";
             let nextChunk = i < chunks.length - 1 ? chunks[i + 1] : "";
             
