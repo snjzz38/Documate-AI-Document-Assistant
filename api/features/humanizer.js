@@ -166,39 +166,6 @@ async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
 // 5. REGEX & ALGORITHMIC POST-PROCESSING MODULE
 // ==========================================================================
 
-const AI_STERILE_SWAPS = {
-    "regarding": "about",
-    "represents a": "is a",
-    "represents an": "is an",
-    "represents the": "is the",
-    "represents": "is",
-    "abstract cognitive tools": "mental tools",
-    "artificial logic exercise": "logic exercise",
-    "societal organization": "organizing society",
-    "limitless sequence": "endless sequence",
-    "persist outside the mind": "exist outside the mind",
-    "serving as": "acting as",
-    "functioning as": "acting as",
-    "act outside of": "exist outside of",
-    "truly remarkable": "highly effective",
-    "remarkable accomplishment": "major accomplishment",
-    "fabric of the universe": "structure of reality",
-    "fabric of reality": "structure of reality",
-    "mortal invention": "human invention",
-    "mortal creation": "human creation",
-    "facilitated by this methodology": "helped by this approach",
-    "in-depth analysis is facilitated": "detailed analysis is helped",
-    "striking resemblance": "close resemblance",
-    "product of human ingenuity": "human creation",
-    "infinite array": "large number",
-    "vast array": "large number",
-    "rigorous investigation": "detailed study",
-    "serves as a bridge": "acts as a link",
-    "the nature world": "the natural world",
-    "global challenges": "major world problems",
-    "particularly when given": "especially when given"
-};
-
 /**
  * Cleans text mechanics (punctuation, grammar, double words).
  */
