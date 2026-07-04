@@ -1,10 +1,10 @@
 // ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
-// A highly optimized, surgical sentence-replacement humanizer. It analyzes the 
-// original clean draft first to maintain natural phrasing, forces aggressive 
-// syntactic clause-flipping on robotic sentences, and applies vocabulary 
-// swaps to the finalized draft to eliminate AI patterns.
+// A highly robust, surgical sentence-replacement humanizer. It utilizes 
+// a programmatic fuzzy-matching algorithm to overcome LLM quotation typos, 
+// prevents context-breaking word swaps, and forces deep syntactic clause 
+// reconstruction on targeted sentences.
 // ==========================================================================
 
 import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
@@ -49,7 +49,7 @@ const AI_VOCAB_SWAPS = {
     "furthermore": "also",
     "additionally": "also",
     "vital": "important",
-    "critical": "key"
+    "critical": "important"
 };
 
 const AI_STERILE_SWAPS = {
@@ -77,7 +77,14 @@ const AI_STERILE_SWAPS = {
 
 function applyWordSwaps(text, swapDict) {
     let result = text;
+    
+    // Handle "critical" contextually to avoid "most key" errors
+    result = result.replace(/(?<!most\s+)\bcritical\b/gi, "important");
+    result = result.replace(/\bmost\s+critical\b/gi, "main");
+    
     for (const [bad, good] of Object.entries(swapDict)) {
+        if (bad === "critical") continue; // Handled contextually above
+        
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
             if (match[0] === match[0].toUpperCase()) {
@@ -100,6 +107,36 @@ function parseGroqJson(content) {
         console.error('Failed to parse JSON string:', error);
         return {};
     }
+}
+
+/**
+ * Sorensen-Dice Bigram similarity coefficient.
+ * Calculates mathematical similarity between two string segments.
+ */
+function getSentenceSimilarity(str1, str2) {
+    const s1 = str1.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const s2 = str2.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    if (s1 === s2) return 1.0;
+    if (s1.length === 0 || s2.length === 0) return 0.0;
+    
+    const getBigrams = (str) => {
+        const bigrams = new Set();
+        for (let i = 0; i < str.length - 1; i++) {
+            bigrams.add(str.substring(i, i + 2));
+        }
+        return bigrams;
+    };
+    
+    const b1 = getBigrams(s1);
+    const b2 = getBigrams(s2);
+    
+    let intersection = 0;
+    for (const val of b1) {
+        if (b2.has(val)) intersection++;
+    }
+    
+    return (2 * intersection) / (b1.size + b2.size);
 }
 
 // ==========================================================================
@@ -135,16 +172,20 @@ function postProcess(text) {
 // 4. GROQ SURGICAL SENTENCE REPLACER MODULE
 // ==========================================================================
 
-const SURGICAL_PROMPT = `You are an expert academic editor rewriting sentences to sound completely natural and human-written. Analyze the formal/academic text below and identify every sentence that sounds robotic, has a highly predictable AI structure, or relies on common generative AI clichés.
+const SURGICAL_PROMPT = `You are an expert academic editor. Analyze the formal/academic text below and identify every sentence that contains typical AI patterns, predictable structures, or balanced academic clichés.
 
-For each identified sentence, provide an aggressive, human-written rewrite that fits seamlessly within the context of the essay.
+For each identified sentence, provide a human-written rewrite that fits seamlessly within the surrounding context of the essay.
 
 CRITICAL RULES FOR REWRITES:
-1. COMPLETELY FLIP THE SENTENCE STRUCTURE: Do not just swap words or use synonyms. Reorder the clauses entirely. If the original sentence starts with the cause and ends with the effect, make your rewrite start with the effect and end with the cause. If it is passive, make it active.
-2. NO CLINICAL OR CORPORATE NOUNS: Do not make the sentences longer or add clinical expansions (e.g., do not change "revolutionize construction" to "transform construction capabilities"). Keep the replacements lean, direct, and punchy.
-3. FORBIDDEN PHRASES: Do NOT use standard AI tropes like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", "crucial enabler", or "plays a key role". Use direct, human phrasing.
-4. NO CONVERSATIONAL FLUFF: Do NOT make the text informal or casual. Do NOT add pacing phrases like "Think about it" or "Let's be honest." The rewritten sentences must maintain a completely formal, analytical, scholarly, and academic tone.
-5. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text EXACTLY, character-for-character, including capitalization and punctuation.
+1. FORCE DEEP SYNTACTIC RECONSTRUCTION (CLAUSE FLIPPING): Do not just swap words or use synonyms. You must completely reconstruct the grammar of the sentence. If the original sentence starts with the cause and ends with the effect, make your rewrite start with the effect and end with the cause.
+   - Example original: "The greatest obstacle to deep-space exploration is gravity."
+   - Example rewrite: "Gravity remains the single biggest hurdle we face in traveling further out."
+   - Example original: "Fortunately, the rocky surfaces of the Moon and Mars are rich in minerals."
+   - Example rewrite: "Luckily, we can find abundant minerals and metals directly on the lunar and Martian surfaces."
+2. NO CLINICAL EXPANSION: Do not make the sentences longer or add complex AI-style noun expansions. Keep the replacements active, tight, and direct.
+3. FORBIDDEN PHRASES: Do NOT use standard AI tropes like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", "crucial enabler", or "plays a key role". Use natural academic phrasing.
+4. NO CONVERSATIONAL FLUFF: Do NOT make the text informal, casual, or conversational. Do NOT add pacing phrases like "Think about it" or "Let's be honest." Keep the tone formal and scholarly.
+5. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text exactly, character-for-character, including capitalization and punctuation.
 6. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
 
 JSON SCHEMA:
@@ -160,7 +201,7 @@ JSON SCHEMA:
 TEXT TO ANALYZE:
 `;
 
-async function runSurgicalReplacements(text, groqKey, trackingLogs) {
+async function runSurgicalReplacements(text, groqKey) {
     const prompt = `${SURGICAL_PROMPT}\n"${text}"`;
     const messages = [{ role: 'user', content: prompt }];
     const appliedReplacements = [];
@@ -170,38 +211,53 @@ async function runSurgicalReplacements(text, groqKey, trackingLogs) {
         const parsed = parseGroqJson(content);
         
         let result = text;
+        // Split text into individual sentences, preserving trailing whitespace/punctuation
+        const originalSentences = text.match(/[^.!?]+[.!?]+(?:\s|$)+/g) || [text];
+        
         if (parsed && Array.isArray(parsed.replacements)) {
             for (const item of parsed.replacements) {
                 if (item.original && item.replacement) {
-                    const originalClean = item.original.trim();
-                    const replacementClean = item.replacement.trim();
-                    const escapedOriginal = originalClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const targetOriginal = item.original.trim();
+                    const targetReplacement = item.replacement.trim();
                     
-                    if (result.includes(originalClean)) {
-                        const regex = new RegExp(escapedOriginal, 'g');
-                        result = result.replace(regex, replacementClean);
-                        appliedReplacements.push({ 
-                            original: originalClean, 
-                            replacement: replacementClean,
-                            status: "Exact Match Replaced" 
-                        });
-                    } else {
-                        // Fallback: search case-insensitively with flexible spacing
-                        const flexibleRegex = new RegExp(escapedOriginal.replace(/\s+/g, '\\s+'), 'gi');
-                        if (flexibleRegex.test(result)) {
-                            result = result.replace(flexibleRegex, replacementClean);
-                            appliedReplacements.push({ 
-                                original: originalClean, 
-                                replacement: replacementClean,
-                                status: "Flexible Match Replaced" 
-                            });
-                        } else {
-                            appliedReplacements.push({ 
-                                original: originalClean, 
-                                replacement: replacementClean,
-                                status: "Failed to Match Text" 
-                            });
+                    // Fuzzy-match: Find the closest sentence in the original text
+                    let bestMatchIdx = -1;
+                    let bestMatchScore = 0;
+                    
+                    for (let i = 0; i < originalSentences.length; i++) {
+                        const score = getSentenceSimilarity(originalSentences[i].trim(), targetOriginal);
+                        if (score > bestMatchScore) {
+                            bestMatchScore = score;
+                            bestMatchIdx = i;
                         }
+                    }
+                    
+                    // Execute replacement if similarity is above 80%
+                    if (bestMatchIdx !== -1 && bestMatchScore > 0.80) {
+                        const matchedSentence = originalSentences[bestMatchIdx];
+                        
+                        // Escape regex characters of the actual matched sentence segment
+                        const escapedMatch = matchedSentence.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const regex = new RegExp(escapedMatch, 'g');
+                        
+                        result = result.replace(regex, targetReplacement);
+                        
+                        appliedReplacements.push({ 
+                            original: targetOriginal, 
+                            matchedInText: matchedSentence.trim(),
+                            replacement: targetReplacement,
+                            similarityScore: bestMatchScore.toFixed(2),
+                            status: "Fuzzy Match Replaced" 
+                        });
+                        
+                        // Clear the index so it is not matched again
+                        originalSentences[bestMatchIdx] = "";
+                    } else {
+                        appliedReplacements.push({ 
+                            original: targetOriginal, 
+                            replacement: targetReplacement,
+                            status: "Failed to Match Text" 
+                        });
                     }
                 }
             }
@@ -241,7 +297,7 @@ export default async function handler(req, res) {
 
         // Step 1: Run Groq Surgical Replacements Pass FIRST (analyzes original raw context)
         logs.push('Running targeted surgical replacement pass on Groq...');
-        const surgicalResult = await runSurgicalReplacements(text, GROQ_KEY, logs);
+        const surgicalResult = await runSurgicalReplacements(text, GROQ_KEY);
         let result = surgicalResult.text;
         logs.push('Surgical replacements complete');
 
