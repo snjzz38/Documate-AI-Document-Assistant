@@ -1,10 +1,9 @@
 // ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
-// A style-mimicry humanizer. It utilizes a few-shot prompt structure trained
-// directly on high-scoring Turnitin student exemplars to rewrite raw text 
-// with natural sentence-length variation, mixed registers, and content-driven 
-// transitions, followed by a global vocabulary cleaning pass.
+// A highly robust, surgical humanizer optimized for LLaMA-3.1-8b. It forces 
+// extreme syntactic simplicity (short, high-entropy sentences), utilizes 
+// a programmatic fuzzy sentence matcher, and eliminates academic AI tells.
 // ==========================================================================
 
 import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
@@ -30,7 +29,7 @@ const AI_VOCAB_SWAPS = {
     // mitigate
     "mitigate": "reduce", "mitigates": "reduces", "mitigating": "reducing", "mitigated": "reduced", "mitigation": "reduction",
     
-    // Formal Academic & Informational Tells
+    // Academic Tells
     "significant": "major",
     "substantial": "large",
     "comprised of": "made of",
@@ -78,12 +77,12 @@ const AI_STERILE_SWAPS = {
 function applyWordSwaps(text, swapDict) {
     let result = text;
     
-    // Prevent "most key" errors by handling critical contextually
+    // Handle "critical" contextually to avoid "most key" errors
     result = result.replace(/(?<!most\s+)\bcritical\b/gi, "important");
     result = result.replace(/\bmost\s+critical\b/gi, "main");
     
     for (const [bad, good] of Object.entries(swapDict)) {
-        if (bad === "critical") continue;
+        if (bad === "critical") continue; 
         
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -94,6 +93,47 @@ function applyWordSwaps(text, swapDict) {
         });
     }
     return result;
+}
+
+/**
+ * Safely parses markdown JSON strings into a clean JavaScript object.
+ */
+function parseGroqJson(content) {
+    try {
+        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
+        return JSON.parse(cleanJson);
+    } catch (error) {
+        console.error('Failed to parse JSON string:', error);
+        return {};
+    }
+}
+
+/**
+ * Sorensen-Dice Bigram similarity coefficient.
+ */
+function getSentenceSimilarity(str1, str2) {
+    const s1 = str1.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const s2 = str2.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    if (s1 === s2) return 1.0;
+    if (s1.length === 0 || s2.length === 0) return 0.0;
+    
+    const getBigrams = (str) => {
+        const bigrams = new Set();
+        for (let i = 0; i < str.length - 1; i++) {
+            bigrams.add(str.substring(i, i + 2));
+        }
+        return bigrams;
+    };
+    
+    const b1 = getBigrams(s1);
+    const b2 = getBigrams(s2);
+    
+    let intersection = 0;
+    for (const val of b1) {
+        if (b2.has(val)) intersection++;
+    }
+    return intersection;
 }
 
 // ==========================================================================
@@ -132,31 +172,98 @@ function postProcess(text) {
     return cleanTextMechanics(result);
 }
 
+/**
+ * Programmatically splits highly-identifiable AI compound clauses.
+ */
+function smashCompoundSentences(text) {
+    let result = text;
+
+    const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const smashRules = [
+        {
+            regex: /,\s+while\s+/gi,
+            replacements: [". Meanwhile, ", ". At the same time, ", ". On the flip side, "]
+        },
+        {
+            regex: /,\s+with\s+the\s+/gi,
+            replacements: [". Here, the ", ". At the same time, the ", ". For instance, the "]
+        },
+        {
+            regex: /,\s+which\s+serves?\b/gi,
+            replacements: [". This serves", ". It serves"]
+        },
+        {
+            regex: /,\s+which\s+will\b/gi,
+            replacements: [". This will", ". It will"]
+        },
+        {
+            regex: /,\s+which\s+plays?\b/gi,
+            replacements: [". This plays", ". It plays"]
+        },
+        {
+            regex: /,\s+which\s+is\b/gi,
+            replacements: [". This is", ". It is"]
+        },
+        {
+            regex: /,\s+which\s+/gi,
+            replacements: [". This ", ". It "]
+        },
+        {
+            regex: /,\s+allowing\s+/gi,
+            replacements: [". This lets ", ". Doing so allows "]
+        },
+        {
+            regex: /,\s+making\s+/gi,
+            replacements: [". That makes ", ". This makes "]
+        },
+        {
+            regex: /,\s+creating\s+/gi,
+            replacements: [". This creates ", ". It creates "]
+        },
+        {
+            regex: /,\s+limiting\s+/gi,
+            replacements: [". This limits ", ". It limits "]
+        },
+        {
+            regex: /,\s+requiring\s+/gi,
+            replacements: [". This requires ", ". It demands "]
+        },
+        {
+            regex: /,\s+helping\s+/gi,
+            replacements: [". This helps ", ". It helps "]
+        },
+        {
+            regex: /,\s+resulting\s+in\s+/gi,
+            replacements: [". This results in ", ". That leads to "]
+        },
+        {
+            regex: /,\s+where\s+/gi,
+            replacements: [". Here, ", ". At these bases, "]
+        }
+    ];
+
+    for (const rule of smashRules) {
+        result = result.replace(rule.regex, () => getRandom(rule.replacements));
+    }
+
+    return result;
+}
+
 // ==========================================================================
-// 4. GROQ FEW-SHOT STYLE MIMICRY MODULE
+// 4. GROQ STYLE MIMICRY MODULE
 // ==========================================================================
 
-const STYLE_MIMICRY_PROMPT = `You are a world-class academic editor and mimicry engine. Your sole goal is to completely translate the input text into the exact writing style, sentence structure, flow, and register shown in the human exemplar essays below.
+const STYLE_MIMICRY_PROMPT = `You are a student editor rewriting a draft for a class essay. Your goal is to rewrite the input text so it sounds like an earnest high school student wrote it.
 
---- START OF STYLE EXEMPLARS ---
+STRICT WRITING RULES:
+1. EXTREMELY SHORT SENTENCES: Every single sentence must be short and direct (between 5 and 12 words). Never write long, complex, or compound sentences. If a sentence has a comma, split it into two simple sentences.
+2. USE CONTRACTIONS: You must use contractions naturally throughout the text (it's, there's, can't, don't, we're).
+3. SIMPLE STUDENT VOCABULARY: Write in an earnest, straightforward voice. Use simple verbs like "is", "have", "need", "go", "get". Never use clinical, overly-polished, or academic words like "eschew", "hangs precariously", "linchpin", "recalibrates", "demands", "influence", "constrains", "harness", "prohibitively", or "tethered".
+4. COMPLETE RECONSTRUCTION: Do not copy any full phrase from the input. Write every line from scratch in a simple, straightforward tone.
+5. NO ACADEMIC TRANSITIONS: Never use transition words like "Furthermore", "Additionally", "Moreover", "On the other hand", "Therefore", or "Consequently". Just state the facts simply.
 
-EXEMPLAR 1: "No Matter the Cost of the Journey"
-"The story Angela's Ashes, by Frank McCourt, and The Street, by Ann Petry, are two stories that express the mindset of perseverance. Angela's Ashes is a memoir from 1996 that describes the life of the author Frank McCourt growing up in Limerick, Ireland. Facing the challenges of these two harsh environments requires perseverance. This idea is explored and elucidated in both texts in a variety of ways, notably with the specific events, character development, and setting of the stories. McCourt decides to go out in search for food in the cold. When he comes across Kathleen O'Connell's shop and a bread delivery van outside, he contemplates stealing food from the shop. He thinks better of it at first because he knows it is the wrong thing to do, but he decides that the risk is worth taking, due to his unfortunate circumstances."
-
-EXEMPLAR 2: "Ad Me"
-"There’s definitely a major flaw to this system. It’s safe to say that the system does not know how to distinguish between sites that you actually use from sites that you just happen to visit. The Internet makes mistakes when forming your advertising identity because it has so many variables to deal with. For example, I had to go online to do an assignment which involved “shopping” at Wal-Mart and Sam’s Club. Now whenever I go onto a website, I see ads for Wal-Mart and pricing for curtains and children’s toys. These are not products I will need or use for a very long time, although the ad profile creating system has no way to differentiate whether you search something for a class assignment or whether you search it because you are actually interested in buying said items."
-
---- END OF STYLE EXEMPLARS ---
-
-CRITICAL DIRECTIONS FOR THE REWRITE (MUST FOLLOW):
-1. COMPLETE RECONSTRUCTION: You are strictly forbidden from copying any full sentence or structural template from the input text. Every single sentence must be completely rewritten from scratch. Do not just swap words; dismantle and rebuild the syntax.
-2. SYNTACTIC FLIPPING: Invert the grammatical order of the clauses. If the original sentence starts with a cause and ends with an effect, flip it so your rewrite starts with the effect or completely changes the subject focus.
-3. CONVERSATIONAL CONTRACTIONS: Use contractions (it's, there's, won't, don't, we're) naturally throughout your paragraphs.
-4. MIXED REGISTER: Blend analytical terms (e.g., variables, process, feasibility) with direct, slightly informal human observations (e.g., "get by", "safe to say", "major flaw", "tethered to").
-5. NO CHEAP SUFFIXES OR AI GIMMICKS: Do not append lazy, low-quality conversational tags like "really", "game-changer", "treasure trove" at the ends of your paragraphs. These sound artificial and trigger AI detectors. Write organic, cohesive, content-driven sentences instead.
-6. NO STRUCTURAL SCAFFOLDING: Do not use transition words like "Furthermore", "In addition", "Moreover", or "On the other hand". Connect paragraphs using logical, story-driven bridging sentences.
-
-Output ONLY the rewritten text, matching the academic level of the input but utilizing this exact human student style. Do not wrap the output in markdown code blocks. Do not add any introductory or concluding notes.
+Output ONLY the simple, rewritten student essay. Do not add any introductory notes or wrap it in code blocks.
 
 INPUT TEXT TO REWRITE:
 `;
@@ -200,19 +307,19 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        // Step 1: Run Groq Style Mimicry Pass FIRST (processes entire text using human exemplar training)
+        // Step 1: Run Groq Style Mimicry Pass FIRST
         logs.push('Running targeted few-shot style mimicry pass on Groq...');
         let result = await runStyleMimicry(text, GROQ_KEY);
         logs.push('Style mimicry complete');
 
-        // Step 2: Apply vocabulary swaps SECOND (eliminates remaining AI words globally)
+        // Step 2: Apply vocabulary swaps SECOND
         result = applyWordSwaps(result, AI_VOCAB_SWAPS);
         result = applyWordSwaps(result, AI_STERILE_SWAPS);
         logs.push('Applied global word replacements');
 
-        // Step 3: Normalization and cleanup (does not rerun applyWordSwaps to avoid breaking grammar rules)
+        // Step 3: Normalization, Punctuation Smashing, and cleanup
+        result = smashCompoundSentences(result);
         result = postProcess(result);
-        logs.push('Final normalization complete');
 
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final output: ${result.length} chars`);
