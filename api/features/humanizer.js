@@ -206,19 +206,20 @@ TEXT TO REWRITE:
 
 STRICT RULES:
 1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
-2. SYNTACTIC VARIETY (CRITICAL): Do NOT use ", and" or ", but" to glue clauses together in consecutive sentences. You MUST vary your sentence structures. Use subordinating conjunctions (e.g., "Because", "Although", "When", "While", "Since") or write short, direct Subject-Verb-Object sentences.
-3. SENTENCE FLOW & COHERENCE: Connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. If a sentence is just a introductory phrase (e.g., "The model encompasses specific areas of study."), combine it with the following sentence.
-4. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-5. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-6. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Evaluating the landscape centers on the landscape").
-7. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-8. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
-9. NO EM DASHES (—) or SEMICOLONS (;). 
-10. NO COMMA CHAINS: A sentence must not have more than one comma.
-11. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-12. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-13. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
-14. Do NOT repeat the same concept or premise in consecutive sentences.
+2. CONTINUITY (FILL-IN-THE-BLANK): Treat your chunk as the missing piece of a larger essay. Your first sentence MUST flow logically from the last sentence of the PREVIOUS TEXT. Your last sentence MUST set up the NEXT TEXT seamlessly. Do NOT start or end abruptly.
+3. SYNTACTIC VARIETY (CRITICAL): Do NOT use ", and" or ", but" to glue clauses together in consecutive sentences. You MUST vary your sentence structures. Use subordinating conjunctions (e.g., "Because", "Although", "When", "While", "Since") or write short, direct Subject-Verb-Object sentences.
+4. SENTENCE FLOW & COHERENCE: Connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. 
+5. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
+6. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+7. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
+8. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+9. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
+10. NO EM DASHES (—) or SEMICOLONS (;). 
+11. NO COMMA CHAINS: A sentence must not have more than one comma.
+12. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+13. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+14. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+15. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -345,7 +346,7 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ 5-STAGE SANITY CHECKER MODULE
+// 6. GROQ 6-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text, AND find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -362,7 +363,7 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a border transition editor. Find pairs of sentences where the topic shifts abruptly or the transition feels disjointed (e.g., ending a thought on genetics, and immediately starting a new thought on wealth inequality without connection). Combine or rewrite these pairs using natural transitional phrases (e.g., "While X is true, Y remains a concern.", "Beyond biology, this also affects...").
+const STAGE_3_PROMPT = `You are a border transition editor. Find pairs of sentences where the topic shifts abruptly or the transition feels disjointed. Combine or rewrite these pairs using natural transitional phrases (e.g., "While X is true, Y remains a concern.", "Beyond biology, this also affects...").
 CRITICAL RULES: 
 - NEVER change the core meaning or add new facts. 
 - NEVER create run-on sentences or comma chains.
@@ -370,8 +371,8 @@ CRITICAL RULES:
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or pair of sentences. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax. 
-CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with a preposition like "Unlike", "By", "Through", "With", "As", or "Which" and does not form a complete thought (e.g., "Unlike platforms based on personal connections."), you MUST combine it with the next sentence using a comma.
-CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word, phrase, or concept (e.g., "Evaluating the landscape centers on the landscape" or "isolated communities of thought and isolated communities of shared views"), rewrite it to be concise and non-repetitive.
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with a preposition like "Unlike", "By", "Through", "With", "As", or "Which" and does not form a complete thought, you MUST combine it with the next sentence using a comma.
+CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word, phrase, or concept, rewrite it to be concise and non-repetitive.
 CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
@@ -383,6 +384,8 @@ const STAGE_5_PROMPT = `You are an experimental humanization editor. Your goal i
 3. ACTIVE VOICE: Change passive voice to active voice where possible (e.g., "is needed" -> "requires").
 4. "THIS" STARTERS: Rewrite sentences that start with "This [verb]" (e.g., "This raises...") to use a specific noun (e.g., "This gap raises...").
 Return a JSON object where keys are the EXACT original sentences, and values are the rewritten sentences. Do not change the meaning. If none, return {}.`;
+
+const STAGE_6_PROMPT = `You are a sentence rewriter. Rewrite the structure of the provided sentences to make them highly unpredictable and human-like, while keeping the exact same meaning. Vary the syntax drastically (e.g., use dependent clauses, invert subject/verb, use active voice). Do NOT use em dashes, semicolons, or comma chains. Return a JSON object with a key "rewrites" containing an array of objects, each with "original" (the exact input sentence) and "rewritten" (the new sentence).`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -397,9 +400,44 @@ async function groqChat(text, groqKey, instructions) {
     }
 }
 
+/**
+ * Stage 6: Randomly selects ~30% of sentences and has Groq restructure them.
+ */
+async function groqSentenceRewrite(text, groqKey) {
+    const sentenceRegex = /[^.!?]+[.!?]+/g;
+    let sentences = text.match(sentenceRegex) || [];
+    if (sentences.length === 0) return { text: text, fixes: 0 };
+
+    // Randomly pick ~30% of the sentences
+    const numToPick = Math.max(1, Math.floor(sentences.length * 0.3));
+    const picked = [...sentences].sort(() => 0.5 - Math.random()).slice(0, numToPick);
+    
+    if (picked.length === 0) return { text: text, fixes: 0 };
+
+    const prompt = `${STAGE_6_PROMPT}\n\nSENTENCES TO REWRITE:\n${JSON.stringify(picked)}\n\nJSON OUTPUT:`;
+    const messages = [{ role: 'user', content: prompt }];
+
+    try {
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        const parsed = parseGroqJson(content);
+        
+        if (parsed.rewrites && Array.isArray(parsed.rewrites)) {
+            const rewriteMap = {};
+            parsed.rewrites.forEach(r => {
+                if (r.original && r.rewritten) rewriteMap[r.original] = r.rewritten;
+            });
+            const newText = applyJsonReplacements(text, rewriteMap);
+            return { text: newText, fixes: parsed.rewrites.length };
+        }
+    } catch (error) {
+        console.error('Groq Sentence Rewrite Failed:', error);
+    }
+    return { text: text, fixes: 0 };
+}
+
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
 
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
@@ -420,6 +458,11 @@ async function runGroqStages(text, groqKey) {
     const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
+
+    // Stage 6: Random Sentence Restructuring
+    const s6Result = await groqSentenceRewrite(currentText, groqKey);
+    currentText = s6Result.text;
+    fixes.stage6 = s6Result.fixes;
 
     currentText = cleanTextMechanics(currentText);
 
@@ -495,10 +538,10 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 5-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
+        // Step 5: Groq 6-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 5-stage post-processing...');
+            logs.push('Starting Groq 6-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
@@ -507,6 +550,7 @@ export default async function handler(req, res) {
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
             logs.push(`Groq Stage 4 (Grammar) fixes: ${groqFixes.stage4}`);
             logs.push(`Groq Stage 5 (Experimental) fixes: ${groqFixes.stage5}`);
+            logs.push(`Groq Stage 6 (Sentence Rewriter) fixes: ${groqFixes.stage6}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
