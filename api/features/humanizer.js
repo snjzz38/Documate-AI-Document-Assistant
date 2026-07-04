@@ -450,7 +450,7 @@ export default async function handler(req, res) {
             chunks = splitIntoChunks(processed, 4);
         }
         logs.push(`Split into ${chunks.length} logical chunks`);
-
+       
         // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
