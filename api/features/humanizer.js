@@ -111,6 +111,15 @@ function cleanTextMechanics(text) {
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
+
+    // GRAMMAR FIXES (a vs an)
+    result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
+    result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
+    result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+    result = result.replace(/\ban discovery/gi, 'a discovery');
+    result = result.replace(/\ban human/gi, 'a human');
+    result = result.replace(/\bas means of/gi, 'as a means of');
+
     result = result.replace(/\s{2,}/g, ' ');
     
     return result.trim();
@@ -127,29 +136,27 @@ function postProcess(text) {
 // 4. GROQ FEW-SHOT STYLE MIMICRY MODULE
 // ==========================================================================
 
-const STYLE_MIMICRY_PROMPT = `You are a world-class writing instructor and mimicry engine. Your goal is to rewrite the input draft so that it adopts the exact writing style, sentence structure, flow, and register shown in the human exemplar essays below.
+const STYLE_MIMICRY_PROMPT = `You are a world-class academic editor and mimicry engine. Your sole goal is to completely translate the input text into the exact writing style, sentence structure, flow, and register shown in the human exemplar essays below.
 
---- START OF TRAINING SAMPLES ---
+--- START OF STYLE EXEMPLARS ---
 
 EXEMPLAR 1: "No Matter the Cost of the Journey"
-"Determination, a fixed purpose or intention; willpower, persistence, perseverance. The story Angela's Ashes, by Frank McCourt, and The Street, by Ann Petry, are two stories that express the mindset of perseverance. Angela's Ashes is a memoir from 1996 that describes the life of the author Frank McCourt growing up in Limerick, Ireland. The Street is a novel that emphasizes the struggles of African-Americans in 1940's New York City. Facing the challenges of these two harsh environments requires perseverance. This idea is explored and elucidated in both texts in a variety of ways, notably with the specific events, character development, and setting of the stories. 
-McCourt decides to go out in search for food in the cold. When he comes across Kathleen O'Connell's shop and a bread delivery van outside, he contemplates stealing food from the shop. He thinks better of it at first because he knows it is the wrong thing to do, but he decides that the risk is worth taking, due to his unfortunate circumstances. Reading through the memoir, it becomes evident that he must face life choices where he has to do decide on the right thing to get by.
-In The Street, the events of Lutie braving the storm while walking down the street, and, at the end, finding a safe place for lodging, demonstrate the theme by showing that Lutie was willing to endure all trouble: wind, rain, and swirling dust and garbage, so that she could reach her destination."
+"The story Angela's Ashes, by Frank McCourt, and The Street, by Ann Petry, are two stories that express the mindset of perseverance. Angela's Ashes is a memoir from 1996 that describes the life of the author Frank McCourt growing up in Limerick, Ireland. Facing the challenges of these two harsh environments requires perseverance. This idea is explored and elucidated in both texts in a variety of ways, notably with the specific events, character development, and setting of the stories. McCourt decides to go out in search for food in the cold. When he comes across Kathleen O'Connell's shop and a bread delivery van outside, he contemplates stealing food from the shop. He thinks better of it at first because he knows it is the wrong thing to do, but he decides that the risk is worth taking, due to his unfortunate circumstances."
 
 EXEMPLAR 2: "Ad Me"
-"In the 21st century, our daily lives are consumed with various forms of targeted advertising via potent outlets such as television, music, and the Internet, specifically the social media which often overwhelms our attention. Advertisements are purposefully becoming more direct in trying to appeal to all our wants and needs. While advertisers attempt to appeal to our "advertising identity," we are more defined by our "real identity." There is a disconnect which separates what I think of myself and what the advertisers think of me. 
-There’s definitely a major flaw to this system. It’s safe to say that the system does not know how to distinguish between sites that you actually use from sites that you just happen to visit. The Internet makes mistakes when forming your advertising identity because it has so many variables to deal with. For example, I had to go online to do an assignment which involved “shopping” at Wal-Mart and Sam’s Club. Now whenever I go onto a website, I see ads for Wal-Mart and pricing for curtains and children’s toys."
+"There’s definitely a major flaw to this system. It’s safe to say that the system does not know how to distinguish between sites that you actually use from sites that you just happen to visit. The Internet makes mistakes when forming your advertising identity because it has so many variables to deal with. For example, I had to go online to do an assignment which involved “shopping” at Wal-Mart and Sam’s Club. Now whenever I go onto a website, I see ads for Wal-Mart and pricing for curtains and children’s toys. These are not products I will need or use for a very long time, although the ad profile creating system has no way to differentiate whether you search something for a class assignment or whether you search it because you are actually interested in buying said items."
 
---- END OF TRAINING SAMPLES ---
+--- END OF STYLE EXEMPLARS ---
 
-CRITICAL STYLISTIC PARAMETERS TO MIMIC:
-1. MIXED REGISTERS: Blend academic analytical terms (e.g., variables, process, analysis) with highly direct, grounded, and slightly informal human observations or idioms (e.g., "get by", "safe to say", "major flaw", "tethered to").
-2. CONVERSATIONAL CONTRACTIONS: Use contractions (it's, there's, won't, don't, we're) naturally throughout the paragraphs.
-3. ORGANIC PACING & BURSTINESS: Mix sentence lengths unevenly. Write a long, slightly sprawling descriptive sentence followed directly by a very short, matter-of-fact observation (e.g., "It's heavy. It's expensive.").
-4. COHESIVE TRANSITIONS: Connect paragraphs using natural, content-driven bridging sentences (e.g., "There’s definitely a major flaw to this system." or "In [topic], a very different spectacle is set.") rather than generic AI connectors like "Furthermore", "In addition", "Moreover", or "On the other hand".
-5. NO CONVERSATIONAL FILLERS: Do NOT use artificial pacing gimmicks like "Think about it", "Let's be honest", or parenthetical commentary. Maintain an earnest, formal, and authoritative essay structure.
+CRITICAL DIRECTIONS FOR THE REWRITE (MUST FOLLOW):
+1. COMPLETE RECONSTRUCTION: You are strictly forbidden from copying any full sentence or structural template from the input text. Every single sentence must be completely rewritten from scratch. Do not just swap words; dismantle and rebuild the syntax.
+2. SYNTACTIC FLIPPING: Invert the grammatical order of the clauses. If the original sentence starts with a cause and ends with an effect, flip it so your rewrite starts with the effect or completely changes the subject focus.
+3. CONVERSATIONAL CONTRACTIONS: Use contractions (it's, there's, won't, don't, we're) naturally throughout your paragraphs.
+4. MIXED REGISTER: Blend analytical terms (e.g., variables, process, feasibility) with direct, slightly informal human observations (e.g., "get by", "safe to say", "major flaw", "tethered to").
+5. NO CHEAP SUFFIXES OR AI GIMMICKS: Do not append lazy, low-quality conversational tags like "really", "game-changer", "treasure trove" at the ends of your paragraphs. These sound artificial and trigger AI detectors. Write organic, cohesive, content-driven sentences instead.
+6. NO STRUCTURAL SCAFFOLDING: Do not use transition words like "Furthermore", "In addition", "Moreover", or "On the other hand". Connect paragraphs using logical, story-driven bridging sentences.
 
-Rewrite the input text below to match this exact style. Do not wrap the output in markdown code blocks. Do not write any commentary or introductory notes. Return ONLY the polished essay.
+Output ONLY the rewritten text, matching the academic level of the input but utilizing this exact human student style. Do not wrap the output in markdown code blocks. Do not add any introductory or concluding notes.
 
 INPUT TEXT TO REWRITE:
 `;
@@ -203,9 +210,9 @@ export default async function handler(req, res) {
         result = applyWordSwaps(result, AI_STERILE_SWAPS);
         logs.push('Applied global word replacements');
 
-        // Step 3: Normalization and cleanup
+        // Step 3: Normalization and cleanup (does not rerun applyWordSwaps to avoid breaking grammar rules)
         result = postProcess(result);
-        result = applyWordSwaps(result, AI_VOCAB_SWAPS);
+        logs.push('Final normalization complete');
 
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final output: ${result.length} chars`);
