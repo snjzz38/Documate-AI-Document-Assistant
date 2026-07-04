@@ -163,37 +163,91 @@ async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
 }
 
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE
+// 5. REGEX & ALGORITHMIC POST-PROCESSING MODULE
 // ==========================================================================
 
+const AI_STERILE_SWAPS = {
+    "regarding": "about",
+    "represents a": "is a",
+    "represents an": "is an",
+    "represents the": "is the",
+    "represents": "is",
+    "abstract cognitive tools": "mental tools",
+    "artificial logic exercise": "logic exercise",
+    "societal organization": "organizing society",
+    "limitless sequence": "endless sequence",
+    "persist outside the mind": "exist outside the mind",
+    "serving as": "acting as",
+    "functioning as": "acting as",
+    "act outside of": "exist outside of",
+    "truly remarkable": "highly effective",
+    "remarkable accomplishment": "major accomplishment",
+    "fabric of the universe": "structure of reality",
+    "fabric of reality": "structure of reality",
+    "mortal invention": "human invention",
+    "mortal creation": "human creation",
+    "facilitated by this methodology": "helped by this approach",
+    "in-depth analysis is facilitated": "detailed analysis is helped",
+    "striking resemblance": "close resemblance",
+    "product of human ingenuity": "human creation",
+    "infinite array": "large number",
+    "vast array": "large number",
+    "rigorous investigation": "detailed study",
+    "serves as a bridge": "acts as a link",
+    "the nature world": "the natural world",
+    "global challenges": "major world problems",
+    "particularly when given": "especially when given"
+};
+
+/**
+ * Cleans text mechanics (punctuation, grammar, double words).
+ */
 function cleanTextMechanics(text) {
     let result = text;
 
-    // Convert em-dashes and semicolons
+    // STRICT EM-DASH & SEMICOLON BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    result = result.replace(/;/g, '.');
+    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
     result = result.replace(/,\s*,/g, ',');
 
-    // Global cleanup of common artifacts
-    result = result.replace(/\.{2,}/g, '.');
-    result = result.replace(/,{2,}/g, ',');
-    result = result.replace(/\.\s*,/g, '.');
-    result = result.replace(/,\s*\./g, '.');
+    // STERILE VOCABULARY SWAPS
+    for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
+        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (match[0] === match[0].toUpperCase()) {
+                return good.charAt(0).toUpperCase() + good.slice(1);
+            }
+            return good;
+        });
+    }
+
+    // FIX GROQ REPLACEMENT ARTIFACTS
+    result = result.replace(/\.{2,}/g, '.'); // Double periods
+    result = result.replace(/,{2,}/g, ','); // Double commas
+    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma
+    result = result.replace(/,\s*\./g, '.');   // Comma followed by period
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
     
-    // Fix common bad transitions
+    // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
+    result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
+    
+    // Fix "but However" or "but However,"
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
+    // Fix missing period before "However"
     result = result.replace(/,\s*However,/gi, '. However,');
     result = result.replace(/,\s*However\s/gi, '. However ');
 
-    // Correct articles
+    // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
     result = result.replace(/\ban discovery/gi, 'a discovery');
     result = result.replace(/\ban human/gi, 'a human');
+    result = result.replace(/\bas means of/gi, 'as a means of');
 
-    // Spacing
+    // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
@@ -203,16 +257,111 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
+/**
+ * Main post-processing function.
+ */
 function postProcess(text) {
     let result = text;
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
-    result = cleanTextMechanics(result);
+    return cleanTextMechanics(result);
+}
+
+/**
+ * Artificially forces "burstiness" (sentence-length variance).
+ * Programmatically inserts short conversational pacing breaks if sentence lengths are too uniform.
+ */
+function applyAlgorithmicBurstiness(text) {
+    const paragraphs = text.split(/\n\n+/);
+    const modifiedParagraphs = [];
+
+    const paceBreakers = [
+        "Think about it.",
+        "Here is why.",
+        "It is that simple.",
+        "The data proves it.",
+        "Look closer.",
+        "This is not a coincidence.",
+        "But there is a catch."
+    ];
+
+    for (let para of paragraphs) {
+        const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$)/g;
+        let sentences = para.match(sentenceRegex) || [para];
+        sentences = sentences.map(s => s.trim());
+
+        if (sentences.length >= 3) {
+            const counts = sentences.slice(0, 3).map(s => s.split(/\s+/).length);
+            const range = Math.max(...counts) - Math.min(...counts);
+            
+            // If the sentence lengths are too close in range, disrupt the pattern
+            if (range <= 6) {
+                const randomBurst = paceBreakers[Math.floor(Math.random() * paceBreakers.length)];
+                sentences.splice(2, 0, randomBurst);
+            }
+        }
+        modifiedParagraphs.push(sentences.join(' '));
+    }
+    return modifiedParagraphs.join('\n\n');
+}
+
+/**
+ * Artificially forces "perplexity" (predictability variance).
+ * Randomly swaps common key transitions with random probabilities to bypass predictive models.
+ */
+function applyAlgorithmicPerplexity(text) {
+    let result = text;
+
+    const contractions = [
+        { full: "does not", short: "doesn't" },
+        { full: "is not", short: "isn't" },
+        { full: "cannot", short: "can't" },
+        { full: "will not", short: "won't" },
+        { full: "do not", short: "don't" },
+        { full: "it is", short: "it's" },
+        { full: "there is", short: "there's" }
+    ];
+
+    for (const item of contractions) {
+        const regex = new RegExp(`\\b${item.full}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (Math.random() < 0.7) {
+                const isCapital = match[0] === match[0].toUpperCase();
+                return isCapital 
+                    ? item.short.charAt(0).toUpperCase() + item.short.slice(1) 
+                    : item.short;
+            }
+            return match;
+        });
+    }
+
+    const synonymMap = {
+        "important": ["critical", "key", "crucial", "essential", "central"],
+        "primary": ["main", "chief", "primary", "central"],
+        "influence": ["affect", "shape", "impact", "guide"],
+        "unrelated": ["random", "seemingly random", "disconnected"],
+        "polarization": ["division", "polarization", "ideological divide"]
+    };
+
+    for (const [word, synonyms] of Object.entries(synonymMap)) {
+        const regex = new RegExp(`\\b${word}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            if (Math.random() < 0.5) {
+                const chosen = synonyms[Math.floor(Math.random() * synonyms.length)];
+                const isCapital = match[0] === match[0].toUpperCase();
+                return isCapital 
+                    ? chosen.charAt(0).toUpperCase() + chosen.slice(1) 
+                    : chosen;
+            }
+            return match;
+        });
+    }
+
     return result;
 }
 
 // ==========================================================================
-// 6. GROQ CONSOLIDATED MASTER SANITY POLISH (Single API Pass)
+// 6. GROQ SINGLE-PASS MASTER SANITY POLISH
 // ==========================================================================
 
 const MASTER_POLISH_PROMPT = `You are a world-class editor correcting an academic essay to make it completely natural and human-written. 
@@ -220,8 +369,8 @@ Your goal is to inspect the draft, remove remaining AI tells, and output the pol
 
 INSTRUCTIONS:
 1. DETECT & DESTROY AI WORDS: Replace remaining words like "facilitated", "leverage", "delve", "comprehensive", "robust", "demystify", "testament", "underpin", and "intricate" with direct, human alternatives.
-2. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments (like "Unlike platforms reliant on social connections."), merge them with adjacent sentences so they read naturally.
-3. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the 3Cs framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
+2. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments, merge them with adjacent sentences so they read naturally.
+3. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
 4. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
 5. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
 6. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
@@ -234,7 +383,6 @@ async function runGroqMasterPolish(text, groqKey) {
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-        // Direct content edit (no complex JSON mapping needed)
         const polishedText = await GroqAPI.chat(messages, groqKey, false);
         return polishedText.trim().replace(/^["']|["']$/g, '');
     } catch (error) {
@@ -247,6 +395,9 @@ async function runGroqMasterPolish(text, groqKey) {
 // 7. API HANDLER
 // ==========================================================================
 
+/**
+ * Main API Route Handler
+ */
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -270,25 +421,24 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        // Step 1: Initial morphological replacements
+        // Step 1: Initial word swaps on the full input
         let processed = applyWordSwaps(text, AI_VOCAB_SWAPS);
-        processed = applyWordSwaps(processed, AI_STERILE_SWAPS);
-        logs.push('Applied initial word swaps');
+        logs.push('Applied banned word replacements');
 
-        // Step 2: Split into logical chunks
+        // Step 2: Split into logical chunks using Groq (or fallback to regex)
         let chunks = [];
         if (GROQ_KEY) {
-            logs.push('Grouping paragraphs with Groq...');
+            logs.push('Analyzing logical chunks with Groq...');
             chunks = await groqLogicalChunk(processed, GROQ_KEY);
         } else {
             chunks = splitIntoChunks(processed, 4);
         }
-        logs.push(`Split into ${chunks.length} paragraph blocks`);
+        logs.push(`Split into ${chunks.length} logical chunks`);
 
         const temperature = 0.75 + Math.random() * 0.15;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Humanize chunks sequentially via Gemini
+        // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
             let prevChunk = i > 0 ? humanizedChunks[i - 1] : "";
@@ -299,32 +449,38 @@ export default async function handler(req, res) {
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message}). Using fallback.`);
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
                 humanizedChunks.push(chunks[i]);
             }
         }
 
-        // Step 4: Rejoin and apply regex mechanics
+        // Step 4: Rejoin and initial regex post-process
         let result = humanizedChunks.join('\n\n');
         result = postProcess(result);
-        logs.push('Applied regex cleanups');
+        logs.push('Applied regex post-processing');
 
         // Step 5: Groq Consolidated Single-Pass Master Polish
+        let groqSuccess = false;
         if (GROQ_KEY) {
             logs.push('Starting Groq Consolidated Master Polish...');
             result = await runGroqMasterPolish(result, GROQ_KEY);
-            logs.push('Completed Master Polish pass');
+            groqSuccess = true;
+            logs.push('Completed Groq Master Polish Pass');
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
 
-        // Step 6: Final structural check
+        // Step 6: Non-LLM Algorithmic Perplexity & Burstiness Injection
+        logs.push('Applying non-LLM algorithmic adjustments...');
+        result = applyAlgorithmicBurstiness(result);
+        result = applyAlgorithmicPerplexity(result);
+
+        // Step 7: Final structural check and basic cleaning
         result = postProcess(result);
         result = applyWordSwaps(result, AI_VOCAB_SWAPS);
-        result = applyWordSwaps(result, AI_STERILE_SWAPS);
 
         const totalTimeMs = Date.now() - startTime;
-        logs.push(`Final output: ${result.length} chars`);
+        logs.push(`Final: ${result.length} chars`);
 
         const geminiUsage = getGeminiUsage();
         const groqUsage = getGroqModelUsage();
@@ -347,7 +503,8 @@ export default async function handler(req, res) {
             },
             groq: {
                 totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                modelsUsed: formatUsage(groqUsage)
+                modelsUsed: formatUsage(groqUsage),
+                masterPolishApplied: groqSuccess
             }
         };
 
@@ -362,17 +519,30 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
         
+        const geminiUsage = getGeminiUsage() || {};
+        const groqUsage = getGroqModelUsage() || {};
+        const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
+        
         return res.status(500).json({ 
             success: false, 
             error: error.message, 
             logs,
             humanizer: {
-                executionTimeMs: totalTimeMs
+                executionTimeMs: totalTimeMs,
+                gemini: {
+                    totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                    modelsUsed: formatUsage(geminiUsage)
+                },
+                groq: {
+                    totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                    modelsUsed: formatUsage(groqUsage)
+                }
             }
         });
     }
 }
 
+// Exporting modules for testing and external use
 export { 
     postProcess as PostProcessor, 
     AI_VOCAB_SWAPS, 
