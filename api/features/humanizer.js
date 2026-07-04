@@ -1,10 +1,10 @@
 // ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
-// A highly robust, surgical sentence-replacement humanizer. It utilizes 
-// a programmatic fuzzy-matching algorithm to overcome LLM quotation typos, 
-// prevents context-breaking word swaps, and forces deep syntactic clause 
-// reconstruction on targeted sentences.
+// A style-mimicry humanizer. It utilizes a few-shot prompt structure trained
+// directly on high-scoring Turnitin student exemplars to rewrite raw text 
+// with natural sentence-length variation, mixed registers, and content-driven 
+// transitions, followed by a global vocabulary cleaning pass.
 // ==========================================================================
 
 import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
@@ -78,12 +78,12 @@ const AI_STERILE_SWAPS = {
 function applyWordSwaps(text, swapDict) {
     let result = text;
     
-    // Handle "critical" contextually to avoid "most key" errors
+    // Prevent "most key" errors by handling critical contextually
     result = result.replace(/(?<!most\s+)\bcritical\b/gi, "important");
     result = result.replace(/\bmost\s+critical\b/gi, "main");
     
     for (const [bad, good] of Object.entries(swapDict)) {
-        if (bad === "critical") continue; // Handled contextually above
+        if (bad === "critical") continue;
         
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -96,49 +96,6 @@ function applyWordSwaps(text, swapDict) {
     return result;
 }
 
-/**
- * Safely parses markdown JSON strings into a clean JavaScript object.
- */
-function parseGroqJson(content) {
-    try {
-        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
-        return JSON.parse(cleanJson);
-    } catch (error) {
-        console.error('Failed to parse JSON string:', error);
-        return {};
-    }
-}
-
-/**
- * Sorensen-Dice Bigram similarity coefficient.
- * Calculates mathematical similarity between two string segments.
- */
-function getSentenceSimilarity(str1, str2) {
-    const s1 = str1.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const s2 = str2.toLowerCase().replace(/[^a-z0-9]/g, '');
-    
-    if (s1 === s2) return 1.0;
-    if (s1.length === 0 || s2.length === 0) return 0.0;
-    
-    const getBigrams = (str) => {
-        const bigrams = new Set();
-        for (let i = 0; i < str.length - 1; i++) {
-            bigrams.add(str.substring(i, i + 2));
-        }
-        return bigrams;
-    };
-    
-    const b1 = getBigrams(s1);
-    const b2 = getBigrams(s2);
-    
-    let intersection = 0;
-    for (const val of b1) {
-        if (b2.has(val)) intersection++;
-    }
-    
-    return (2 * intersection) / (b1.size + b2.size);
-}
-
 // ==========================================================================
 // 3. REGEX POST-PROCESSING MODULE
 // ==========================================================================
@@ -146,12 +103,10 @@ function getSentenceSimilarity(str1, str2) {
 function cleanTextMechanics(text) {
     let result = text;
 
-    // Standard punctuation normalization
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // Spacing and duplicate cleanups
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
@@ -169,103 +124,46 @@ function postProcess(text) {
 }
 
 // ==========================================================================
-// 4. GROQ SURGICAL SENTENCE REPLACER MODULE
+// 4. GROQ FEW-SHOT STYLE MIMICRY MODULE
 // ==========================================================================
 
-const SURGICAL_PROMPT = `You are an expert academic editor. Analyze the formal/academic text below and identify every sentence that contains typical AI patterns, predictable structures, or balanced academic clichés.
+const STYLE_MIMICRY_PROMPT = `You are a world-class writing instructor and mimicry engine. Your goal is to rewrite the input draft so that it adopts the exact writing style, sentence structure, flow, and register shown in the human exemplar essays below.
 
-For each identified sentence, provide a human-written rewrite that fits seamlessly within the surrounding context of the essay.
+--- START OF TRAINING SAMPLES ---
 
-CRITICAL RULES FOR REWRITES:
-1. FORCE DEEP SYNTACTIC RECONSTRUCTION (CLAUSE FLIPPING): Do not just swap words or use synonyms. You must completely reconstruct the grammar of the sentence. If the original sentence starts with the cause and ends with the effect, make your rewrite start with the effect and end with the cause.
-   - Example original: "The greatest obstacle to deep-space exploration is gravity."
-   - Example rewrite: "Gravity remains the single biggest hurdle we face in traveling further out."
-   - Example original: "Fortunately, the rocky surfaces of the Moon and Mars are rich in minerals."
-   - Example rewrite: "Luckily, we can find abundant minerals and metals directly on the lunar and Martian surfaces."
-2. NO CLINICAL EXPANSION: Do not make the sentences longer or add complex AI-style noun expansions. Keep the replacements active, tight, and direct.
-3. FORBIDDEN PHRASES: Do NOT use standard AI tropes like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", "crucial enabler", or "plays a key role". Use natural academic phrasing.
-4. NO CONVERSATIONAL FLUFF: Do NOT make the text informal, casual, or conversational. Do NOT add pacing phrases like "Think about it" or "Let's be honest." Keep the tone formal and scholarly.
-5. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text exactly, character-for-character, including capitalization and punctuation.
-6. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
+EXEMPLAR 1: "No Matter the Cost of the Journey"
+"Determination, a fixed purpose or intention; willpower, persistence, perseverance. The story Angela's Ashes, by Frank McCourt, and The Street, by Ann Petry, are two stories that express the mindset of perseverance. Angela's Ashes is a memoir from 1996 that describes the life of the author Frank McCourt growing up in Limerick, Ireland. The Street is a novel that emphasizes the struggles of African-Americans in 1940's New York City. Facing the challenges of these two harsh environments requires perseverance. This idea is explored and elucidated in both texts in a variety of ways, notably with the specific events, character development, and setting of the stories. 
+McCourt decides to go out in search for food in the cold. When he comes across Kathleen O'Connell's shop and a bread delivery van outside, he contemplates stealing food from the shop. He thinks better of it at first because he knows it is the wrong thing to do, but he decides that the risk is worth taking, due to his unfortunate circumstances. Reading through the memoir, it becomes evident that he must face life choices where he has to do decide on the right thing to get by.
+In The Street, the events of Lutie braving the storm while walking down the street, and, at the end, finding a safe place for lodging, demonstrate the theme by showing that Lutie was willing to endure all trouble: wind, rain, and swirling dust and garbage, so that she could reach her destination."
 
-JSON SCHEMA:
-{
-  "replacements": [
-    {
-      "original": "The exact robotic sentence from the text",
-      "replacement": "The highly natural, restructured formal academic replacement"
-    }
-  ]
-}
+EXEMPLAR 2: "Ad Me"
+"In the 21st century, our daily lives are consumed with various forms of targeted advertising via potent outlets such as television, music, and the Internet, specifically the social media which often overwhelms our attention. Advertisements are purposefully becoming more direct in trying to appeal to all our wants and needs. While advertisers attempt to appeal to our "advertising identity," we are more defined by our "real identity." There is a disconnect which separates what I think of myself and what the advertisers think of me. 
+There’s definitely a major flaw to this system. It’s safe to say that the system does not know how to distinguish between sites that you actually use from sites that you just happen to visit. The Internet makes mistakes when forming your advertising identity because it has so many variables to deal with. For example, I had to go online to do an assignment which involved “shopping” at Wal-Mart and Sam’s Club. Now whenever I go onto a website, I see ads for Wal-Mart and pricing for curtains and children’s toys."
 
-TEXT TO ANALYZE:
+--- END OF TRAINING SAMPLES ---
+
+CRITICAL STYLISTIC PARAMETERS TO MIMIC:
+1. MIXED REGISTERS: Blend academic analytical terms (e.g., variables, process, analysis) with highly direct, grounded, and slightly informal human observations or idioms (e.g., "get by", "safe to say", "major flaw", "tethered to").
+2. CONVERSATIONAL CONTRACTIONS: Use contractions (it's, there's, won't, don't, we're) naturally throughout the paragraphs.
+3. ORGANIC PACING & BURSTINESS: Mix sentence lengths unevenly. Write a long, slightly sprawling descriptive sentence followed directly by a very short, matter-of-fact observation (e.g., "It's heavy. It's expensive.").
+4. COHESIVE TRANSITIONS: Connect paragraphs using natural, content-driven bridging sentences (e.g., "There’s definitely a major flaw to this system." or "In [topic], a very different spectacle is set.") rather than generic AI connectors like "Furthermore", "In addition", "Moreover", or "On the other hand".
+5. NO CONVERSATIONAL FILLERS: Do NOT use artificial pacing gimmicks like "Think about it", "Let's be honest", or parenthetical commentary. Maintain an earnest, formal, and authoritative essay structure.
+
+Rewrite the input text below to match this exact style. Do not wrap the output in markdown code blocks. Do not write any commentary or introductory notes. Return ONLY the polished essay.
+
+INPUT TEXT TO REWRITE:
 `;
 
-async function runSurgicalReplacements(text, groqKey) {
-    const prompt = `${SURGICAL_PROMPT}\n"${text}"`;
+async function runStyleMimicry(text, groqKey) {
+    const prompt = `${STYLE_MIMICRY_PROMPT}\n"${text}"`;
     const messages = [{ role: 'user', content: prompt }];
-    const appliedReplacements = [];
 
     try {
-        const content = await GroqAPI.chat(messages, groqKey, true);
-        const parsed = parseGroqJson(content);
-        
-        let result = text;
-        // Split text into individual sentences, preserving trailing whitespace/punctuation
-        const originalSentences = text.match(/[^.!?]+[.!?]+(?:\s|$)+/g) || [text];
-        
-        if (parsed && Array.isArray(parsed.replacements)) {
-            for (const item of parsed.replacements) {
-                if (item.original && item.replacement) {
-                    const targetOriginal = item.original.trim();
-                    const targetReplacement = item.replacement.trim();
-                    
-                    // Fuzzy-match: Find the closest sentence in the original text
-                    let bestMatchIdx = -1;
-                    let bestMatchScore = 0;
-                    
-                    for (let i = 0; i < originalSentences.length; i++) {
-                        const score = getSentenceSimilarity(originalSentences[i].trim(), targetOriginal);
-                        if (score > bestMatchScore) {
-                            bestMatchScore = score;
-                            bestMatchIdx = i;
-                        }
-                    }
-                    
-                    // Execute replacement if similarity is above 80%
-                    if (bestMatchIdx !== -1 && bestMatchScore > 0.80) {
-                        const matchedSentence = originalSentences[bestMatchIdx];
-                        
-                        // Escape regex characters of the actual matched sentence segment
-                        const escapedMatch = matchedSentence.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        const regex = new RegExp(escapedMatch, 'g');
-                        
-                        result = result.replace(regex, targetReplacement);
-                        
-                        appliedReplacements.push({ 
-                            original: targetOriginal, 
-                            matchedInText: matchedSentence.trim(),
-                            replacement: targetReplacement,
-                            similarityScore: bestMatchScore.toFixed(2),
-                            status: "Fuzzy Match Replaced" 
-                        });
-                        
-                        // Clear the index so it is not matched again
-                        originalSentences[bestMatchIdx] = "";
-                    } else {
-                        appliedReplacements.push({ 
-                            original: targetOriginal, 
-                            replacement: targetReplacement,
-                            status: "Failed to Match Text" 
-                        });
-                    }
-                }
-            }
-        }
-        return { text: result, replacements: appliedReplacements };
+        const content = await GroqAPI.chat(messages, groqKey, false);
+        return content.trim().replace(/^["']|["']$/g, '');
     } catch (error) {
-        console.error('Surgical Replacements Pass Failed:', error);
-        return { text, replacements: [] }; 
+        console.error('Style Mimicry Pass Failed:', error);
+        return text; 
     }
 }
 
@@ -295,11 +193,10 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        // Step 1: Run Groq Surgical Replacements Pass FIRST (analyzes original raw context)
-        logs.push('Running targeted surgical replacement pass on Groq...');
-        const surgicalResult = await runSurgicalReplacements(text, GROQ_KEY);
-        let result = surgicalResult.text;
-        logs.push('Surgical replacements complete');
+        // Step 1: Run Groq Style Mimicry Pass FIRST (processes entire text using human exemplar training)
+        logs.push('Running targeted few-shot style mimicry pass on Groq...');
+        let result = await runStyleMimicry(text, GROQ_KEY);
+        logs.push('Style mimicry complete');
 
         // Step 2: Apply vocabulary swaps SECOND (eliminates remaining AI words globally)
         result = applyWordSwaps(result, AI_VOCAB_SWAPS);
@@ -335,7 +232,6 @@ export default async function handler(req, res) {
             success: true, 
             result, 
             logs,
-            surgicalReplacements: surgicalResult.replacements,
             humanizer: humanizerNetworkResult 
         });
 
