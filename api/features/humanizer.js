@@ -144,11 +144,11 @@ TEXT TO REWRITE:
 
 REWRITING DIRECTIONS:
 1. HUMAN RHYTHM (BURSTINESS): Vary your sentence lengths drastically. Write some short, punchy sentences (3-7 words) right next to longer, fluid sentences (15-25 words). AI writes with uniform, monotonous sentence lengths; humans do not.
-2. ABSOLUTELY NO SEQUENCING OR LISTING: Never use sequential transitions such as "First", "Second", "Third", "Finally", "Lastly", "In addition", or "Furthermore". Instead, integrate these transitions smoothly as narrative statements without labeling them.
-3. REMOVE ACADEMIC META-LANGUAGE: Do not write meta-commentary like "This essay will evaluate...", "The analysis focuses on...", or "The 3Cs framework is used to...". Instead, present the ideas and arguments directly and assertively as facts.
-4. CONVERSATIONAL Academic Tone: Maintain an intellectual, educational tone, but write as if you are explaining the concept to a colleague. Replace overly stiff transitions ("Conversely", "Consequently", "Ultimately") with natural alternatives ("But", "Also", "So", "In the end") or omit them entirely.
-5. NO REPETITION: Do not reuse distinctive nouns or verbs within the same paragraph.
-6. FLOW & FRAGMENTS: Ensure every sentence is a complete grammatical unit. Do not use em-dashes (—) or semicolons (;).
+2. ABSOLUTELY NO 'WITH [NOUN] [VERB]-ING': Never write clauses like "X occurs, with craters hiding Y." Split them into active, separate sentences: "X occurs. Polar craters hide Y."
+3. NO PARTICIPIAL ENDINGS: Never end sentences with a comma followed by an -ing verb (e.g., "X acts as a heavy anchor, severely limiting Y"). Rewrite them as: "X acts as a heavy anchor. This limits Y."
+4. NO COMPOUND CONNECTORS: Do not glue clauses together using "while", "where", "which", or "allowing". Write short, direct sentences instead.
+5. NO SEQUENCING OR LISTING: Never use sequential transitions such as "First", "Second", "Third", "Finally", "Lastly", "In addition", or "Furthermore". Instead, integrate these transitions smoothly as narrative statements without labeling them.
+6. REMOVE ACADEMIC META-LANGUAGE: Present all ideas and arguments directly and assertively as facts without describing what the text or research is doing.
 
 Output ONLY the rewritten text chunk, without quotes or commentary:`;
 }
@@ -244,6 +244,41 @@ function postProcess(text) {
 }
 
 /**
+ * Programmatically splits highly-identifiable AI compound clauses.
+ * Swaps transitions with distinct, active sentence starters to alter syntax structure.
+ */
+function smashCompoundSentences(text) {
+    let result = text;
+
+    const smashMap = [
+        { regex: /,\s+while\s+/gi, replacement: ". Meanwhile, " },
+        { regex: /,\s+which\s+serves?\b/gi, replacement: ". This serves" },
+        { regex: /,\s+which\s+will\b/gi, replacement: ". This will" },
+        { regex: /,\s+which\s+plays?\b/gi, replacement: ". This plays" },
+        { regex: /,\s+which\s+is\b/gi, replacement: ". This is" },
+        { regex: /,\s+which\s+has\b/gi, replacement: ". This has" },
+        { regex: /,\s+which\s+are\b/gi, replacement: ". These are" },
+        { regex: /,\s+which\s+/gi, replacement: ". This " },
+        { regex: /,\s+allowing\s+/gi, replacement: ". This allows " },
+        { regex: /,\s+making\s+/gi, replacement: ". This makes " },
+        { regex: /,\s+creating\s+/gi, replacement: ". This creates " },
+        { regex: /,\s+severely\s+limiting\s+/gi, replacement: ". This severely limits " },
+        { regex: /,\s+limiting\s+/gi, replacement: ". This limits " },
+        { regex: /,\s+requiring\s+/gi, replacement: ". This requires " },
+        { regex: /,\s+helping\s+/gi, replacement: ". This helps " },
+        { regex: /,\s+resulting\s+in\s+/gi, replacement: ". This results in " },
+        { regex: /,\s+triggering\s+/gi, replacement: ". This triggers " },
+        { regex: /,\s+where\s+/gi, replacement: ". Here, " }
+    ];
+
+    for (const item of smashMap) {
+        result = result.replace(item.regex, item.replacement);
+    }
+
+    return result;
+}
+
+/**
  * Artificially forces "burstiness" (sentence-length variance).
  * Programmatically inserts unique pacing breaks. Guarantees no phrase is repeated.
  */
@@ -251,7 +286,6 @@ function applyAlgorithmicBurstiness(text) {
     const paragraphs = text.split(/\n\n+/);
     const modifiedParagraphs = [];
 
-    // Unique pace breakers to pull from
     const uniquePaceBreakers = shuffleArray([
         "Think about it.",
         "Here is why.",
@@ -351,12 +385,16 @@ Your goal is to inspect the draft, remove remaining AI tells, and output the pol
 
 INSTRUCTIONS:
 1. DETECT & DESTROY AI WORDS: Replace remaining words like "facilitated", "leverage", "delve", "comprehensive", "robust", "demystify", "testament", "underpin", and "intricate" with direct, human alternatives.
-2. REMOVE SEQUENCING AND LISTING: Find and rewrite any lists using sequencing words (e.g., "First, ...", "Second, ...", "Finally, ..."). Convert them into fluid, flowing sentences and narrative connections.
-3. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments, merge them with adjacent sentences so they read naturally.
-4. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
-5. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
-6. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
-7. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
+2. ABSOLUTELY BAN 'with [noun] [verb]-ing' constructions (e.g., "X, with craters hiding Y"). Split them into completely separate, active sentences (e.g., "X. Polar craters hide Y").
+3. NEVER end sentences with a comma followed by an -ing verb (e.g., "X, severely limiting Y"). Replace with a period and a direct statement: "X. This limits Y."
+4. ABSOLUTELY BAN the words "while" or "where" as clause connectors (e.g., "bases act as gas stations, where spacecraft can refuel"). Split them into distinct sentences using periods: "bases act as gas stations. Spacecraft can refuel here."
+5. NEVER use formal introductory clauses like "To establish permanent outposts, we need to...". Write directly: "Establishing permanent outposts requires us to..."
+6. REMOVE SEQUENCING AND LISTING: Find and rewrite any lists using sequencing words (e.g., "First, ...", "Second, ...", "Finally, ..."). Convert them into fluid, flowing sentences and narrative connections.
+7. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments, merge them with adjacent sentences so they read naturally.
+8. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
+9. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
+10. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
+11. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
 
 DRAFT TO POLISH:
 `;
@@ -453,8 +491,9 @@ export default async function handler(req, res) {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
 
-        // Step 6: Non-LLM Algorithmic Perplexity & Burstiness Injection
+        // Step 6: Non-LLM Algorithmic Post-Processing
         logs.push('Applying non-LLM algorithmic adjustments...');
+        result = smashCompoundSentences(result);
         result = applyAlgorithmicBurstiness(result);
         result = applyAlgorithmicPerplexity(result);
 
