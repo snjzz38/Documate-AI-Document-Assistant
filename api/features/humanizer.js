@@ -144,10 +144,11 @@ TEXT TO REWRITE:
 
 REWRITING DIRECTIONS:
 1. HUMAN RHYTHM (BURSTINESS): Vary your sentence lengths drastically. Write some short, punchy sentences (3-7 words) right next to longer, fluid sentences (15-25 words). AI writes with uniform, monotonous sentence lengths; humans do not.
-2. REMOVE ACADEMIC META-LANGUAGE: Do not write meta-commentary like "This essay will evaluate...", "The analysis focuses on...", or "The 3Cs framework is used to...". Instead, present the ideas and arguments directly and assertively as facts.
-3. CONVERSATIONAL Academic Tone: Maintain an intellectual, educational tone, but write as if you are explaining the concept to a colleague. Replace overly stiff transitions ("Conversely", "Furthermore", "Consequently", "Ultimately") with natural alternatives ("But", "Also", "So", "In the end") or omit them entirely.
-4. NO REPETITION: Do not reuse distinctive nouns or verbs within the same paragraph.
-5. FLOW & FRAGMENTS: Ensure every sentence is a complete grammatical unit. Avoid starting sentences with awkward, hanging conjunctions unless they flow perfectly. Do not use em-dashes (—) or semicolons (;).
+2. ABSOLUTELY NO SEQUENCING OR LISTING: Never use sequential transitions such as "First", "Second", "Third", "Finally", "Lastly", "In addition", or "Furthermore". Instead, integrate these transitions smoothly as narrative statements without labeling them.
+3. REMOVE ACADEMIC META-LANGUAGE: Do not write meta-commentary like "This essay will evaluate...", "The analysis focuses on...", or "The 3Cs framework is used to...". Instead, present the ideas and arguments directly and assertively as facts.
+4. CONVERSATIONAL Academic Tone: Maintain an intellectual, educational tone, but write as if you are explaining the concept to a colleague. Replace overly stiff transitions ("Conversely", "Consequently", "Ultimately") with natural alternatives ("But", "Also", "So", "In the end") or omit them entirely.
+5. NO REPETITION: Do not reuse distinctive nouns or verbs within the same paragraph.
+6. FLOW & FRAGMENTS: Ensure every sentence is a complete grammatical unit. Do not use em-dashes (—) or semicolons (;).
 
 Output ONLY the rewritten text chunk, without quotes or commentary:`;
 }
@@ -167,14 +168,26 @@ async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
 // ==========================================================================
 
 /**
+ * Helper to shuffle array elements in place.
+ */
+function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[arr[j]]] = [arr[arr[j]], arr[i]];
+    }
+    return arr;
+}
+
+/**
  * Cleans text mechanics (punctuation, grammar, double words).
  */
 function cleanTextMechanics(text) {
     let result = text;
 
-    // STRICT EM-DASH & SEMICOLON BANNING
+    // Convert em-dashes and semicolons to standard punctuation
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
+    result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
     // STERILE VOCABULARY SWAPS
@@ -188,21 +201,17 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // FIX GROQ REPLACEMENT ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.'); // Double periods
-    result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma
-    result = result.replace(/,\s*\./g, '.');   // Comma followed by period
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
-    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
+    // FIX COHERENCE ARTIFACTS
+    result = result.replace(/\.{2,}/g, '.'); 
+    result = result.replace(/,{2,}/g, ','); 
+    result = result.replace(/\.\s*,/g, '.');   
+    result = result.replace(/,\s*\./g, '.');   
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); 
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); 
     
-    // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
-    result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
-    
-    // Fix "but However" or "but However,"
+    // Fix transitional anomalies
     result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
-    // Fix missing period before "However"
     result = result.replace(/,\s*However,/gi, '. However,');
     result = result.replace(/,\s*However\s/gi, '. However ');
 
@@ -236,21 +245,27 @@ function postProcess(text) {
 
 /**
  * Artificially forces "burstiness" (sentence-length variance).
- * Programmatically inserts short conversational pacing breaks if sentence lengths are too uniform.
+ * Programmatically inserts unique pacing breaks. Guarantees no phrase is repeated.
  */
 function applyAlgorithmicBurstiness(text) {
     const paragraphs = text.split(/\n\n+/);
     const modifiedParagraphs = [];
 
-    const paceBreakers = [
+    // Unique pace breakers to pull from
+    const uniquePaceBreakers = shuffleArray([
         "Think about it.",
         "Here is why.",
         "It is that simple.",
         "The data proves it.",
         "Look closer.",
         "This is not a coincidence.",
-        "But there is a catch."
-    ];
+        "But there is a catch.",
+        "Let that sink in.",
+        "It gets worse.",
+        "Here is the reality."
+    ]);
+
+    let breakerIndex = 0;
 
     for (let para of paragraphs) {
         const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$)/g;
@@ -261,9 +276,9 @@ function applyAlgorithmicBurstiness(text) {
             const counts = sentences.slice(0, 3).map(s => s.split(/\s+/).length);
             const range = Math.max(...counts) - Math.min(...counts);
             
-            // If the sentence lengths are too close in range, disrupt the pattern
-            if (range <= 6) {
-                const randomBurst = paceBreakers[Math.floor(Math.random() * paceBreakers.length)];
+            // If sentence length variance is too tight, inject a single unique pace breaker
+            if (range <= 6 && breakerIndex < uniquePaceBreakers.length) {
+                const randomBurst = uniquePaceBreakers[breakerIndex++];
                 sentences.splice(2, 0, randomBurst);
             }
         }
@@ -336,11 +351,12 @@ Your goal is to inspect the draft, remove remaining AI tells, and output the pol
 
 INSTRUCTIONS:
 1. DETECT & DESTROY AI WORDS: Replace remaining words like "facilitated", "leverage", "delve", "comprehensive", "robust", "demystify", "testament", "underpin", and "intricate" with direct, human alternatives.
-2. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments, merge them with adjacent sentences so they read naturally.
-3. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
-4. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
-5. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
-6. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
+2. REMOVE SEQUENCING AND LISTING: Find and rewrite any lists using sequencing words (e.g., "First, ...", "Second, ...", "Finally, ..."). Convert them into fluid, flowing sentences and narrative connections.
+3. HUMAN SENTENCE VARIETY (BURSTINESS): Ensure sentence length varies highly. Break down any long, overly academic, multi-clause sentences. If you find short, choppy fragments, merge them with adjacent sentences so they read naturally.
+4. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
+5. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
+6. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
+7. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
 
 DRAFT TO POLISH:
 `;
