@@ -179,8 +179,8 @@ function applyJsonReplacements(text, jsonMap) {
 }
 
 /**
- * Mechanically splits long sentences to increase burstiness.
- * This breaks the AI's uniform rhythm without relying on an LLM.
+ * Mechanically splits very long sentences to increase burstiness.
+ * (Tamed to prevent destroying natural flow)
  */
 function injectBurstiness(text) {
     let sentences = text.match(/[^.!?]+[.!?]+/g) || [];
@@ -190,16 +190,14 @@ function injectBurstiness(text) {
         let s = sentences[i].trim();
         let words = s.split(' ');
 
-        // If a sentence is long (>18 words), 50% chance to split it
-        if (words.length > 18 && Math.random() > 0.5) {
-            // Find a conjunction to split at
-            let splitIdx = words.findIndex((w, idx) => idx > 8 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so'));
+        // Only split VERY long sentences (>24 words), and only 30% of the time
+        if (words.length > 24 && Math.random() > 0.7) {
+            let splitIdx = words.findIndex((w, idx) => idx > 10 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so'));
             
             if (splitIdx !== -1) {
                 let part1 = words.slice(0, splitIdx).join(' ').trim();
                 let part2 = words.slice(splitIdx).join(' ').trim();
                 
-                // Fix punctuation and capitalization for the new sentences
                 if (!part1.endsWith('.') && !part1.endsWith(',') && !part1.endsWith(';')) part1 += '.';
                 part2 = part2.charAt(0).toUpperCase() + part2.slice(1);
                 
@@ -234,17 +232,15 @@ TEXT TO REWRITE:
 
 STRICT RULES (Mimic Human Exemplar Style):
 1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
-2. CONTINUITY (FILL-IN-THE-BLANK): Treat your chunk as the missing piece of a larger essay. Your first sentence MUST flow logically from the last sentence of the PREVIOUS TEXT. Your last sentence MUST set up the NEXT TEXT seamlessly. Do NOT start or end abruptly.
-3. NATURAL TRANSITIONS: Use natural comparative transitions (e.g., "In [Text], a very different spectacle is set.", "Like [Subject], [Subject] struggled..."). NEVER use "Furthermore," "Moreover," "Additionally," or "Thus,".
-4. SYNTACTIC VARIETY: Start sentences with prepositional phrases (e.g., "In modern politics..."), dependent clauses (e.g., "Because X happens..."), or the actual subject. Do NOT start consecutive sentences with the same word.
-5. BURSTINESS: Vary sentence lengths drastically. Mix short, direct sentences with longer, complex ones. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-6. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which" (unless "As" is used as a subordinating conjunction like "As the author notes..."). NEVER leave sentence fragments.
-7. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
-8. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-9. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
-10. NO EM DASHES (—) or SEMICOLONS (;). 
-11. NO COMMA CHAINS: A sentence must not have more than one comma.
-12. Do NOT repeat the same concept or premise in consecutive sentences.
+2. CONTINUITY & TRANSITIONS (CRITICAL): You MUST use logical transition phrases (e.g., "Because of this,", "To achieve this,", "In contrast,", "As a result,") to connect facts. Do NOT output a list of disconnected, staccato facts. Combine related facts into fluid, coherent sentences.
+3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
+4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which" (unless "As" is used as a subordinating conjunction like "As the author notes..."). NEVER leave sentence fragments.
+5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence.
+6. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
+8. NO EM DASHES (—) or SEMICOLONS (;). 
+9. NO COMMA CHAINS: A sentence must not have more than one comma.
+10. Do NOT repeat the same concept or premise in consecutive sentences.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -380,7 +376,7 @@ const JSON_FIXER_PROMPT = `You are an expert syntax and flow editor. Analyze the
 1. SENTENCE FRAGMENTS: Sentences starting with "Unlike", "With", "As", "Which" that are incomplete.
 2. COMMA CHAINS: Sentences with more than ONE comma.
 3. TAUTOLOGIES: Sentences repeating the same word or concept (e.g., "commodifying children commodifies").
-4. CHOPPY FLOW: Pairs of 3-4 word sentences that should be combined.
+4. DISJOINTED FLOW (CRITICAL): Any consecutive sentences that lack logical transitions and read like a list of facts (e.g., "Water ice is the most vital resource. Billions of tons of frozen water reside..."). Combine these into one smooth sentence using a transition.
 
 Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. 
 CRITICAL: Do NOT rewrite the whole text. Only return the specific fixes. Do NOT include meta-commentary. If none, return {}.`;
