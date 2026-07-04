@@ -216,8 +216,11 @@ function injectBurstiness(text) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
+// A condensed snippet of the Turnitin-verified human exemplar to force mimicry.
+const EXEMPLAR_SNIPPET = `In Angela's Ashes, McCourt develops the characters by immediately separating children from adults. The narrator's father is gone, northward, leaving the family far behind, while the grandparents are hostile. Even the mother seems antagonistic and unfriendly, whining for her children's help, instead of doing things for herself. This host of unfriendly, enemy-like adults helps to establish a mood of everything being stacked against the children. In The Street, a very different spectacle is set. To establish an unkind environment, the author uses not unfriendly characters, but the absence of side characters at all. Petry instead personifies the November wind and compares it to the struggles of life. The author uses the wind to show how difficult it is to live in a world that seems to be throwing things your way. She states, "It did everything it could to discourage the people walking along the street." Lutie Johnson, the main character of the story, was forced to push through this harsh November wind in order to find a place to stay. Like Frank McCourt, Lutie Johnson struggled with poverty too, but she couldn't let it stop her from getting where she needed to go.`;
+
 /**
- * Builds a prompt that mimics the natural, human style of the exemplar essay.
+ * Builds a prompt that forces the AI to mimic the human exemplar style.
  */
 function buildChunkPrompt(chunk, prevChunk, nextChunk) {
     let contextBlock = "";
@@ -226,19 +229,24 @@ function buildChunkPrompt(chunk, prevChunk, nextChunk) {
     }
     
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
+
+HUMAN EXEMPLAR STYLE (Mimic this exact flow, transition style, and syntactic variety):
+ ${EXEMPLAR_SNIPPET}
+
  ${contextBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
 1. Output ONLY the rewritten text. No commentary. Do NOT output the context. Do NOT add titles or headers.
-2. FLOW & TRANSITIONS: You MUST use logical transition phrases (e.g., "Because of this,", "To achieve this,") to connect facts. Do NOT output a list of disconnected facts. Combine related facts into fluid, coherent sentences.
-3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. 
-4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
-5. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
-6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". Use plain, literal words.
-7. NO EM DASHES (—) or SEMICOLONS (;). 
-8. NO COMMA CHAINS: A sentence must not have more than one comma.
+2. FLOW & TRANSITIONS: You MUST use natural, narrative transitions (e.g., "Unlike X, Y...", "To achieve this...", "Like [Subject], [Subject]..."). NEVER start sentences with "Furthermore,", "Moreover,", "Additionally,", "So,", or "Also,".
+3. BURSTINESS: Vary sentence lengths drastically. Mix short, punchy sentences with longer, complex ones. 
+4. SYNTACTIC VARIETY: Start sentences with prepositional phrases (e.g., "In modern politics..."), dependent clauses (e.g., "Because X happens..."), or the actual subject. Do NOT start consecutive sentences with the same word.
+5. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
+6. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
+7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". Use plain, literal words.
+8. NO EM DASHES (—) or SEMICOLONS (;). 
+9. NO COMMA CHAINS: A sentence must not have more than one comma.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -372,8 +380,9 @@ function postProcess(text) {
 const JSON_FIXER_PROMPT = `You are an expert syntax and flow editor. Analyze the text and find the WORST sentences that have these specific errors:
 1. SENTENCE FRAGMENTS: Sentences starting with "Unlike", "With", "As", "Which" that are incomplete.
 2. COMMA CHAINS: Sentences with more than ONE comma.
-3. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept (e.g., "Mastering these processes is a challenge. Mastering these processes is needed..."). Rewrite the second sentence to be concise and non-repetitive.
-4. DISJOINTED FLOW: Any consecutive short, factual sentences that lack transitions (e.g., "Water ice is the primary target. Lunar poles contain massive ice deposits."). Combine these into one smooth sentence using a transition like "and" or "while".
+3. AI TRANSITIONS: Sentences starting with "So,", "Also,", "Furthermore,", "Moreover,". Rewrite them to start naturally.
+4. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept (e.g., "Mastering these processes is a challenge. Mastering these processes is needed..."). Rewrite the second sentence to be concise and non-repetitive.
+5. DISJOINTED FLOW: Any consecutive short, factual sentences that lack transitions. Combine these into one smooth sentence using a transition like "and" or "while".
 
 CRITICAL: Do NOT add headers, titles, or meta-commentary to the text. ONLY return the JSON fixes.
 Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. If none, return {}.`;
