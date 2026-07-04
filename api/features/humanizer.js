@@ -167,6 +167,38 @@ async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
 // 5. REGEX & ALGORITHMIC POST-PROCESSING MODULE
 // ==========================================================================
 
+const N_GRAM_FRICTION_MAP = {
+    "space exploration": "off-world exploration",
+    "space travel": "cosmic travel",
+    "relies on mastering": "depends mostly on getting the hang of",
+    "rely on mastering": "depend mostly on getting the hang of",
+    "living off the land": "getting by on what we find on-site",
+    "live off the land": "get by on what is found on-site",
+    "heavy payloads": "massive shipments",
+    "vital resources": "crucial raw materials",
+    "vital resource": "crucial raw material",
+    "hinge on": "come down to",
+    "hinges on": "comes down to",
+    "requires immense energy": "takes an incredible amount of power",
+    "vast quantities": "massive amounts",
+    "vast mineral": "huge mineral",
+    "subsurface water": "underground water",
+    "primary target": "main thing we need to find",
+    "change everything": "upend how we do things",
+    "revolutionize how": "totally alter the way",
+    "simply too expensive": "flat-out unaffordable",
+    "turn science fiction into reality": "make what sounded like science fiction actually happen",
+    "turns science fiction into reality": "makes what sounded like science fiction actually happen",
+    "venturing deeper": "traveling further out",
+    "venture deeper": "travel further out",
+    "permanent outposts": "long-term outposts",
+    "permanent bases": "long-term bases",
+    "astronaut life-support": "crew life-support",
+    "humanity's relationship": "our relationship",
+    "viewing ourselves as": "acting like mere",
+    "true pioneers": "actual settlers"
+};
+
 /**
  * Helper to shuffle array elements in place.
  */
@@ -244,6 +276,24 @@ function postProcess(text) {
 }
 
 /**
+ * Programmatically breaks predictable AI word pairings (bigrams/trigrams)
+ * and swaps them with lower-frequency human equivalents.
+ */
+function applyNGramFriction(text) {
+    let result = text;
+    for (const [aiPhrases, humanAlternative] of Object.entries(N_GRAM_FRICTION_MAP)) {
+        const regex = new RegExp(`\\b${aiPhrases}\\b`, 'gi');
+        result = result.replace(regex, (match) => {
+            const isCapital = match[0] === match[0].toUpperCase();
+            return isCapital 
+                ? humanAlternative.charAt(0).toUpperCase() + humanAlternative.slice(1) 
+                : humanAlternative;
+        });
+    }
+    return result;
+}
+
+/**
  * Programmatically splits highly-identifiable AI compound clauses.
  * Swaps transitions with distinct, active sentence starters to alter syntax structure.
  */
@@ -290,11 +340,11 @@ function applyAlgorithmicBurstiness(text) {
         "Think about it.",
         "Here is why.",
         "It is that simple.",
-        "The data proves it.",
-        "Look closer.",
-        "This is not a coincidence.",
-        "But there is a catch.",
+        "The data is clear on this.",
         "Let that sink in.",
+        "But there is a catch.",
+        "This is not a coincidence.",
+        "Let's be honest.",
         "It gets worse.",
         "Here is the reality."
     ]);
@@ -493,6 +543,7 @@ export default async function handler(req, res) {
 
         // Step 6: Non-LLM Algorithmic Post-Processing
         logs.push('Applying non-LLM algorithmic adjustments...');
+        result = applyNGramFriction(result);
         result = smashCompoundSentences(result);
         result = applyAlgorithmicBurstiness(result);
         result = applyAlgorithmicPerplexity(result);
