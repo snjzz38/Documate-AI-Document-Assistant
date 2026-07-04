@@ -57,7 +57,6 @@ const AI_VOCAB_SWAPS = {
     "necessitate": "require", "necessitates": "requires", "necessitating": "requiring",
     "exacerbate": "worsen", "exacerbates": "worsens", "exacerbating": "worsening", "exacerbated": "worsened",
     "mitigate": "reduce", "mitigates": "reduces", "mitigating": "reducing",
-    "fundamental": "basic", "fundamentally": "basically",
     "comprehensive": "full", "comprehensively": "fully",
     "robust": "strong", "robustly": "strongly",
     "furthermore": "also", "moreover": "also", "additionally": "also",
@@ -76,6 +75,7 @@ const AI_VOCAB_SWAPS = {
     "supports the view": "argues",
     "holds that": "claims",
     "in turn": ""
+    // Removed "fundamental": "basic" to stop "basically" from sounding clunky
 };
 
 
@@ -230,17 +230,15 @@ function buildChunkPrompt(chunk, prevChunk, nextChunk) {
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES (Mimic Human Exemplar Style):
-1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
-2. CONTINUITY & TRANSITIONS (CRITICAL): You MUST use logical transition phrases (e.g., "Because of this,", "To achieve this,", "In contrast,", "As a result,") to connect facts. Do NOT output a list of disconnected, staccato facts. Combine related facts into fluid, coherent sentences.
-3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
-4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which" (unless "As" is used as a subordinating conjunction like "As the author notes..."). NEVER leave sentence fragments.
-5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence.
-6. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
-8. NO EM DASHES (—) or SEMICOLONS (;). 
-9. NO COMMA CHAINS: A sentence must not have more than one comma.
-10. Do NOT repeat the same concept or premise in consecutive sentences.
+STRICT RULES:
+1. Output ONLY the rewritten text. No commentary. Do NOT output the context. Do NOT add titles or headers.
+2. FLOW & TRANSITIONS: You MUST use logical transition phrases (e.g., "Because of this,", "To achieve this,") to connect facts. Do NOT output a list of disconnected facts. Combine related facts into fluid, coherent sentences.
+3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. 
+4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
+5. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
+6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". Use plain, literal words.
+7. NO EM DASHES (—) or SEMICOLONS (;). 
+8. NO COMMA CHAINS: A sentence must not have more than one comma.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -275,8 +273,6 @@ const AI_STERILE_SWAPS = {
     "societal organization": "organizing society",
     "limitless sequence": "endless sequence",
     "persist outside the mind": "exist outside the mind",
-    "serving as": "acting as",
-    "functioning as": "acting as",
     "act outside of": "exist outside of",
     "truly remarkable": "highly effective",
     "remarkable accomplishment": "major accomplishment",
@@ -295,6 +291,7 @@ const AI_STERILE_SWAPS = {
     "the nature world": "the natural world",
     "global challenges": "major world problems",
     "particularly when given": "especially when given"
+    // Removed "serving as" and "functioning as" as they are fine in academic text
 };
 
 /**
@@ -375,11 +372,11 @@ function postProcess(text) {
 const JSON_FIXER_PROMPT = `You are an expert syntax and flow editor. Analyze the text and find the WORST sentences that have these specific errors:
 1. SENTENCE FRAGMENTS: Sentences starting with "Unlike", "With", "As", "Which" that are incomplete.
 2. COMMA CHAINS: Sentences with more than ONE comma.
-3. TAUTOLOGIES: Sentences repeating the same word or concept (e.g., "commodifying children commodifies").
-4. DISJOINTED FLOW (CRITICAL): Any consecutive sentences that lack logical transitions and read like a list of facts (e.g., "Water ice is the most vital resource. Billions of tons of frozen water reside..."). Combine these into one smooth sentence using a transition.
+3. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept (e.g., "Mastering these processes is a challenge. Mastering these processes is needed..."). Rewrite the second sentence to be concise and non-repetitive.
+4. DISJOINTED FLOW: Any consecutive short, factual sentences that lack transitions (e.g., "Water ice is the primary target. Lunar poles contain massive ice deposits."). Combine these into one smooth sentence using a transition like "and" or "while".
 
-Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. 
-CRITICAL: Do NOT rewrite the whole text. Only return the specific fixes. Do NOT include meta-commentary. If none, return {}.`;
+CRITICAL: Do NOT add headers, titles, or meta-commentary to the text. ONLY return the JSON fixes.
+Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. If none, return {}.`;
 
 async function runGroqStages(text, groqKey) {
     const prompt = `${JSON_FIXER_PROMPT}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
