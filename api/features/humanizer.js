@@ -207,10 +207,10 @@ TEXT TO REWRITE:
 STRICT RULES:
 1. Output ONLY the rewritten text (the chunk itself). No commentary. Do NOT output the context.
 2. SYNTACTIC VARIETY (CRITICAL): Do NOT use ", and" or ", but" to glue clauses together in consecutive sentences. You MUST vary your sentence structures. Use subordinating conjunctions (e.g., "Because", "Although", "When", "While", "Since") or write short, direct Subject-Verb-Object sentences.
-3. SENTENCE FLOW & COHERENCE: Connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. 
+3. SENTENCE FLOW & COHERENCE: Connect related ideas logically. Do NOT output a list of choppy, disconnected sentences. If a sentence is just a introductory phrase (e.g., "The model encompasses specific areas of study."), combine it with the following sentence.
 4. BURSTINESS: Vary sentence lengths. Do NOT write long, convoluted, run-on sentences. If a sentence has more than two clauses, split it into two sentences.
 5. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-6. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Treating people as products... view their children as products").
+6. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence (e.g., DO NOT write "Evaluating the landscape centers on the landscape").
 7. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
 8. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "intrinsic value", "global challenges", or "particularly when given". Use plain, literal words.
 9. NO EM DASHES (—) or SEMICOLONS (;). 
@@ -369,9 +369,9 @@ CRITICAL RULES:
 - NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or pair of sentences. If none, return {}.`;
 
-const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax (e.g., missing conjunctions like "and" or "which", resulting in "...changes, can permanently modify..."). 
-CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, combine it with the previous sentence.
-CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word or concept (e.g., "Treating people as PRODUCTS... view their children as PRODUCTS"), rewrite it to be concise and non-repetitive.
+const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax. 
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with a preposition like "Unlike", "By", "Through", "With", "As", or "Which" and does not form a complete thought (e.g., "Unlike platforms based on personal connections."), you MUST combine it with the next sentence using a comma.
+CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word, phrase, or concept (e.g., "Evaluating the landscape centers on the landscape" or "isolated communities of thought and isolated communities of shared views"), rewrite it to be concise and non-repetitive.
 CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
