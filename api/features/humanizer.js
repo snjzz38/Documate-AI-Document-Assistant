@@ -179,8 +179,7 @@ function applyJsonReplacements(text, jsonMap) {
 }
 
 /**
- * Mechanically splits very long sentences to increase burstiness.
- * (Tamed to prevent destroying natural flow)
+ * Mechanically splits long sentences to increase burstiness.
  */
 function injectBurstiness(text) {
     let sentences = text.match(/[^.!?]+[.!?]+/g) || [];
@@ -190,9 +189,9 @@ function injectBurstiness(text) {
         let s = sentences[i].trim();
         let words = s.split(' ');
 
-        // Only split VERY long sentences (>24 words), and only 30% of the time
-        if (words.length > 24 && Math.random() > 0.7) {
-            let splitIdx = words.findIndex((w, idx) => idx > 10 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so'));
+        // Lowered threshold to 16 words, 50% chance to split
+        if (words.length > 16 && Math.random() > 0.5) {
+            let splitIdx = words.findIndex((w, idx) => idx > 6 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so' || w.toLowerCase() === 'while'));
             
             if (splitIdx !== -1) {
                 let part1 = words.slice(0, splitIdx).join(' ').trim();
@@ -230,23 +229,22 @@ function buildChunkPrompt(chunk, prevChunk, nextChunk) {
     
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
-HUMAN EXEMPLAR STYLE (Mimic this exact flow, transition style, and syntactic variety):
- ${EXEMPLAR_SNIPPET}
-
  ${contextBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary. Do NOT output the context. Do NOT add titles or headers.
-2. FLOW & TRANSITIONS: You MUST use natural, narrative transitions (e.g., "Unlike X, Y...", "To achieve this...", "Like [Subject], [Subject]..."). NEVER start sentences with "Furthermore,", "Moreover,", "Additionally,", "So,", or "Also,".
-3. BURSTINESS: Vary sentence lengths drastically. Mix short, punchy sentences with longer, complex ones. 
-4. SYNTACTIC VARIETY: Start sentences with prepositional phrases (e.g., "In modern politics..."), dependent clauses (e.g., "Because X happens..."), or the actual subject. Do NOT start consecutive sentences with the same word.
-5. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
-6. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
-7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". Use plain, literal words.
-8. NO EM DASHES (—) or SEMICOLONS (;). 
-9. NO COMMA CHAINS: A sentence must not have more than one comma.
+1. Output ONLY the rewritten text. No commentary.
+2. CONTRACTIONS (CRITICAL): You MUST use natural English contractions (doesn't, isn't, can't, won't, it's, they're) where they fit naturally. Do not write in sterile, contraction-free prose.
+3. BURSTINESS: You MUST vary sentence lengths drastically. At least 25% of your sentences MUST be very short (under 8 words).
+4. NO PARTICIPIAL PHRASES: NEVER end a sentence with a comma and an -ing verb (e.g., DO NOT write "...eliminating the need"). Use "and [verb]" or split it into a new sentence.
+5. NO AI PIVOTS: NEVER use "Beyond [X], Y will transform..." or "Adopting this method alters...". Use natural transitions.
+6. FLOW & TRANSITIONS: Use natural narrative transitions (e.g., "Unlike X, Y...", "To achieve this..."). NEVER start sentences with "Furthermore,", "Moreover,", "Additionally,", "So,", or "Also,".
+7. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
+8. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
+9. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". 
+10. NO EM DASHES (—) or SEMICOLONS (;). 
+11. NO COMMA CHAINS: A sentence must not have more than one comma.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -378,11 +376,12 @@ function postProcess(text) {
 // ==========================================================================
 
 const JSON_FIXER_PROMPT = `You are an expert syntax and flow editor. Analyze the text and find the WORST sentences that have these specific errors:
-1. SENTENCE FRAGMENTS: Sentences starting with "Unlike", "With", "As", "Which" that are incomplete.
-2. COMMA CHAINS: Sentences with more than ONE comma.
-3. AI TRANSITIONS: Sentences starting with "So,", "Also,", "Furthermore,", "Moreover,". Rewrite them to start naturally.
-4. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept (e.g., "Mastering these processes is a challenge. Mastering these processes is needed..."). Rewrite the second sentence to be concise and non-repetitive.
-5. DISJOINTED FLOW: Any consecutive short, factual sentences that lack transitions. Combine these into one smooth sentence using a transition like "and" or "while".
+1. PARTICIPIAL PHRASES: Sentences ending with a comma and an -ing verb (e.g., "...eliminating the need"). Rewrite to use "and [verb]" or split into two sentences.
+2. AI PIVOTS: Sentences starting with "Beyond [X], Y..." or "Adopting this method...". Rewrite to start naturally.
+3. COMMA CHAINS: Sentences with more than ONE comma.
+4. CONTRACTIONS: If a sentence uses "does not" or "is not", change it to "doesn't" or "isn't".
+5. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept. Rewrite the second sentence to be concise.
+6. DISJOINTED FLOW: Consecutive short, factual sentences that lack transitions. Combine them.
 
 CRITICAL: Do NOT add headers, titles, or meta-commentary to the text. ONLY return the JSON fixes.
 Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. If none, return {}.`;
