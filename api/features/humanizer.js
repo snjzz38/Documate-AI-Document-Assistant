@@ -183,7 +183,6 @@ const N_GRAM_FRICTION_MAP = {
     "vast quantities": "massive amounts",
     "vast mineral": "huge mineral",
     "subsurface water": "underground water",
-    "primary target": "main thing we need to find",
     "change everything": "upend how we do things",
     "revolutionize how": "totally alter the way",
     "simply too expensive": "flat-out unaffordable",
@@ -196,7 +195,26 @@ const N_GRAM_FRICTION_MAP = {
     "astronaut life-support": "crew life-support",
     "humanity's relationship": "our relationship",
     "viewing ourselves as": "acting like mere",
-    "true pioneers": "actual settlers"
+    "true pioneers": "actual settlers",
+    
+    // Expanded Space / Academic tells
+    "important concept": "idea",
+    "massive amounts": "huge heaps",
+    "vital supplies": "critical cargo",
+    "ultimate barrier": "biggest hurdle",
+    "not a coincidence": "no accident",
+    "staggering burden": "heavy cost",
+    "primary target": "main prize",
+    "serve two critical roles": "do two crucial jobs",
+    "totally alter the way": "completely upend how",
+    "simply impractical": "unreasonable",
+    "look elsewhere": "find other ways",
+    "exploration and settlement": "settling down",
+    "human exploration": "crewed journeys",
+    "fragile guests": "mere visitors",
+    "actual settlers": "true inhabitants",
+    "technical challenge": "engineering puzzle",
+    "makes what sounded like science fiction actually happen": "brings ideas from old novels to life"
 };
 
 /**
@@ -295,34 +313,90 @@ function applyNGramFriction(text) {
 
 /**
  * Programmatically splits highly-identifiable AI compound clauses.
- * Swaps transitions with distinct, active sentence starters to alter syntax structure.
+ * Swaps transitions with a randomized pool of active human sentence starters.
  */
 function smashCompoundSentences(text) {
     let result = text;
 
-    const smashMap = [
-        { regex: /,\s+while\s+/gi, replacement: ". Meanwhile, " },
-        { regex: /,\s+which\s+serves?\b/gi, replacement: ". This serves" },
-        { regex: /,\s+which\s+will\b/gi, replacement: ". This will" },
-        { regex: /,\s+which\s+plays?\b/gi, replacement: ". This plays" },
-        { regex: /,\s+which\s+is\b/gi, replacement: ". This is" },
-        { regex: /,\s+which\s+has\b/gi, replacement: ". This has" },
-        { regex: /,\s+which\s+are\b/gi, replacement: ". These are" },
-        { regex: /,\s+which\s+/gi, replacement: ". This " },
-        { regex: /,\s+allowing\s+/gi, replacement: ". This allows " },
-        { regex: /,\s+making\s+/gi, replacement: ". This makes " },
-        { regex: /,\s+creating\s+/gi, replacement: ". This creates " },
-        { regex: /,\s+severely\s+limiting\s+/gi, replacement: ". This severely limits " },
-        { regex: /,\s+limiting\s+/gi, replacement: ". This limits " },
-        { regex: /,\s+requiring\s+/gi, replacement: ". This requires " },
-        { regex: /,\s+helping\s+/gi, replacement: ". This helps " },
-        { regex: /,\s+resulting\s+in\s+/gi, replacement: ". This results in " },
-        { regex: /,\s+triggering\s+/gi, replacement: ". This triggers " },
-        { regex: /,\s+where\s+/gi, replacement: ". Here, " }
+    const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const smashRules = [
+        {
+            regex: /,\s+while\s+/gi,
+            replacements: [". Meanwhile, ", ". At the same time, ", ". Simultaneously, ", ". On the flip side, "]
+        },
+        {
+            regex: /,\s+which\s+serves?\b/gi,
+            replacements: [". This step serves ", ". Such a setup serves ", ". It serves "]
+        },
+        {
+            regex: /,\s+which\s+will\b/gi,
+            replacements: [". This will ", ". Doing so will ", ". In turn, this will ", ". That will "]
+        },
+        {
+            regex: /,\s+which\s+plays?\b/gi,
+            replacements: [". This plays ", ". A setup like this plays ", ". It plays "]
+        },
+        {
+            regex: /,\s+which\s+is\b/gi,
+            replacements: [". This is ", ". Such a reality is ", ". It is "]
+        },
+        {
+            regex: /,\s+which\s+has\b/gi,
+            replacements: [". This has ", ". In turn, it has ", ". That has "]
+        },
+        {
+            regex: /,\s+which\s+are\b/gi,
+            replacements: [". These are ", ". Such resources are ", ". They are "]
+        },
+        {
+            regex: /,\s+which\s+/gi,
+            replacements: [". This ", ". That ", ". It ", ". Such a process "]
+        },
+        {
+            regex: /,\s+allowing\s+/gi,
+            replacements: [". This lets ", ". Doing so allows ", ". In the process, it allows ", ". That lets "]
+        },
+        {
+            regex: /,\s+making\s+/gi,
+            replacements: [". That makes ", ". In doing so, it makes ", ". This makes ", ". And that makes "]
+        },
+        {
+            regex: /,\s+creating\s+/gi,
+            replacements: [". This creates ", ". It creates ", ". Doing so creates ", ". In turn, it creates "]
+        },
+        {
+            regex: /,\s+severely\s+limiting\s+/gi,
+            replacements: [". This severely limits ", ". Doing so restricts ", ". It heavily limits "]
+        },
+        {
+            regex: /,\s+limiting\s+/gi,
+            replacements: [". This limits ", ". It limits ", ". Such a move restricts "]
+        },
+        {
+            regex: /,\s+requiring\s+/gi,
+            replacements: [". This requires ", ". Doing so requires ", ". It demands "]
+        },
+        {
+            regex: /,\s+helping\s+/gi,
+            replacements: [". This helps ", ". Doing so helps ", ". It helps "]
+        },
+        {
+            regex: /,\s+resulting\s+in\s+/gi,
+            replacements: [". This results in ", ". That leads to ", ". It causes "]
+        },
+        {
+            regex: /,\s+triggering\s+/gi,
+            replacements: [". This triggers ", ". It sparks ", ". Doing so triggers "]
+        },
+        {
+            regex: /,\s+where\s+/gi,
+            replacements: [". Here, ", ". In these spots, ", ". At these bases, ", ". Once there, "]
+        }
     ];
 
-    for (const item of smashMap) {
-        result = result.replace(item.regex, item.replacement);
+    for (const rule of smashRules) {
+        result = result.replace(rule.regex, () => getRandom(rule.replacements));
     }
 
     return result;
