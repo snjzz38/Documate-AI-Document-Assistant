@@ -135,15 +135,16 @@ function postProcess(text) {
 // 4. GROQ SURGICAL SENTENCE REPLACER MODULE
 // ==========================================================================
 
-const SURGICAL_PROMPT = `You are an expert academic editor. Analyze the formal/academic text below and identify every sentence that sounds robotic, has a highly predictable AI structure, or relies on common generative AI clichés (such as highly balanced parallel clauses, "rely on", "is crucial for", "plays a key role", passive verb chains, or formal introductory clauses like "To establish permanent outposts...").
+const SURGICAL_PROMPT = `You are an expert academic editor. Analyze the formal/academic text below and identify every sentence that sounds robotic, has a predictable AI structure, or relies on common generative AI clichés (such as highly balanced parallel clauses, "rely on", "is crucial for", "plays a key role", passive verb chains, or formal introductory clauses like "To establish permanent outposts...").
 
 For each identified sentence, provide a human-written rewrite that fits seamlessly within the surrounding context of the essay.
 
 CRITICAL RULES:
 1. NO CONVERSATIONAL FLUFF: Do NOT make the text informal, casual, or conversational. Do NOT add pacing phrases like "Think about it", "Let's be honest", or parenthetical fillers. The rewritten sentences must maintain a completely formal, analytical, scholarly, and academic tone.
-2. PRESERVE ALL FACTS: Keep every name (like MOXIE), number, data point, and scientific concept exactly as they are.
-3. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text exactly, character-for-character, including capitalization and punctuation.
-4. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
+2. ELIMINATE AI CLICHÉS: Do NOT use phrases like "represents a pivotal achievement", "renders... a tangible reality", "testament to", "revolutionize", or "crucial enabler". Use plain, active, and direct phrasing.
+3. PRESERVE ALL FACTS: Keep every name (like MOXIE), number, data point, and scientific concept exactly as they are.
+4. EXACT MATCHING: The "original" key in your JSON object must match the targeted sentence in the text EXACTLY, character-for-character, including capitalization and punctuation.
+5. Pure JSON Output: Return only the JSON object matching the schema below. Do not wrap it in markdown code blocks. Do not add any conversational text before or after the JSON.
 
 JSON SCHEMA:
 {
@@ -158,9 +159,10 @@ JSON SCHEMA:
 TEXT TO ANALYZE:
 `;
 
-async function runSurgicalReplacements(text, groqKey) {
+async function runSurgicalReplacements(text, groqKey, trackingLogs) {
     const prompt = `${SURGICAL_PROMPT}\n"${text}"`;
     const messages = [{ role: 'user', content: prompt }];
+    const appliedReplacements = [];
 
     try {
         const content = await GroqAPI.chat(messages, groqKey, true);
@@ -172,25 +174,41 @@ async function runSurgicalReplacements(text, groqKey) {
                 if (item.original && item.replacement) {
                     const originalClean = item.original.trim();
                     const replacementClean = item.replacement.trim();
-                    
                     const escapedOriginal = originalClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     
-                    // If exact match exists, replace it
                     if (result.includes(originalClean)) {
                         const regex = new RegExp(escapedOriginal, 'g');
                         result = result.replace(regex, replacementClean);
+                        appliedReplacements.push({ 
+                            original: originalClean, 
+                            replacement: replacementClean,
+                            status: "Exact Match Replaced" 
+                        });
                     } else {
-                        // Fallback: search case-insensitively with flexible spacing 
+                        // Fallback: search case-insensitively with flexible spacing
                         const flexibleRegex = new RegExp(escapedOriginal.replace(/\s+/g, '\\s+'), 'gi');
-                        result = result.replace(flexibleRegex, replacementClean);
+                        if (flexibleRegex.test(result)) {
+                            result = result.replace(flexibleRegex, replacementClean);
+                            appliedReplacements.push({ 
+                                original: originalClean, 
+                                replacement: replacementClean,
+                                status: "Flexible Match Replaced" 
+                            });
+                        } else {
+                            appliedReplacements.push({ 
+                                original: originalClean, 
+                                replacement: replacementClean,
+                                status: "Failed to Match Text" 
+                            });
+                        }
                     }
                 }
             }
         }
-        return result;
+        return { text: result, replacements: appliedReplacements };
     } catch (error) {
         console.error('Surgical Replacements Pass Failed:', error);
-        return text; 
+        return { text, replacements: [] }; 
     }
 }
 
@@ -225,9 +243,10 @@ export default async function handler(req, res) {
         result = applyWordSwaps(result, AI_STERILE_SWAPS);
         logs.push('Applied initial word replacements');
 
-        // Step 2: Groq Surgical Replacements Pass (scans and replaces all targets)
+        // Step 2: Groq Surgical Replacements Pass
         logs.push('Running targeted surgical replacement pass on Groq...');
-        result = await runSurgicalReplacements(result, GROQ_KEY);
+        const surgicalResult = await runSurgicalReplacements(result, GROQ_KEY, logs);
+        result = surgicalResult.text;
         logs.push('Surgical replacements complete');
 
         // Step 3: Normalization and cleanup
@@ -255,10 +274,12 @@ export default async function handler(req, res) {
             }
         };
 
+        // We return surgicalReplacements directly in the payload so you can debug the JSON in real time
         return res.status(200).json({ 
             success: true, 
             result, 
             logs,
+            surgicalReplacements: surgicalResult.replacements,
             humanizer: humanizerNetworkResult 
         });
 
@@ -266,19 +287,12 @@ export default async function handler(req, res) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
         
-        const groqUsage = getGroqModelUsage() || {};
-        const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
-        
         return res.status(500).json({ 
             success: false, 
             error: error.message, 
             logs,
             humanizer: {
-                executionTimeMs: totalTimeMs,
-                groq: {
-                    totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                    modelsUsed: formatUsage(groqUsage)
-                }
+                executionTimeMs: totalTimeMs
             }
         });
     }
