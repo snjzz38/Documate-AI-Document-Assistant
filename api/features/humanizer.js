@@ -88,6 +88,7 @@ const AI_VOCAB_SWAPS = {
 
 /**
  * Splits text into chunks of sentences without breaking on common abbreviations.
+ * (Fallback if Groq is unavailable)
  */
 function splitIntoChunks(text, sentencesPerChunk = 4) {
     const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$|\n)/g;
@@ -101,20 +102,28 @@ function splitIntoChunks(text, sentencesPerChunk = 4) {
 }
 
 /**
- * Replaces banned AI words while preserving the original capitalization.
+ * Uses Groq to group sentences into logical, topically coherent paragraphs.
  */
-function applyWordSwaps(text) {
-    let result = text;
-    for (const [bad, good] of Object.entries(AI_VOCAB_SWAPS)) {
-        const regex = new RegExp(`\\b${bad}\\b`, 'gi');
-        result = result.replace(regex, (match) => {
-            if (match[0] === match[0].toUpperCase()) {
-                return good.charAt(0).toUpperCase() + good.slice(1);
-            }
-            return good;
-        });
+async function groqLogicalChunk(text, groqKey) {
+    const prompt = `You are an expert editor. Analyze the following text and group the sentences into 2-4 logical paragraphs based on their topics. Do NOT change the wording of the sentences at all. Only group them. Return a JSON object with a key "chunks" containing an array of strings, where each string is a logical paragraph.
+
+TEXT TO ANALYZE:
+ ${text}
+
+JSON OUTPUT:`;
+
+    const messages = [{ role: 'user', content: prompt }];
+    try {
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        const parsed = parseGroqJson(content);
+        if (parsed.chunks && Array.isArray(parsed.chunks) && parsed.chunks.length > 0) {
+            return parsed.chunks;
+        }
+        return splitIntoChunks(text); // Fallback
+    } catch (error) {
+        console.error('Groq Logical Chunking Failed:', error);
+        return splitIntoChunks(text); // Fallback
     }
-    return result;
 }
 
 /**
@@ -148,8 +157,6 @@ function applyJsonReplacements(text, jsonMap) {
         }
         
         if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
-
-        // CRITICAL FIX: Prevent Groq from injecting raw JSON strings or meta-commentary into the text
         if (afterStr.includes('{') || afterStr.includes('}')) continue;
 
         const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -334,13 +341,12 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a syntactic flow editor. Find instances where 2 or more consecutive sentences use ", and" or ", but" to connect clauses (e.g., "X is true, and Y is false. A happens, but B stops."). This creates a robotic metronome rhythm. 
-Rewrite these sentences to break the pattern. Use subordinating conjunctions (e.g., "Because", "Although", "While") or split them into separate, shorter sentences.
+const STAGE_3_PROMPT = `You are a border transition editor. Find pairs of sentences where the topic shifts abruptly or the transition feels disjointed (e.g., ending a thought on genetics, and immediately starting a new thought on wealth inequality without connection). Combine or rewrite these pairs using natural transitional phrases (e.g., "While X is true, Y remains a concern.", "Beyond biology, this also affects...").
 CRITICAL RULES: 
-- NEVER change the meaning or add new facts. 
+- NEVER change the core meaning or add new facts. 
 - NEVER create run-on sentences or comma chains.
 - NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
-Return a JSON object where keys are the EXACT original sentences (joined by a space), and values are the rewritten, naturally varied sentences. If none, return {}.`;
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or pair of sentences. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax (e.g., missing conjunctions like "and" or "which", resulting in "...changes, can permanently modify..."). 
 CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought, combine it with the previous sentence.
@@ -350,7 +356,6 @@ CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your outp
 Also check for article errors (e.g., "an discovery" instead of "a discovery").
 Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
 
-// NEW EXPERIMENTAL STAGE 5: Humanization Injection
 const STAGE_5_PROMPT = `You are an experimental humanization editor. Your goal is to increase perplexity (unpredictability) to bypass AI detectors. Do the following:
 1. CONTRACTIONS: Change "does not" to "doesn't", "is not" to "isn't", "will not" to "won't", "cannot" to "can't", "do not" to "don't".
 2. PREAMBLES: Replace "to [verb]" with "in order to [verb]" or "as a way to [verb]" where it fits naturally.
@@ -391,7 +396,6 @@ async function runGroqStages(text, groqKey) {
     currentText = applyJsonReplacements(currentText, s4);
     fixes.stage4 = Object.keys(s4).length;
 
-    // Experimental Stage 5
     const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
@@ -437,12 +441,15 @@ export default async function handler(req, res) {
         let processed = applyWordSwaps(text);
         logs.push('Applied banned word replacements');
 
-        // Step 2: Split into chunks
-        const chunks = splitIntoChunks(processed, 4);
-        logs.push(`Split into ${chunks.length} chunks`);
-
-        const temperature = 0.7 + Math.random() * 0.3;
-        logs.push(`Temperature: ${temperature.toFixed(2)}`);
+        // Step 2: Split into logical chunks using Groq (or fallback to regex)
+        let chunks = [];
+        if (GROQ_KEY) {
+            logs.push('Analyzing logical chunks with Groq...');
+            chunks = await groqLogicalChunk(processed, GROQ_KEY);
+        } else {
+            chunks = splitIntoChunks(processed, 4);
+        }
+        logs.push(`Split into ${chunks.length} logical chunks`);
 
         // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
