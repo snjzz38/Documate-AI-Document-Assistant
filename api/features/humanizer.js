@@ -163,4 +163,129 @@ async function runSurgicalReplacements(text, groqKey) {
     const messages = [{ role: 'user', content: prompt }];
 
     try {
-        const content
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        const parsed = parseGroqJson(content);
+        
+        let result = text;
+        if (parsed && Array.isArray(parsed.replacements)) {
+            for (const item of parsed.replacements) {
+                if (item.original && item.replacement) {
+                    const originalClean = item.original.trim();
+                    const replacementClean = item.replacement.trim();
+                    
+                    const escapedOriginal = originalClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    
+                    // If exact match exists, replace it
+                    if (result.includes(originalClean)) {
+                        const regex = new RegExp(escapedOriginal, 'g');
+                        result = result.replace(regex, replacementClean);
+                    } else {
+                        // Fallback: search case-insensitively with flexible spacing 
+                        const flexibleRegex = new RegExp(escapedOriginal.replace(/\s+/g, '\\s+'), 'gi');
+                        result = result.replace(flexibleRegex, replacementClean);
+                    }
+                }
+            }
+        }
+        return result;
+    } catch (error) {
+        console.error('Surgical Replacements Pass Failed:', error);
+        return text; 
+    }
+}
+
+// ==========================================================================
+// 5. API HANDLER
+// ==========================================================================
+
+export default async function handler(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') return res.status(200).end();
+
+    const logs = [];
+    const startTime = Date.now();
+    
+    resetGeminiUsage();
+    resetGroqModelUsage();
+
+    try {
+        const { text, apiKey, groqApiKey } = req.body;
+        const GROQ_KEY = groqApiKey || process.env.GROQ_API_KEY;
+
+        if (!text) throw new Error("No text provided.");
+        if (!GROQ_KEY) throw new Error("No Groq API key provided.");
+
+        logs.push(`Input: ${text.length} chars`);
+
+        // Step 1: Initial vocabulary replacements
+        let result = applyWordSwaps(text, AI_VOCAB_SWAPS);
+        result = applyWordSwaps(result, AI_STERILE_SWAPS);
+        logs.push('Applied initial word replacements');
+
+        // Step 2: Groq Surgical Replacements Pass (scans and replaces all targets)
+        logs.push('Running targeted surgical replacement pass on Groq...');
+        result = await runSurgicalReplacements(result, GROQ_KEY);
+        logs.push('Surgical replacements complete');
+
+        // Step 3: Normalization and cleanup
+        result = postProcess(result);
+        result = applyWordSwaps(result, AI_VOCAB_SWAPS);
+
+        const totalTimeMs = Date.now() - startTime;
+        logs.push(`Final output: ${result.length} chars`);
+
+        const groqUsage = getGroqModelUsage();
+        const formatUsage = (usage) => {
+            return Object.entries(usage).map(([model, stats]) => 
+                `${model} (${stats.success} ok, ${stats.failed} fail)`
+            );
+        };
+
+        const humanizerNetworkResult = {
+            executionTimeMs: totalTimeMs,
+            executionTimeSec: (totalTimeMs / 1000).toFixed(2),
+            inputChars: text.length,
+            outputChars: result.length,
+            groq: {
+                totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                modelsUsed: formatUsage(groqUsage)
+            }
+        };
+
+        return res.status(200).json({ 
+            success: true, 
+            result, 
+            logs,
+            humanizer: humanizerNetworkResult 
+        });
+
+    } catch (error) {
+        const totalTimeMs = Date.now() - startTime;
+        logs.push(`ERROR: ${error.message}`);
+        
+        const groqUsage = getGroqModelUsage() || {};
+        const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
+        
+        return res.status(500).json({ 
+            success: false, 
+            error: error.message, 
+            logs,
+            humanizer: {
+                executionTimeMs: totalTimeMs,
+                groq: {
+                    totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
+                    modelsUsed: formatUsage(groqUsage)
+                }
+            }
+        });
+    }
+}
+
+export { 
+    postProcess as PostProcessor, 
+    AI_VOCAB_SWAPS, 
+    applyWordSwaps
+};
