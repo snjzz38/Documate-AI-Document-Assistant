@@ -136,19 +136,18 @@ function buildChunkPrompt(chunk, prevChunk, nextChunk) {
         contextBlock = `\nSURROUNDING CONTEXT (Use ONLY for flow alignment; do NOT rewrite this context):\nPREVIOUS TEXT: "${prevChunk || 'None'}"\nNEXT TEXT: "${nextChunk || 'None'}"\n`;
     }
     
-    return `You are a professional human editor. Rewrite the text below to sound completely natural, organic, and human-written while keeping its original meaning.
+    return `You are a professional human editor rewriting this draft to be completely natural, engaging, and organic.
 
 ${contextBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-REWRITING DIRECTIONS:
-1. HUMAN RHYTHM (BURSTINESS): Vary your sentence lengths drastically. Write some short, punchy sentences (3-7 words) right next to longer, fluid sentences (15-25 words). AI writes with uniform, monotonous sentence lengths; humans do not.
-2. ABSOLUTELY NO 'WITH [NOUN] [VERB]-ING': Never write clauses like "X occurs, with craters hiding Y." Split them into active, separate sentences: "X occurs. Polar craters hide Y."
-3. NO PARTICIPIAL ENDINGS: Never end sentences with a comma followed by an -ing verb (e.g., "X acts as a heavy anchor, severely limiting Y"). Rewrite them as: "X acts as a heavy anchor. This limits Y."
-4. NO COMPOUND CONNECTORS: Do not glue clauses together using "while", "where", "which", or "allowing". Write short, direct sentences instead.
-5. NO SEQUENCING OR LISTING: Never use sequential transitions such as "First", "Second", "Third", "Finally", "Lastly", "In addition", or "Furthermore". Instead, integrate these transitions smoothly as narrative statements without labeling them.
-6. REMOVE ACADEMIC META-LANGUAGE: Present all ideas and arguments directly and assertively as facts without describing what the text or research is doing.
+REWRITING DIRECTIONS (CRITICAL):
+1. HUMAN ASYMMETRY: Avoid pristine, perfectly balanced academic structures. Humans write with natural irregularities. Interrupt yourself occasionally using em-dashes (—) to drop a quick clarification or use parenthesis for quick, casual asides.
+2. EXTREME SENTENCE VARIABILITY (BURSTINESS): Force massive variation in sentence lengths. Follow a long, detailed explanation with an incredibly short, 3-to-5 word punchy sentence.
+3. STRIP THE SEQUENCE LABELING: Absolutely ban terms like "First", "Second", "Finally", "In addition", or "Furthermore". Let your thoughts flow seamlessly as narrative connections.
+4. NO ACADEMIC CLICHÉS: Avoid terms like "testament to", "delve into", "crucial role", "uniquely vulnerable", "completely upend", or "revolutionize". Use plain, punchy, active verbs.
+5. FIRST-PERSON FRAMING: Speak directly to the reader. Use natural, conversational framing ("Let's look at", "Honestly,", "Think about it") to make the register sound like an authentic draft, not a generative model output.
 
 Output ONLY the rewritten text chunk, without quotes or commentary:`;
 }
@@ -183,6 +182,7 @@ const N_GRAM_FRICTION_MAP = {
     "vast quantities": "massive amounts",
     "vast mineral": "huge mineral",
     "subsurface water": "underground water",
+    "primary target": "main prize",
     "change everything": "upend how we do things",
     "revolutionize how": "totally alter the way",
     "simply too expensive": "flat-out unaffordable",
@@ -500,21 +500,71 @@ function applyAlgorithmicPerplexity(text) {
     return result;
 }
 
+/**
+ * Programmatically introduces grammatical asymmetry and conversational friction.
+ * Swaps standard copula verbs with em-dashes and inserts perspective pivots to 
+ * actively break "Model Uniformity" signatures.
+ */
+function applyHumanFriction(text) {
+    const paragraphs = text.split(/\n\n+/);
+    const modifiedParagraphs = [];
+
+    const visualPivots = [
+        "And let's be real about it.",
+        "That is where things get interesting.",
+        "It sounds crazy, but it works.",
+        "Which changes the entire equation.",
+        "At least, that's the goal."
+    ];
+
+    for (let i = 0; i < paragraphs.length; i++) {
+        let para = paragraphs[i];
+        const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$)/g;
+        let sentences = para.match(sentenceRegex) || [para];
+        sentences = sentences.map(s => s.trim());
+
+        // 1. Inject parenthetical friction into standard verb structures
+        if (sentences.length >= 4) {
+            let targetIdx = 2; // Target a middle sentence
+            let sentence = sentences[targetIdx];
+            
+            if (sentence.toLowerCase().includes(" is ")) {
+                sentences[targetIdx] = sentence.replace(/\b([Ii]s)\b/, "—which, let's be honest, is—");
+            } else if (sentence.toLowerCase().includes(" are ")) {
+                sentences[targetIdx] = sentence.replace(/\b([Aa]re)\b/, "—and yes, they really are—");
+            }
+        }
+
+        // 2. Inject a "Perspective Pivot" once in the middle of the text to disrupt consistency
+        if (i === Math.floor(paragraphs.length / 2) && sentences.length >= 3) {
+            const pivot = visualPivots[Math.floor(Math.random() * visualPivots.length)];
+            sentences.splice(2, 0, pivot);
+        }
+
+        modifiedParagraphs.push(sentences.join(' '));
+    }
+
+    return modifiedParagraphs.join('\n\n');
+}
+
 // ==========================================================================
 // 6. GROQ SINGLE-PASS MASTER SANITY POLISH
 // ==========================================================================
 
-const MASTER_POLISH_PROMPT = `You are a world-class editor correcting a draft to make it completely natural, highly impactful, and human-written. 
-Your goal is to ensure the text flows beautifully while remaining entirely unpredictable to AI pattern matchers.
+const MASTER_POLISH_PROMPT = `You are a world-class editor correcting an academic essay to make it completely natural and human-written. 
+Your goal is to inspect the draft, remove remaining AI tells, and output the polished, final copy.
 
-STRICT INSTRUCTIONS:
-1. NO STACCATO CHOPPINESS: Avoid writing a long sequence of short, blunt sentences. Connect related ideas using natural, human flow. Use varied transitions (e.g., "That starts with...", "Lurking beneath...", "As it turns out...") rather than formal connectors.
-2. USE ASYMMETRIC CLAUSES: Mix sentence structures. Use parenthetical thoughts, em-dashes for sudden shifts, or start a sentence with a dependent clause (e.g., "Since hauling cargo from Earth is flat-out unaffordable, we have to look elsewhere.").
-3. DETECT & DESTROY AI WORDS: Replace remaining words like "facilitated", "leverage", "delve", "comprehensive", "robust", "demystify", "testament", "underpin", and "intricate" with direct, human alternatives.
-4. ABSOLUTELY BAN 'with [noun] [verb]-ing' constructions (e.g., "X, with craters hiding Y"). Rewrite using active verbs: "Deep craters hide Y."
-5. NO FORMAL INTROS: Never start paragraphs with formulaic setups like "To establish outposts, we must...". Jump straight into the action: "Establishing outposts means we have to..."
-6. REMOVE META-LANGUAGE: Completely strip expressions like "The evaluation in this essay...", "The analysis uses...", or "This phenomenon warrants investigation." State claims directly.
-7. Return ONLY the polished text. No introductions, no notes, no markdown commentary.
+INSTRUCTIONS:
+1. DETECT & DESTROY AI WORDS: Replace remaining words like "facilitated", "leverage", "delve", "comprehensive", "robust", "demystify", "testament", "underpin", and "intricate" with direct, human alternatives.
+2. ABSOLUTELY BAN 'with [noun] [verb]-ing' constructions (e.g., "X, with craters hiding Y"). Split them into completely separate, active sentences (e.g., "X. Polar craters hide Y").
+3. NEVER end sentences with a comma followed by an -ing verb (e.g., "X, severely limiting Y"). Replace with a period and a direct statement: "X. This limits Y."
+4. ABSOLUTELY BAN the words "while" or "where" as clause connectors (e.g., "bases act as gas stations, where spacecraft can refuel"). Split them into distinct sentences using periods: "bases act as gas stations. Spacecraft can refuel here."
+5. NO STACCATO CHOPPINESS: Avoid writing a long sequence of short, blunt sentences. Connect related ideas using natural, human flow. Use varied transitions (e.g., "That starts with...", "Lurking beneath...", "As it turns out...") rather than formal connectors.
+6. USE ASYMMETRIC CLAUSES: Mix sentence structures. Use parenthetical thoughts, em-dashes for sudden shifts, or start a sentence with a dependent clause (e.g., "Since hauling cargo from Earth is flat-out unaffordable, we have to look elsewhere.").
+7. REMOVE META-LANGUAGE: Completely rewrite or strip expressions like "The evaluation in this essay...", "The analysis uses the framework...", or "This phenomenon warrants further investigation." State the claims directly instead of telling the reader what the essay is doing.
+8. PERPLEXITY INJECTION: Use natural contractions ("doesn't", "it's", "can't") where appropriate to keep the language organic. 
+9. NO SEMICOLONS OR EM-DASHES: Convert semicolons to periods and em-dashes to commas.
+10. Absolutely do NOT write any meta-commentary, notes, or introduction. Return ONLY the polished text.
 
 DRAFT TO POLISH:
 `;
@@ -611,12 +661,13 @@ export default async function handler(req, res) {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
 
-        // Step 6: Non-LLM Algorithmic Post-Processing
+// Step 6: Non-LLM Algorithmic Post-Processing
         logs.push('Applying non-LLM algorithmic adjustments...');
         result = applyNGramFriction(result);
         result = smashCompoundSentences(result);
         result = applyAlgorithmicBurstiness(result);
         result = applyAlgorithmicPerplexity(result);
+        result = applyHumanFriction(result); // <--- Add this line here
 
         // Step 7: Final structural check and basic cleaning
         result = postProcess(result);
