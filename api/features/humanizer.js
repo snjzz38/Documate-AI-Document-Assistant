@@ -346,7 +346,7 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. GROQ 6-STAGE SANITY CHECKER MODULE
+// 6. GROQ 5-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
 const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text, AND find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
@@ -358,9 +358,9 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
 3. Excessive ", which" clauses (more than 1 per paragraph).
 4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
-5. COMMA CHAINS: Any sentence containing more than one comma. Fix it by removing unnecessary clauses or splitting it, but DO NOT delete conjunctions like "and" or "which" if they are necessary for grammar.
+5. COMMA CHAINS (CRITICAL): Any sentence containing more than ONE comma. You MUST violently break these into separate, shorter sentences using periods. Do not try to fix them with conjunctions; just split them into distinct sentences.
 6. "WITH [NOUN] [VERB]ING" constructions. Break them into separate sentences.
-7. Repetitive sentence starters: If 2 or more consecutive sentences start with the same word, or start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,"). Rewrite the second sentence to have a different, natural opening phrase.
+7. "THE [NOUN]" STARTERS: Find sentences that start with "The" and rewrite them to start with a prepositional phrase, dependent clause, or a different subject. Do NOT allow consecutive sentences to start with "The".
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
 const STAGE_3_PROMPT = `You are a border transition editor. Find pairs of sentences where the topic shifts abruptly or the transition feels disjointed. Combine or rewrite these pairs using natural transitional phrases (e.g., "While X is true, Y remains a concern.", "Beyond biology, this also affects...").
@@ -371,7 +371,7 @@ CRITICAL RULES:
 Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence or pair of sentences. If none, return {}.`;
 
 const STAGE_4_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors, or broken syntax. 
-CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with a preposition like "Unlike", "By", "Through", "With", "As", or "Which" and does not form a complete thought, you MUST combine it with the next sentence using a comma.
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with a preposition or conjunction like "Unlike", "By", "Through", "With", "As", "Whereas", or "Which" and does not form a complete thought, you MUST combine it with the next sentence using a comma.
 CRITICAL: Find and fix TAUTOLOGIES. If a sentence repeats the same word, phrase, or concept, rewrite it to be concise and non-repetitive.
 CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
 CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
@@ -384,8 +384,6 @@ const STAGE_5_PROMPT = `You are an experimental humanization editor. Your goal i
 3. ACTIVE VOICE: Change passive voice to active voice where possible (e.g., "is needed" -> "requires").
 4. "THIS" STARTERS: Rewrite sentences that start with "This [verb]" (e.g., "This raises...") to use a specific noun (e.g., "This gap raises...").
 Return a JSON object where keys are the EXACT original sentences, and values are the rewritten sentences. Do not change the meaning. If none, return {}.`;
-
-const STAGE_6_PROMPT = `You are a sentence rewriter. Rewrite the structure of the provided sentences to make them highly unpredictable and human-like, while keeping the exact same meaning. Vary the syntax drastically (e.g., use dependent clauses, invert subject/verb, use active voice). Do NOT use em dashes, semicolons, or comma chains. Return a JSON object with a key "rewrites" containing an array of objects, each with "original" (the exact input sentence) and "rewritten" (the new sentence).`;
 
 async function groqChat(text, groqKey, instructions) {
     const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
@@ -400,44 +398,9 @@ async function groqChat(text, groqKey, instructions) {
     }
 }
 
-/**
- * Stage 6: Randomly selects ~30% of sentences and has Groq restructure them.
- */
-async function groqSentenceRewrite(text, groqKey) {
-    const sentenceRegex = /[^.!?]+[.!?]+/g;
-    let sentences = text.match(sentenceRegex) || [];
-    if (sentences.length === 0) return { text: text, fixes: 0 };
-
-    // Randomly pick ~30% of the sentences
-    const numToPick = Math.max(1, Math.floor(sentences.length * 0.3));
-    const picked = [...sentences].sort(() => 0.5 - Math.random()).slice(0, numToPick);
-    
-    if (picked.length === 0) return { text: text, fixes: 0 };
-
-    const prompt = `${STAGE_6_PROMPT}\n\nSENTENCES TO REWRITE:\n${JSON.stringify(picked)}\n\nJSON OUTPUT:`;
-    const messages = [{ role: 'user', content: prompt }];
-
-    try {
-        const content = await GroqAPI.chat(messages, groqKey, true);
-        const parsed = parseGroqJson(content);
-        
-        if (parsed.rewrites && Array.isArray(parsed.rewrites)) {
-            const rewriteMap = {};
-            parsed.rewrites.forEach(r => {
-                if (r.original && r.rewritten) rewriteMap[r.original] = r.rewritten;
-            });
-            const newText = applyJsonReplacements(text, rewriteMap);
-            return { text: newText, fixes: parsed.rewrites.length };
-        }
-    } catch (error) {
-        console.error('Groq Sentence Rewrite Failed:', error);
-    }
-    return { text: text, fixes: 0 };
-}
-
 async function runGroqStages(text, groqKey) {
     let currentText = text;
-    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
 
     const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
     currentText = applyJsonReplacements(currentText, s1);
@@ -458,11 +421,6 @@ async function runGroqStages(text, groqKey) {
     const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
     currentText = applyJsonReplacements(currentText, s5);
     fixes.stage5 = Object.keys(s5).length;
-
-    // Stage 6: Random Sentence Restructuring
-    const s6Result = await groqSentenceRewrite(currentText, groqKey);
-    currentText = s6Result.text;
-    fixes.stage6 = s6Result.fixes;
 
     currentText = cleanTextMechanics(currentText);
 
@@ -538,10 +496,10 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing');
 
-        // Step 5: Groq 6-Stage Post-Processing
-        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+        // Step 5: Groq 5-Stage Post-Processing
+        let groqFixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq 6-stage post-processing...');
+            logs.push('Starting Groq 5-stage post-processing...');
             const groqResult = await runGroqStages(result, GROQ_KEY);
             result = groqResult.text;
             groqFixes = groqResult.fixes;
@@ -550,7 +508,6 @@ export default async function handler(req, res) {
             logs.push(`Groq Stage 3 (Flow) fixes: ${groqFixes.stage3}`);
             logs.push(`Groq Stage 4 (Grammar) fixes: ${groqFixes.stage4}`);
             logs.push(`Groq Stage 5 (Experimental) fixes: ${groqFixes.stage5}`);
-            logs.push(`Groq Stage 6 (Sentence Rewriter) fixes: ${groqFixes.stage6}`);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
