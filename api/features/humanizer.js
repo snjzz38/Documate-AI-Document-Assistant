@@ -292,7 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt designed to break detection vectors (frequency, parts-of-speech, cadence).
+ * Step 2: Builds a highly streamlined prompt focused on structural variation,
+ * syntactic inversion, contraction density, and participial phrase removal.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -300,29 +301,25 @@ function buildChunkPrompt(chunk, plans) {
         planBlock = `\nRESTRUCTURE PLANS FOR THIS SPECIFIC CHUNK:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor. Rewrite the following text to sound completely human, natural, and engaging. 
+    return `You are an expert editor. Rewrite the following text to sound completely organic, human, and engaging. 
     
 CRITICAL ARCHITECTURAL SHIFT FOR BYPASSING DETECTORS:
-- Do NOT perform a simple sentence-for-sentence rewrite. Restructure the entire paragraph flow. Combine adjacent thoughts, delete filler words, and collapse redundant sentences.
-- TARGET TONE: Write in a polished, highly engaging editorial voice (similar to Wired, National Geographic, or The New Yorker). It must sound smart and authoritative, avoiding both dry academic stiffness and low-effort, childish blog slang.
-- MANDATORY CONTRACTIONS: Naturally integrate common contractions (it's, won't, don't, can't, we've, there's, shouldn't, we're) throughout. Avoid formal, fully spelled-out word pairs.
-- INTRODUCE HUMAN NUANCE: Inject elements of human qualification, parenthetical asides, or slight hesitation. Do NOT copy any direct examples; instead, invent original, brief, context-appropriate qualifying remarks naturally.
+- DO NOT perform a simple word-for-word translation. Restructure the entire paragraph flow. Combine, shorten, or reorganize thoughts dynamically.
+- TONE: Use an active, intelligent, and highly engaging editorial voice (similar to Wired or The New Yorker). It must sound smart and authoritative, avoiding both formal academic stiffness and childish blog slang.
+- MANDATORY CONTRACTIONS: Natural human writing defaults to contractions. Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, there's, shouldn't) throughout.
+- ACTIVE SYNTACTIC INVERSION: Intentionally vary sentence openings. Do not start sentences with the same nouns, pronouns, or parts of speech consecutively. Begin some sentences with dependent clauses, others with prepositional phrases, and others with direct, active statements.
+- BAN PARTICIPIAL CLAUSES: Avoid trailing participle clauses (e.g., do NOT write "..., enabling us to survive" or "..., highlighting the problem"). Instead, use a simple conjunction ("and this lets us survive") or break the thought into a new sentence.
+- NO CLICHÉ SUMMARY STATEMENTS: Do NOT output empty, dramatic transition statements (e.g., "It's the only way forward," "The logistics are brutal," "We aren't mere tourists"). Every sentence must carry actual, concrete informational value.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES TO DEFEAT LINGUISTIC DETECTORS:
+STRICT FORMATTING RULES:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. ABSOLUTELY NO EMPTY ONE-LINER DRAMA FILLER: Never write shallow, clichéd, or dramatic summary statements (e.g., do NOT write "It's the only way forward.", "Logistics are brutal.", "Resource weight is the enemy.", "We need that water."). Every sentence—whether short or long—must carry actual, concrete informational value.
-3. UNPREDICTABLE CADENCE: Avoid writing sentences that have a repeating length or syllable pattern. Place structurally diverse sentences adjacent to each other (e.g., follow a winding 30-word sentence starting with a dependent clause with a clear, active 10-word assertion). Avoid any repeating sentence-length templates or alternating rhythmic patterns.
-4. SYNTACTIC VARIATION: Start sentences with varying parts of speech. Use transition phrases, conditional clauses ("If we do not..."), or occasional questions ("Why does this matter?"). Break the "Subject + Verb + Object" starter monotony.
-5. BAN MECHANICAL HYPHENATION: Avoid mechanical hyphenated adjective compounds. Use descriptive prepositional phrases instead. Keep hyphens to an absolute minimum.
-6. ABSOLUTELY BAN academic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
-7. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
-   Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
-8. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
-9. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split sentences cleanly.
+2. Ensure highly asymmetric sentence lengths: place a long, winding, complex sentence (25-35 words) adjacent to a clear, medium-length sentence.
+3. Every sentence must be grammatically complete and syntactically sound. Avoid awkward, over-engineered inversions that sound unnatural.
+4. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split sentences cleanly.
 
 Output ONLY the rewritten chunk:`;
 }
