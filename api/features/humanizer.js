@@ -101,6 +101,31 @@ function splitIntoChunks(text, sentencesPerChunk = 4) {
 }
 
 /**
+ * Uses Groq to group sentences into logical, topically coherent paragraphs.
+ */
+async function groqLogicalChunk(text, groqKey) {
+    const prompt = `You are an expert editor. Analyze the following text and group the sentences into 2-4 logical paragraphs based on their topics. Do NOT change the wording of the sentences at all. Only group them. Return a JSON object with a key "chunks" containing an array of strings, where each string is a logical paragraph.
+
+TEXT TO ANALYZE:
+ ${text}
+
+JSON OUTPUT:`;
+
+    const messages = [{ role: 'user', content: prompt }];
+    try {
+        const content = await GroqAPI.chat(messages, groqKey, true);
+        const parsed = parseGroqJson(content);
+        if (parsed.chunks && Array.isArray(parsed.chunks) && parsed.chunks.length > 0) {
+            return parsed.chunks;
+        }
+        return splitIntoChunks(text); // Fallback
+    } catch (error) {
+        console.error('Groq Logical Chunking Failed:', error);
+        return splitIntoChunks(text); // Fallback
+    }
+}
+
+/**
  * Replaces banned AI words while preserving the original capitalization.
  */
 function applyWordSwaps(text) {
@@ -164,29 +189,42 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
+// A condensed snippet of the Turnitin-verified human exemplar to force mimicry.
+const EXEMPLAR_SNIPPET = `In Angela's Ashes, McCourt develops the characters by immediately separating children from adults. The narrator's father is gone, northward, leaving the family far behind, while the grandparents are hostile. Even the mother seems antagonistic and unfriendly, whining for her children's help, instead of doing things for herself. This host of unfriendly, enemy-like adults helps to establish a mood of everything being stacked against the children. In The Street, a very different spectacle is set. To establish an unkind environment, the author uses not unfriendly characters, but the absence of side characters at all. Petry instead personifies the November wind and compares it to the struggles of life. The author uses the wind to show how difficult it is to live in a world that seems to be throwing things your way. She states, "It did everything it could to discourage the people walking along the street." Lutie Johnson, the main character of the story, was forced to push through this harsh November wind in order to find a place to stay. Like Frank McCourt, Lutie Johnson struggled with poverty too, but she couldn't let it stop her from getting where she needed to go.`;
+
 /**
  * Builds a highly constrained prompt for naturalizing a chunk of text.
  */
-function buildChunkPrompt(chunk) {
+function buildChunkPrompt(chunk, prevChunk, nextChunk) {
+    let contextBlock = "";
+    if (prevChunk || nextChunk) {
+        contextBlock = `\nSURROUNDING CONTEXT (Do NOT rewrite the context, ONLY use it to understand what comes before/after so your rewritten chunk flows perfectly):\nPREVIOUS TEXT: "${prevChunk || 'None'}"\nNEXT TEXT: "${nextChunk || 'None'}"\n`;
+    }
+    
     return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
+HUMAN EXEMPLAR STYLE (Mimic this exact flow, transition style, and syntactic variety):
+ ${EXEMPLAR_SNIPPET}
+
+ ${contextBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary.
-2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
-3. SENTENCE FLOW: Connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas") within a complete sentence. Do NOT output choppy, disconnected, or staccato sentences.
-4. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
-5. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
-6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
-7. NO EM DASHES (—) or SEMICOLONS (;). 
-8. NO COMMA CHAINS: A sentence must not have more than one comma.
-9. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
-10. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
-11. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
-12. Do NOT repeat the same concept or premise in consecutive sentences.
-13. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
+1. Output ONLY the rewritten text. No commentary. Do NOT output the context.
+2. FLOW & COHERENCE (CRITICAL): You MUST use logical transition phrases (e.g., "Because of this,", "To achieve this,", "In contrast,") to connect facts. Do NOT output a list of disconnected, staccato facts. Combine related facts into fluid, coherent sentences.
+3. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+4. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+5. NO TAUTOLOGIES: NEVER repeat the same word or concept in the same sentence.
+6. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+7. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
+8. NO EM DASHES (—) or SEMICOLONS (;). 
+9. NO COMMA CHAINS: A sentence must not have more than one comma.
+10. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+11. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+12. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+13. Do NOT repeat the same concept or premise in consecutive sentences.
+14. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -199,8 +237,8 @@ Output ONLY the rewritten chunk:`;
 /**
  * Calls the Gemini API to humanize a specific chunk of text.
  */
-async function humanizeChunk(chunk, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk);
+async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
+    const prompt = buildChunkPrompt(chunk, prevChunk, nextChunk);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
@@ -329,7 +367,7 @@ const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells 
 7. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
 Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
+const STAGE_3_PROMPT = `You are a flow editor. Find choppy, disconnected pairs or groups of sentences that lack logical transitions (e.g., "Water ice is the primary target. Lunar poles contain massive ice deposits."). Combine these disjointed sentences into one smooth, coherent sentence using natural transitions (e.g., "and", "so", "but", "while", "whereas").
 CRITICAL RULES: 
 - NEVER change the meaning or add words. 
 - NEVER create run-on sentences or comma chains.
@@ -437,12 +475,34 @@ export default async function handler(req, res) {
         let processed = applyWordSwaps(text);
         logs.push('Applied banned word replacements');
 
-        // Step 2: Split into chunks
-        const chunks = splitIntoChunks(processed, 4);
-        logs.push(`Split into ${chunks.length} chunks`);
+        // Step 2: Split into logical chunks using Groq (or fallback to regex)
+        let chunks = [];
+        if (GROQ_KEY) {
+            logs.push('Analyzing logical chunks with Groq...');
+            chunks = await groqLogicalChunk(processed, GROQ_KEY);
+        } else {
+            chunks = splitIntoChunks(processed, 4);
+        }
+        logs.push(`Split into ${chunks.length} logical chunks`);
 
         const temperature = 0.7 + Math.random() * 0.3;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
+
+        // Step 3: Humanize chunks sequentially
+        const humanizedChunks = [];
+        for (let i = 0; i < chunks.length; i++) {
+            let prevChunk = i > 0 ? humanizedChunks[i - 1] : "";
+            let nextChunk = i < chunks.length - 1 ? chunks[i + 1] : "";
+            
+            try {
+                const humanized = await humanizeChunk(chunks[i], prevChunk, nextChunk, GEMINI_KEY, temperature);
+                humanizedChunks.push(humanized);
+                logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
+            } catch (err) {
+                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
+                humanizedChunks.push(chunks[i]);
+            }
+        }
 
         // Step 3: Humanize chunks sequentially
         const humanizedChunks = [];
