@@ -164,28 +164,29 @@ function applyJsonReplacements(text, jsonMap) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
-const EXEMPLAR_SNIPPET = `In Angela's Ashes, McCourt develops the characters by immediately separating children from adults. The narrator's father is gone, northward, leaving the family far behind, while the grandparents are hostile. Even the mother seems antagonistic and unfriendly, whining for her children's help, instead of doing things for herself. This host of unfriendly, enemy-like adults helps to establish a mood of everything being stacked against the children. In The Street, a very different spectacle is set. To establish an unkind environment, the author uses not unfriendly characters, but the absence of side characters at all. Petry instead personifies the November wind and compares it to the struggles of life. She states, "It did everything it could to discourage the people walking along the street." Lutie Johnson was forced to push through this harsh November wind in order to find a place to stay. Like Frank McCourt, Lutie Johnson struggled with poverty too, but she couldn't let it stop her from getting where she needed to go.`;
-
 /**
- * Builds a simplified, persona-based prompt for naturalizing a chunk of text.
+ * Builds a highly constrained prompt for naturalizing a chunk of text.
  */
 function buildChunkPrompt(chunk) {
-    return `You are a smart, slightly imperfect high school student writing an academic essay. Rewrite the following text so it sounds exactly like a human wrote it. Keep the exact same meaning and academic tone. Do not add rhetorical questions or conversational slang.
-
-HUMAN EXEMPLAR STYLE (Mimic this exact flow, transition style, and syntactic variety):
- ${EXEMPLAR_SNIPPET}
+    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
 
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary. No titles or headers.
-2. Vary your sentence lengths drastically. Mix short, punchy sentences with longer, complex ones.
-3. Use natural transitions (e.g., "Because of this,", "To achieve this,", "Unlike X, Y..."). NEVER start sentences with "Furthermore," "Moreover," "Thus," or "Additionally,".
-4. Do NOT use ", and" or ", but" to glue two independent clauses together. Use a period to split them into separate sentences.
-5. Do NOT use em dashes (—) or semicolons (;).
-6. Do NOT use lists of three items. Use two items, or separate sentences.
-7. NEVER use the words: "profound", "remarkable", "fabric of the universe", "dynamic interplay", "intrinsic value", or "facilitate".
+1. Output ONLY the rewritten text. No commentary.
+2. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER start a sentence with "And", "With", "As", or "Which". NEVER leave sentence fragments.
+3. SENTENCE FLOW: Connect related ideas using natural conjunctions ("and", "so", "but", "while", "whereas") within a complete sentence. Do NOT output choppy, disconnected, or staccato sentences.
+4. BURSTINESS: Vary sentence lengths. Mix short, direct sentences with longer, complex ones. Do not use a uniform, metronomic rhythm.
+5. NO LISTS OF THREE: Never list three items. Use two items, or separate sentences.
+6. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", "dynamic interplay", "vast landscape", "striking resemblance", "human ingenuity", "infinite array", or "rigorous investigation". Use plain, literal words.
+7. NO EM DASHES (—) or SEMICOLONS (;). 
+8. NO COMMA CHAINS: A sentence must not have more than one comma.
+9. NO "WITH [NOUN] [VERB]ING": Never use "with [noun] [verb]ing" constructions. Break them into separate sentences.
+10. NO PARTICIPIAL PHRASES: Never end a sentence with a comma and an -ing verb.
+11. NEVER start consecutive sentences with the same word. NEVER start sentences with "Ultimately", "Similarly", "Furthermore", "Thus,", or "As a result,".
+12. Do NOT repeat the same concept or premise in consecutive sentences.
+13. NEVER use phrases like "facilitated by this methodology" or "in-depth analysis". Keep the language concrete.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -211,16 +212,33 @@ async function humanizeChunk(chunk, apiKey, temperature) {
 
 const AI_STERILE_SWAPS = {
     "regarding": "about",
+    "represents a": "is a",
+    "represents an": "is an",
+    "represents the": "is the",
     "represents": "is",
+    "abstract cognitive tools": "mental tools",
+    "artificial logic exercise": "logic exercise",
+    "societal organization": "organizing society",
+    "limitless sequence": "endless sequence",
+    "persist outside the mind": "exist outside the mind",
     "serving as": "acting as",
     "functioning as": "acting as",
+    "act outside of": "exist outside of",
+    "truly remarkable": "highly effective",
+    "remarkable accomplishment": "major accomplishment",
+    "fabric of the universe": "structure of reality",
+    "fabric of reality": "structure of reality",
+    "mortal invention": "human invention",
+    "mortal creation": "human creation",
     "facilitated by this methodology": "helped by this approach",
+    "in-depth analysis is facilitated": "detailed analysis is helped",
     "striking resemblance": "close resemblance",
     "product of human ingenuity": "human creation",
+    "infinite array": "large number",
+    "vast array": "large number",
     "rigorous investigation": "detailed study",
     "serves as a bridge": "acts as a link",
-    "the nature world": "the natural world",
-    "global challenges": "major world problems"
+    "the nature world": "the natural world"
 };
 
 /**
@@ -231,7 +249,7 @@ function cleanTextMechanics(text) {
 
     // STRICT EM-DASH & SEMICOLON BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    result = result.replace(/;/g, '.'); 
+    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
     result = result.replace(/,\s*,/g, ',');
 
     // STERILE VOCABULARY SWAPS
@@ -245,18 +263,32 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // FIX ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.'); 
-    result = result.replace(/,{2,}/g, ','); 
-    result = result.replace(/\.\s*,/g, '.');   
-    result = result.replace(/,\s*\./g, '.');   
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); 
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    // FIX GROQ REPLACEMENT ARTIFACTS
+    result = result.replace(/\.{2,}/g, '.'); // Double periods
+    result = result.replace(/,{2,}/g, ','); // Double commas
+    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma
+    result = result.replace(/,\s*\./g, '.');   // Comma followed by period
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
+    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
     
+    // Fix Comma Splices (e.g., "world, The Fibonacci" -> "world. The Fibonacci")
+    // This matches a comma followed by a space and a capital letter, but ignores proper nouns like "Earth"
+    result = result.replace(/,(\s+[A-Z][a-z])/g, '.$1');
+    
+    // Fix "but However" or "but However,"
+    result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
+    // Fix missing period before "However"
+    result = result.replace(/,\s*However,/gi, '. However,');
+    result = result.replace(/,\s*However\s/gi, '. However ');
+
     // GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+    result = result.replace(/\ban discovery/gi, 'a discovery');
+    result = result.replace(/\ban human/gi, 'a human');
+    result = result.replace(/\bas means of/gi, 'as a means of');
 
     // SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
@@ -278,38 +310,95 @@ function postProcess(text) {
     return cleanTextMechanics(result);
 }
 
+
 // ==========================================================================
-// 6. GROQ FULL-TEXT FLOW EDITOR MODULE
+// 6. GROQ 6-STAGE SANITY CHECKER MODULE
 // ==========================================================================
 
-const FLOW_EDITOR_PROMPT = `You are an expert academic editor. Rewrite the following text to fix choppy, staccato flow and sentence fragments. 
-RULES:
-1. Connect disjointed facts using natural transitions (e.g., "Because of this,", "To achieve this,").
-2. Fix all sentence fragments. If a sentence starts with "Unlike" or "With" and is incomplete, attach it to the main clause with a comma.
-3. Do NOT use ", and" or ", but" to glue independent clauses together. Use a period.
-4. Do NOT use em dashes (—) or semicolons (;).
-5. Do NOT add headers, titles, or meta-commentary.
+const STAGE_1_PROMPT = `You are a post-processing engine. Find unnatural, robotic, or overly formal AI vocabulary in the text. 
+Return a JSON object where keys are the exact unnatural phrases from the text, and values are natural, human-sounding alternatives that fit the context. 
+Make sure your returned object contains the exact replacement, and that applying the replacement verbatim won't lead to any gramatical mistakes. Do not fix grammar or punctuation, only vocabulary. If none, return {}.`;
 
-Return a JSON object with a single key "rewritten_text" containing the fully edited text.
+const STAGE_2_PROMPT = `You are a strict syntax editor. Find AI syntactic tells in the text: 
+1. Em dashes (—) or semicolons (;).
+2. LISTS OF THREE OR MORE: Any list of 3 or more items. Reduce them to exactly TWO items.
+3. Excessive ", which" clauses (more than 1 per paragraph).
+4. Participial phrases (e.g., "perspectives, acting as..." or "...world, using basic rules..."). Replace with "and [verb]".
+5. COMMA CHAINS: Any sentence containing more than one comma. You MUST break these into separate, shorter sentences using periods.
+6. "WITH [NOUN] [VERB]ING" constructions (e.g., "with math acting as..."). Break them into separate sentences.
+7. TAUTOLOGIES: Phrases like "circular shape of circles" or "assigning values is an act of assigning meaning". Fix them to be concise.
+Return a JSON object where keys are the EXACT sentences containing these errors, and values are the rewritten sentences. Ensure the grammar and punctuation are perfect. If none, return {}.`;
 
-TEXT TO EDIT:
-`;
+const STAGE_3_PROMPT = `You are a minimal flow editor. Find ONLY egregious, choppy pairs of consecutive 3-4 word sentences (e.g., "Math is a tool. It helps us."). Combine them into one sentence using "and" or "so". 
+CRITICAL RULES: 
+- NEVER change the meaning or add words. 
+- NEVER create run-on sentences or comma chains.
+- NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
+- If you are not 100% sure the combination is perfect, return {}.
+Return a JSON object where keys are the EXACT original disjointed sentences (joined by a space), and values are a single, smoothly connected sentence. If none, return {}.`;
 
-async function runGroqStages(text, groqKey) {
-    const prompt = `${FLOW_EDITOR_PROMPT}${text}\n\nJSON OUTPUT:`;
+const STAGE_4_PROMPT = `You are a sentence variety editor. Find instances where:
+1. 2 or more consecutive sentences start with the exact same word.
+2. Sentences start with a transition word/phrase followed by a comma (e.g., "However,", "Therefore,").
+3. Sentences start with formulaic AI phrases like "This perspective suggests", "An opposing view posits", "The core evidence for this perspective highlights", or "This practice exposes". Rewrite them to be direct and concrete.
+Return a JSON object where keys are the EXACT repetitive or transition-starting sentences, and values are the rewritten sentences with a different, natural opening phrase. Ensure the grammar is perfect. If none, return {}.`;
+
+const STAGE_5_PROMPT = `You are a lexical variety editor. Find instances where the same word root is repeated multiple times in close proximity (e.g., "logic", "logically"). 
+Return a JSON object where keys are the exact repeated words/phrases, and values are appropriate synonyms that fit the context. 
+CRITICAL GRAMMAR RULE: Ensure your replacement matches the exact grammatical context (articles, plurality, tense). Do NOT remove articles (a/an/the) or change plurality. If none, return {}.`;
+
+const STAGE_6_PROMPT = `You are a meticulous grammar and typo editor. Find sentences with typos, spelling errors (e.g., "mathematicalematics", "constructd"), or broken syntax (e.g., "but However,"). 
+CRITICAL: Find and fix SENTENCE FRAGMENTS. If a sentence starts with "And", "With", "As", or "Which" and does not form a complete thought (e.g., "With the Fibonacci sequence appearing in galaxies."), you MUST combine it with the previous sentence using a comma, or rewrite it to be a complete standalone sentence.
+CRITICAL: Find and fix COMMA SPLICES. If two independent clauses are joined by a comma, fix it by changing the comma to a period or adding a conjunction.
+CRITICAL: NEVER include meta-commentary, explanations, or reasoning in your output. ONLY output the exact replacement text.
+Also check for article errors (e.g., "an discovery" instead of "a discovery").
+Return a JSON object where keys are the EXACT broken sentences/fragments, and values are the corrected sentences with perfect grammar. Do not change the meaning. If none, return {}.`;
+
+async function groqChat(text, groqKey, instructions) {
+    const prompt = `${instructions}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
 
     try {
         const content = await GroqAPI.chat(messages, groqKey, true);
-        const parsed = parseGroqJson(content);
-        if (parsed.rewritten_text && typeof parsed.rewritten_text === 'string') {
-            return { text: parsed.rewritten_text, fixes: { stage1: 1 } };
-        }
-        return { text: text, fixes: { stage1: 0 } };
+        return parseGroqJson(content);
     } catch (error) {
-        console.error('Groq Flow Editor Failed:', error);
-        return { text: text, fixes: { stage1: 0 } };
+        console.error('Groq Stage Failed:', error);
+        return {};
     }
+}
+
+async function runGroqStages(text, groqKey) {
+    let currentText = text;
+    const fixes = { stage1: 0, stage2: 0, stage3: 0, stage4: 0, stage5: 0, stage6: 0 };
+
+    const s1 = await groqChat(currentText, groqKey, STAGE_1_PROMPT);
+    currentText = applyJsonReplacements(currentText, s1);
+    fixes.stage1 = Object.keys(s1).length;
+
+    const s2 = await groqChat(currentText, groqKey, STAGE_2_PROMPT);
+    currentText = applyJsonReplacements(currentText, s2);
+    fixes.stage2 = Object.keys(s2).length;
+
+    const s3 = await groqChat(currentText, groqKey, STAGE_3_PROMPT);
+    currentText = applyJsonReplacements(currentText, s3);
+    fixes.stage3 = Object.keys(s3).length;
+
+    const s4 = await groqChat(currentText, groqKey, STAGE_4_PROMPT);
+    currentText = applyJsonReplacements(currentText, s4);
+    fixes.stage4 = Object.keys(s4).length;
+
+    const s5 = await groqChat(currentText, groqKey, STAGE_5_PROMPT);
+    currentText = applyJsonReplacements(currentText, s5);
+    fixes.stage5 = Object.keys(s5).length;
+
+    // Stage 6: Grammar, Typos, and Fragments
+    const s6 = await groqChat(currentText, groqKey, STAGE_6_PROMPT);
+    currentText = applyJsonReplacements(currentText, s6);
+    fixes.stage6 = Object.keys(s6).length;
+
+    currentText = cleanTextMechanics(currentText);
+
+    return { text: currentText, fixes };
 }
 
 
