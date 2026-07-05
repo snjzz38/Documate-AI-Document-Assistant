@@ -1,4 +1,4 @@
-z// ==========================================================================
+// ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
@@ -371,7 +371,7 @@ function cleanTextMechanics(text) {
 
     // 4. FIX ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); 
-    result = result.replace(/{2,}/g, ','); 
+    result = result.replace(/,{2,}/g, ','); // Corrected to target consecutive commas
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
