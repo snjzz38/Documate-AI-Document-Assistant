@@ -76,22 +76,38 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // Stiff Space/Exploration AI Tells (Scanned Text Pass)
-    "prohibitively high costs": "insane costs",
-    "pose a significant obstacle": "are a massive roadblock",
-    "underscores the need": "shows we need",
-    "Given the imperative to optimize": "Since we have to make",
-    "essential for ensuring the long-term sustainability": "the only way to survive",
-    "unnecessary burdens that hinder our progress": "useless weight",
-    "keeping our missions agile": "keeping things light",
-    "propelling us forward with greater efficiency": "letting us travel faster",
-    "starkly highlights the enormity of the financial challenge": "shows how ridiculously expensive this is",
-    "underscores the imperative for innovative solutions": "means we need a better plan",
-    "severely constrains our capabilities": "limits what we can do",
-    "effectively holds us back": "holds us back",
-    "underscores the critical importance of": "shows how important it is to",
-    "leveraging the raw materials they discover upon arrival to construct their lives and establish a foothold": "using what they find to build a home",
-    "traditional approaches": "the old way of doing things"
+    // De-escalating Formal/Stiff Space Explanations
+    "nature of our extended space missions": "reality of long space flights",
+    "it is essential that we refrain from": "we really shouldn't",
+    "utilizing the resources available to us": "using what's already out there",
+    "transporting substantial quantities of": "dragging tons of",
+    "opt to harvest what we require": "just harvest what we need",
+    "transition away from relying on": "stop relying on",
+    "prohibitive challenge": "massive problem",
+    "constraints imposed by our current methods": "limits of how we travel now",
+    "top priority in terms of resource acquisition": "main target",
+    "numerous applications and potential uses": "many uses",
+    "perpetually shadowed craters": "craters in permanent shadow",
+    "is the cornerstone of": "is the key to",
+    "unsustainable endeavor": "losing battle",
+    "primary hurdle": "biggest roadblock",
+    "severe limitations": "tight limits",
+    "critical target": "main focus",
+    "essential role": "big role",
+    "entirely impractical": "impossible",
+    "concrete reality": "reality",
+    "tangible reality": "reality",
+    "significant implications": "huge consequences",
+    "vital linchpin": "linchpin",
+    "vital supply stations": "supply stops",
+    "treasure trove": "jackpot",
+    "crucial aspect": "key detail",
+    "formidable obstacle": "big problem",
+    "significant shift": "huge change",
+    "sufficient water resources": "enough water",
+    "extended periods": "a long time",
+    "profound shift": "massive change",
+    "unlocked new possibilities": "opened new doors"
 };
 
 
@@ -218,11 +234,11 @@ function injectBurstiness(text) {
         let s = sentences[i].trim();
         let words = s.split(/\s+/);
 
-        // Limit threshold to 28 words to avoid breaking tight, complex sentences
-        if (words.length > 28 && Math.random() > 0.4) {
+        // Raised threshold to 32 words to avoid breaking structurally intact thoughts
+        if (words.length > 32 && Math.random() > 0.4) {
             let splitIdx = words.findIndex((w, idx) => 
-                idx > 10 && 
-                idx < (words.length - 10) && 
+                idx > 12 && 
+                idx < (words.length - 12) && 
                 (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'while')
             );
             
@@ -245,7 +261,6 @@ function injectBurstiness(text) {
 
 /**
  * Mechanically breaks AI comma chains and ", and" loops to increase burstiness.
- * (The dangerous relative clause split is removed from here to prevent broken syntax)
  */
 function mechanicalCommaBreaker(text) {
     let result = text;
@@ -283,7 +298,7 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt that forces Gemini to conceptually rebuild the text.
+ * Step 2: Builds a prompt that forces Gemini to conceptually rebuild the text with contractions.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -293,26 +308,27 @@ function buildChunkPrompt(chunk, plans) {
     
     return `You are an expert editor. Rewrite the following text to sound completely human, natural, and engaging. 
     
-CRITICAL ARCHITECTURAL SHIFT (BYPASS PARAPHRASING DETECTORS):
-- Do NOT perform a simple word-for-word or sentence-for-sentence translation. 
-- Re-order the ideas. Combine adjacent thoughts and collapse redundant sentences.
-- Speak in an active, direct, and slightly raw conversational voice (like a smart tech journalist writing for Wired).
-- Use natural contractions (it's, won't, don't, can't, we've).
+CRITICAL ARCHITECTURAL SHIFT FOR BYPASSING DETECTORS:
+- Do NOT perform a simple word-for-word translation. Re-order the ideas, combine adjacent thoughts, and collapse redundant sentences.
+- Speak in an active, direct, and conversational voice (like a tech journalist writing an engaging column).
+- MANDATORY: Use natural contractions everywhere (it's, won't, don't, can't, we've, there's, shouldn't, we're). Avoid formal, fully spelled-out word pairs.
+- Inject occasional parenthetical remarks (like this one) to disrupt the sterile cadence of standard sentences.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES TO BYPASS MODEL 4.6b DETECTION:
+STRICT RULES TO BYPASS MULTILINGUAL DETECTORS:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Talk about the physical facts directly.
-3. BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do.").
-4. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
+2. Vary sentence structures randomly. Start some sentences with transition phrases, others with conditional clauses ("If we don't..."), and others with direct questions ("So, how do we fix this?").
+3. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
+4. BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do.").
+5. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
    Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
-5. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
-6. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
-7. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
-8. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;).
+6. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
+7. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
+8. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
+9. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;).
 
 Output ONLY the rewritten chunk:`;
 }
@@ -380,7 +396,7 @@ const AI_STERILE_SWAPS = {
 };
 
 /**
- * Master regex function to mechanically destroy AI tells and fix grammar.
+ * Master regex function to mechanically destroy AI tells, inject contractions, and fix grammar.
  */
 function cleanTextMechanics(text) {
     let result = text;
@@ -390,7 +406,34 @@ function cleanTextMechanics(text) {
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // 2. STERILE VOCABULARY SWAPS
+    // 2. CASE-PRESERVING MECHANICAL CONTRACTION ENGINE
+    // Forces contractions on common word pairs to guarantee high human signature counts
+    result = result.replace(/\bIs\s+not\b/g, "Isn't");
+    result = result.replace(/\bis\s+not\b/g, "isn't");
+    result = result.replace(/\bDo\s+not\b/g, "Don't");
+    result = result.replace(/\bdo\s+not\b/g, "don't");
+    result = result.replace(/\bDoes\s+not\b/g, "Doesn't");
+    result = result.replace(/\bdoes\s+not\b/g, "doesn't");
+    result = result.replace(/\bCannot\b/g, "Can't");
+    result = result.replace(/\bcannot\b/g, "can't");
+    result = result.replace(/\bWill\s+not\b/g, "Won't");
+    result = result.replace(/\bwill\s+not\b/g, "won't");
+    result = result.replace(/\bThere\s+is\b/g, "There's");
+    result = result.replace(/\bthere\s+is\b/g, "there's");
+    result = result.replace(/\bIt\s+is\b/g, "It's");
+    result = result.replace(/\bit\s+is\b/g, "it's");
+    result = result.replace(/\bWe\s+are\b/g, "We're");
+    result = result.replace(/\bwe\s+are\b/g, "we're");
+    result = result.replace(/\bThey\s+are\b/g, "They're");
+    result = result.replace(/\bthey\s+are\b/g, "they're");
+    result = result.replace(/\bYou\s+are\b/g, "You're");
+    result = result.replace(/\byou\s+are\b/g, "you're");
+    result = result.replace(/\bShould\s+not\b/g, "Shouldn't");
+    result = result.replace(/\bshould\s+not\b/g, "shouldn't");
+    result = result.replace(/\bWould\s+not\b/g, "Wouldn't");
+    result = result.replace(/\bwould\s+not\b/g, "wouldn't");
+
+    // 3. STERILE VOCABULARY SWAPS
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -401,10 +444,10 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // 3. MECHANICAL AI LOOP BREAKING
+    // 4. MECHANICAL AI LOOP BREAKING
     result = mechanicalCommaBreaker(result);
 
-    // 4. FIX ARTIFACTS & FUSE ACCIDENTAL FRAGMENTS
+    // 5. FIX ARTIFACTS & FUSE ACCIDENTAL FRAGMENTS
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
@@ -424,7 +467,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bpoised\s+to\s+redefine\s+our\s+relationship\s+with\s+the\s+universe\b/gi, 'changing how we explore');
     result = result.replace(/\btransforming\s+our\s+understanding\s+of\s+the\s+cosmos\s+and\s+our\s+place\s+within\s+it\b/gi, 'and how we look at space');
 
-    // 5. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
+    // 6. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+underscoring\s+/gi, ' and underscores ');
@@ -446,12 +489,12 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bHaving\s+transcended\s+/gi, 'Once we move past ');
     result = result.replace(/\bhaving\s+transcended\s+/gi, 'once we move past ');
     
-    // 6. GRAMMAR FIXES (a vs an)
+    // 7. GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
 
-    // 7. SPACING & CAPITALIZATION
+    // 8. SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
