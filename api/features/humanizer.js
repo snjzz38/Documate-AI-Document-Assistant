@@ -503,8 +503,7 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied master regex post-processing');
 
-        // Step 6: Groq Targeted Sentence Restructuring (Optional, if you still want Groq)
-        // If you want to keep Groq, leave this. Otherwise, you can remove it.
+        // Step 6: Groq Targeted Sentence Restructuring
         let groqFixes = { restructures: 0 };
         if (GROQ_KEY) {
             logs.push('Starting Groq targeted sentence restructuring...');
@@ -518,6 +517,19 @@ export default async function handler(req, res) {
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
+
+        // Calculate final stats and usage
+        const totalTimeMs = Date.now() - startTime;
+        logs.push(`Final: ${result.length} chars`);
+
+        const geminiUsage = getGeminiUsage();
+        const groqUsage = getGroqModelUsage();
+
+        const formatUsage = (usage) => {
+            return Object.entries(usage).map(([model, stats]) => 
+                `${model} (${stats.success} ok, ${stats.failed} fail)`
+            );
+        };
 
         const humanizerNetworkResult = {
             executionTimeMs: totalTimeMs,
@@ -569,11 +581,3 @@ export default async function handler(req, res) {
         });
     }
 }
-
-// Exporting modules for testing and external use
-export { 
-    postProcess as PostProcessor, 
-    AI_VOCAB_SWAPS, 
-    applyWordSwaps,
-    splitIntoChunks
-};
