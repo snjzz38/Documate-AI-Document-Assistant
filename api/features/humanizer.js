@@ -210,6 +210,19 @@ function injectBurstiness(text) {
     return result.join(' ');
 }
 
+/**
+ * Mechanically breaks AI comma chains and ", and" loops to increase burstiness.
+ */
+function mechanicalCommaBreaker(text) {
+    let result = text;
+    // Break ", and [Capital Letter]" into two sentences
+    result = result.replace(/,\s+and\s+([A-Z][a-z])/g, '. $1');
+    // Break ", but [Capital Letter]" into two sentences
+    result = result.replace(/,\s+but\s+([A-Z][a-z])/g, '. But $1');
+    // Break ", which" into ". This" to destroy relative clauses
+    result = result.replace(/,\s+which\s/gi, '. This ');
+    return result;
+}
 
 // ==========================================================================
 // 3. PROMPT ENGINEERING MODULE
@@ -364,46 +377,57 @@ function postProcess(text) {
     result = result.replace(/[""„]/g, '"');
     result = cleanTextMechanics(result);
     
-    // Mechanically inject burstiness AFTER cleaning
-    result = injectBurstiness(result);
+    // Mechanically break comma chains AFTER initial cleaning
+    result = mechanicalCommaBreaker(result);
+    
+    // Run cleaner one more time to fix spacing/capitalization from the breaks
+    result = cleanTextMechanics(result);
     
     return result;
 }
 
-
 // ==========================================================================
-// 6. GROQ SINGLE-STAGE JSON FIXER MODULE
+// 6. GROQ SENTENCE RESTRUCTURER MODULE
 // ==========================================================================
 
-const JSON_FIXER_PROMPT = `You are an expert syntax and flow editor. Analyze the text and find the WORST sentences that have these specific errors:
-1. PARTICIPIAL PHRASES: Sentences ending with a comma and an -ing verb (e.g., "...eliminating the need"). Rewrite to use "and [verb]" or split into two sentences.
-2. AI PIVOTS: Sentences starting with "Beyond [X], Y..." or "Adopting this method...". Rewrite to start naturally.
-3. COMMA CHAINS: Sentences with more than ONE comma.
-4. CONTRACTIONS: If a sentence uses "does not" or "is not", change it to "doesn't" or "isn't".
-5. TAUTOLOGIES & REPETITION: Sentences repeating the same word or concept. Rewrite the second sentence to be concise.
-6. DISJOINTED FLOW: Consecutive short, factual sentences that lack transitions. Combine them.
+const RESTRUCTURE_PROMPT = `You are an expert syntax editor. Rewrite the syntax of the provided sentences to make them highly complex and human-like. 
+RULES:
+1. Use dependent clauses (e.g., "Because of X, Y...", "Although X, Y...", "While X, Y...").
+2. Keep the EXACT same meaning. Do not add new facts.
+3. Do NOT use em dashes (—) or semicolons (;).
+4. Do NOT use ", and" or ", but" to connect independent clauses.
+5. Return a JSON object with a key "rewrites" containing an array of objects, each with "original" (the exact input sentence) and "rewritten" (the new sentence).`;
 
-CRITICAL: Do NOT add headers, titles, or meta-commentary to the text. ONLY return the JSON fixes.
-Return a JSON object where keys are the EXACT original sentences, and values are the corrected sentences. If none, return {}.`;
+async function restructureSentences(text, groqKey) {
+    const sentenceRegex = /[^.!?]+[.!?]+/g;
+    let sentences = text.match(sentenceRegex) || [];
+    if (sentences.length < 4) return { text: text, fixes: 0 };
 
-async function runGroqStages(text, groqKey) {
-    const prompt = `${JSON_FIXER_PROMPT}\n\nTEXT:\n${text}\n\nJSON OUTPUT:`;
+    // Randomly pick ~30% of the sentences to restructure
+    const numToPick = Math.max(1, Math.floor(sentences.length * 0.3));
+    const picked = [...sentences].sort(() => 0.5 - Math.random()).slice(0, numToPick);
+    
+    if (picked.length === 0) return { text: text, fixes: 0 };
+
+    const prompt = `${RESTRUCTURE_PROMPT}\n\nSENTENCES TO REWRITE:\n${JSON.stringify(picked)}\n\nJSON OUTPUT:`;
     const messages = [{ role: 'user', content: prompt }];
-    let fixesCount = 0;
 
     try {
         const content = await GroqAPI.chat(messages, groqKey, true);
         const parsed = parseGroqJson(content);
-        fixesCount = Object.keys(parsed).length;
         
-        let result = applyJsonReplacements(text, parsed);
-        result = cleanTextMechanics(result); // Clean up any artifacts
-        
-        return { text: result, fixes: { stage1: fixesCount } };
+        if (parsed.rewrites && Array.isArray(parsed.rewrites)) {
+            const rewriteMap = {};
+            parsed.rewrites.forEach(r => {
+                if (r.original && r.rewritten) rewriteMap[r.original] = r.rewritten;
+            });
+            const newText = applyJsonReplacements(text, rewriteMap);
+            return { text: newText, fixes: parsed.rewrites.length };
+        }
     } catch (error) {
-        console.error('Groq JSON Fixer Failed:', error);
-        return { text: text, fixes: { stage1: 0 } };
+        console.error('Groq Sentence Restructure Failed:', error);
     }
+    return { text: text, fixes: 0 };
 }
 
 
@@ -475,14 +499,17 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied regex post-processing & mechanical burstiness');
 
-        // Step 5: Groq Single-Stage JSON Post-Processing
-        let groqFixes = { stage1: 0 };
+        // Step 5: Groq Targeted Sentence Restructuring
+        let groqFixes = { restructures: 0 };
         if (GROQ_KEY) {
-            logs.push('Starting Groq JSON syntax fixing...');
-            const groqResult = await runGroqStages(result, GROQ_KEY);
+            logs.push('Starting Groq targeted sentence restructuring...');
+            const groqResult = await restructureSentences(result, GROQ_KEY);
             result = groqResult.text;
-            groqFixes = groqResult.fixes;
-            logs.push(`Groq JSON fixes applied: ${groqFixes.stage1}`);
+            groqFixes.restructures = groqResult.fixes;
+            logs.push(`Groq restructured ${groqFixes.restructures} sentences for perplexity.`);
+            
+            // Run regex one last time to clean up any artifacts
+            result = cleanTextMechanics(result);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
