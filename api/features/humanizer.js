@@ -292,36 +292,29 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a highly streamlined prompt focused on structural variation,
- * syntactic inversion, contraction density, and participial phrase removal.
+ * Step 2: Simplified chunk prompt targeting structure inversion, contraction injection, 
+ * participle bans, and rhythm randomization.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
     if (plans && plans.length > 0) {
-        planBlock = `\nRESTRUCTURE PLANS FOR THIS SPECIFIC CHUNK:\n${JSON.stringify(plans, null, 2)}\n`;
+        planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor. Rewrite the following text to sound completely organic, human, and engaging. 
-    
-CRITICAL ARCHITECTURAL SHIFT FOR BYPASSING DETECTORS:
-- DO NOT perform a simple word-for-word translation. Restructure the entire paragraph flow. Combine, shorten, or reorganize thoughts dynamically.
-- TONE: Use an active, intelligent, and highly engaging editorial voice (similar to Wired or The New Yorker). It must sound smart and authoritative, avoiding both formal academic stiffness and childish blog slang.
-- MANDATORY CONTRACTIONS: Natural human writing defaults to contractions. Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, there's, shouldn't) throughout.
-- ACTIVE SYNTACTIC INVERSION: Intentionally vary sentence openings. Do not start sentences with the same nouns, pronouns, or parts of speech consecutively. Begin some sentences with dependent clauses, others with prepositional phrases, and others with direct, active statements.
-- BAN PARTICIPIAL CLAUSES: Avoid trailing participle clauses (e.g., do NOT write "..., enabling us to survive" or "..., highlighting the problem"). Instead, use a simple conjunction ("and this lets us survive") or break the thought into a new sentence.
-- NO CLICHÉ SUMMARY STATEMENTS: Do NOT output empty, dramatic transition statements (e.g., "It's the only way forward," "The logistics are brutal," "We aren't mere tourists"). Every sentence must carry actual, concrete informational value.
+    return `You are an expert editor rewriting a draft to sound completely organic, human, and conversational.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT FORMATTING RULES:
-1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. Ensure highly asymmetric sentence lengths: place a long, winding, complex sentence (25-35 words) adjacent to a clear, medium-length sentence.
-3. Every sentence must be grammatically complete and syntactically sound. Avoid awkward, over-engineered inversions that sound unnatural.
-4. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split sentences cleanly.
-
-Output ONLY the rewritten chunk:`;
+STRICT SIMPLIFIED REWRITE RULES:
+1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
+2. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or questions. 
+3. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+4. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates across paragraphs.
+5. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+6. ELIMINATE AI CLICHÉS: Ban clichéd summary statements and cosmic wrap-up phrases (e.g., "It changes everything", "The logistics are brutal", "We aren't visitors anymore"). Every sentence must convey concrete information.
+7. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
@@ -368,19 +361,15 @@ const AI_STERILE_SWAPS = {
     "represents": "is",
     "serving as": "acting as",
     "functioning as": "acting as",
-    "facilitated by this methodology": "helped by this approach",
+    "facilitated by": "helped by",
     "striking resemblance": "close resemblance",
     "product of human ingenuity": "human creation",
     "rigorous investigation": "detailed study",
     "serves as a bridge": "acts as a link",
-    "the nature world": "the natural world",
-    "global challenges": "major world problems",
+    "global challenges": "major problems",
     "game changer": "major shift",
     "fundamentally alters": "changes",
-    "feasibility of utilizing": "possibility of using",
     "feasibility of": "possibility of",
-    "vast quantities of these deposits": "large amounts of these reserves",
-    "pioneers can move beyond": "pioneers can get past",
     "eliminating the need for": "cutting out",
     "imposes severe limitations on": "places tight limits on"
 };
