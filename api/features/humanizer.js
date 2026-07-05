@@ -228,103 +228,113 @@ function mechanicalCommaBreaker(text) {
 // 3. PROMPT ENGINEERING MODULE
 // ==========================================================================
 
-// A condensed snippet of the Turnitin-verified human exemplar to force mimicry.
-const EXEMPLAR_SNIPPET = `In Angela's Ashes, McCourt develops the characters by immediately separating children from adults. The narrator's father is gone, northward, leaving the family far behind, while the grandparents are hostile. Even the mother seems antagonistic and unfriendly, whining for her children's help, instead of doing things for herself. This host of unfriendly, enemy-like adults helps to establish a mood of everything being stacked against the children. In The Street, a very different spectacle is set. To establish an unkind environment, the author uses not unfriendly characters, but the absence of side characters at all. Petry instead personifies the November wind and compares it to the struggles of life. The author uses the wind to show how difficult it is to live in a world that seems to be throwing things your way. She states, "It did everything it could to discourage the people walking along the street." Lutie Johnson, the main character of the story, was forced to push through this harsh November wind in order to find a place to stay. Like Frank McCourt, Lutie Johnson struggled with poverty too, but she couldn't let it stop her from getting where she needed to go.`;
+/**
+ * Step 1: Analyzes the whole text to find robotic sentences and plan drastic restructures.
+ */
+function buildAnalysisPrompt(text) {
+    return `You are an expert writing analyst. Analyze the following text and identify the 5 most robotic, predictable, or formulaic sentences. 
+For each, write a specific plan on how to drastically restructure them to sound more human and surprising (e.g., "Start with a dependent clause like 'Because of this,'", "Split into two very short sentences", "Invert the subject and verb").
+Return a JSON object with a key "plans" containing an array of objects, each with "original" (the exact sentence from the text) and "plan" (the restructuring instruction).
+
+TEXT TO ANALYZE:
+ ${text}
+
+JSON OUTPUT:`;
+}
 
 /**
- * Builds a prompt that forces the AI to mimic the human exemplar style.
+ * Step 2: Builds a prompt that forces Gemini to apply the specific restructuring plans.
  */
-function buildChunkPrompt(chunk, prevChunk, nextChunk) {
-    let contextBlock = "";
-    if (prevChunk || nextChunk) {
-        contextBlock = `\nSURROUNDING CONTEXT (Do NOT rewrite the context, ONLY use it to understand what comes before/after so your rewritten chunk flows perfectly):\nPREVIOUS TEXT: "${prevChunk || 'None'}"\nNEXT TEXT: "${nextChunk || 'None'}"\n`;
+function buildChunkPrompt(chunk, plans) {
+    let planBlock = "";
+    if (plans && plans.length > 0) {
+        planBlock = `\nRESTRUCTURE PLANS (Apply these specific changes to the matching sentences in your output):\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `Rewrite the following text so it sounds like a human wrote it. Keep the exact same meaning. MATCH THE ORIGINAL TONE (if it is academic, keep it academic; do not make it conversational, informal, or add rhetorical questions).
-
- ${contextBlock}
+    return `You are an expert editor. Rewrite the following text to make it sound drastically more human and surprising. Keep the exact same meaning. MATCH THE ORIGINAL TONE.
+ ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
 STRICT RULES:
-1. Output ONLY the rewritten text. No commentary.
-2. CONTRACTIONS (CRITICAL): You MUST use natural English contractions (doesn't, isn't, can't, won't, it's, they're) where they fit naturally. Do not write in sterile, contraction-free prose.
-3. BURSTINESS: You MUST vary sentence lengths drastically. At least 25% of your sentences MUST be very short (under 8 words).
-4. NO PARTICIPIAL PHRASES: NEVER end a sentence with a comma and an -ing verb (e.g., DO NOT write "...eliminating the need"). Use "and [verb]" or split it into a new sentence.
-5. NO AI PIVOTS: NEVER use "Beyond [X], Y will transform..." or "Adopting this method alters...". Use natural transitions.
-6. FLOW & TRANSITIONS: Use natural narrative transitions (e.g., "Unlike X, Y...", "To achieve this..."). NEVER start sentences with "Furthermore,", "Moreover,", "Additionally,", "So,", or "Also,".
-7. COMPLETE SENTENCES: Every sentence MUST be grammatically complete and standalone. NEVER leave sentence fragments.
-8. NO TAUTOLOGIES: NEVER repeat the same word or concept in consecutive sentences.
-9. NO CLICHÉS: NEVER use "fabric of the universe", "profound", "remarkable", or "dynamic interplay". 
-10. NO EM DASHES (—) or SEMICOLONS (;). 
-11. NO COMMA CHAINS: A sentence must not have more than one comma.
+1. Output ONLY the rewritten text. No commentary. No titles or headers.
+2. Vary your sentence lengths drastically. Mix short, punchy sentences with longer, complex ones.
+3. Do NOT use ", and" or ", but" to glue independent clauses together. Use a period.
+4. Do NOT use em dashes (—) or semicolons (;).
+5. Do NOT use lists of three items. Use two items, or separate sentences.
+6. NEVER use the words: "profound", "remarkable", "fabric of the universe", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally".
+7. Use natural transitions (e.g., "Because of this,", "To achieve this,", "Unlike X, Y..."). NEVER start sentences with "Furthermore," "Moreover," "Thus," or "Additionally,".
 
 Output ONLY the rewritten chunk:`;
 }
-
 
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
 
 /**
- * Calls the Gemini API to humanize a specific chunk of text.
+ * Parses JSON from Gemini (which doesn't support native JSON mode).
  */
-async function humanizeChunk(chunk, prevChunk, nextChunk, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk, prevChunk, nextChunk);
+function parseGeminiJson(raw) {
+    try {
+        const cleanJson = raw.replace(/^```json\s*|\s*```$/g, '').trim();
+        return JSON.parse(cleanJson);
+    } catch (e) {
+        return { plans: [] };
+    }
+}
+
+/**
+ * Step 1: Calls Gemini to analyze the text and create restructuring plans.
+ */
+async function analyzeText(text, apiKey) {
+    const prompt = buildAnalysisPrompt(text);
+    const raw = await GeminiAPI.chat(prompt, apiKey, 0.5); // Low temp for analytical reasoning
+    const parsed = parseGeminiJson(raw);
+    return parsed.plans || [];
+}
+
+/**
+ * Step 2: Calls Gemini to humanize a specific chunk of text using the plans.
+ */
+async function humanizeChunk(chunk, plans, apiKey, temperature) {
+    const prompt = buildChunkPrompt(chunk, plans);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
 
-
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE
+// 5. REGEX POST-PROCESSING MODULE (ONE BIG HARDCODED MODULE)
 // ==========================================================================
 
 const AI_STERILE_SWAPS = {
     "regarding": "about",
-    "represents a": "is a",
-    "represents an": "is an",
-    "represents the": "is the",
     "represents": "is",
-    "abstract cognitive tools": "mental tools",
-    "artificial logic exercise": "logic exercise",
-    "societal organization": "organizing society",
-    "limitless sequence": "endless sequence",
-    "persist outside the mind": "exist outside the mind",
-    "act outside of": "exist outside of",
-    "truly remarkable": "highly effective",
-    "remarkable accomplishment": "major accomplishment",
-    "fabric of the universe": "structure of reality",
-    "fabric of reality": "structure of reality",
-    "mortal invention": "human invention",
-    "mortal creation": "human creation",
+    "serving as": "acting as",
+    "functioning as": "acting as",
     "facilitated by this methodology": "helped by this approach",
-    "in-depth analysis is facilitated": "detailed analysis is helped",
     "striking resemblance": "close resemblance",
     "product of human ingenuity": "human creation",
-    "infinite array": "large number",
-    "vast array": "large number",
     "rigorous investigation": "detailed study",
     "serves as a bridge": "acts as a link",
     "the nature world": "the natural world",
     "global challenges": "major world problems",
-    "particularly when given": "especially when given"
-    // Removed "serving as" and "functioning as" as they are fine in academic text
+    "game changer": "major shift",
+    "fundamentally alters": "changes"
 };
 
 /**
- * Cleans text mechanics (punctuation, grammar, double words).
+ * Master regex function to mechanically destroy AI tells and fix grammar.
  */
 function cleanTextMechanics(text) {
     let result = text;
 
-    // STRICT EM-DASH & SEMICOLON BANNING
+    // 1. STRICT EM-DASH & SEMICOLON BANNING
     result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
-    result = result.replace(/;/g, '.'); // Convert all semicolons to periods
+    result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // STERILE VOCABULARY SWAPS
+    // 2. STERILE VOCABULARY SWAPS
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -335,30 +345,28 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // FIX GROQ REPLACEMENT ARTIFACTS
-    result = result.replace(/\.{2,}/g, '.'); // Double periods
-    result = result.replace(/,{2,}/g, ','); // Double commas
-    result = result.replace(/\.\s*,/g, '.');   // Period followed by comma
-    result = result.replace(/,\s*\./g, '.');   // Comma followed by period
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); // Double transitions
-    result = result.replace(/\b(\w+)\s+and\s+\1\b/gi, '$1'); // "X and X" redundancy
-    
-    // Fix "but However" or "but However,"
-    result = result.replace(/\b[Bb]ut\s+[Hh]owever,?\s*/g, 'However, ');
-    // Fix missing period before "However"
-    result = result.replace(/,\s*However,/gi, '. However,');
-    result = result.replace(/,\s*However\s/gi, '. However ');
+    // 3. MECHANICAL AI LOOP BREAKING (CRITICAL FOR BURSTINESS)
+    // Break ", and [Capital Letter]" into two sentences
+    result = result.replace(/,\s+and\s+([A-Z])/g, '. $1');
+    // Break ", but [Capital Letter]" into two sentences
+    result = result.replace(/,\s+but\s+([A-Z])/g, '. But $1');
+    // Break ", which" into ". This" to destroy relative clauses
+    result = result.replace(/,\s+which\s/gi, '. This ');
 
-    // GRAMMAR FIXES (a vs an)
+    // 4. FIX ARTIFACTS
+    result = result.replace(/\.{2,}/g, '.'); 
+    result = result.replace(/,{2,}/g, ','); 
+    result = result.replace(/\.\s*,/g, '.');   
+    result = result.replace(/,\s*\./g, '.');   
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
+    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    
+    // 5. GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
-    result = result.replace(/\ban discovery/gi, 'a discovery');
-    result = result.replace(/\ban human/gi, 'a human');
-    result = result.replace(/\bas means of/gi, 'as a means of');
 
-    // SPACING & CAPITALIZATION
+    // 6. SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
@@ -368,22 +376,11 @@ function cleanTextMechanics(text) {
     return result.trim();
 }
 
-/**
- * Main post-processing function.
- */
 function postProcess(text) {
     let result = text;
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
-    result = cleanTextMechanics(result);
-    
-    // Mechanically break comma chains AFTER initial cleaning
-    result = mechanicalCommaBreaker(result);
-    
-    // Run cleaner one more time to fix spacing/capitalization from the breaks
-    result = cleanTextMechanics(result);
-    
-    return result;
+    return cleanTextMechanics(result);
 }
 
 // ==========================================================================
@@ -465,7 +462,17 @@ export default async function handler(req, res) {
         let processed = applyWordSwaps(text);
         logs.push('Applied banned word replacements');
 
-        // Step 2: Split into logical chunks using Groq (or fallback to regex)
+        // Step 2: Gemini Analysis Pass (Identify robotic sentences)
+        let plans = [];
+        try {
+            logs.push('Starting Gemini text analysis...');
+            plans = await analyzeText(processed, GEMINI_KEY);
+            logs.push(`Generated ${plans.length} restructuring plans.`);
+        } catch (err) {
+            logs.push(`Analysis failed (${err.message}), proceeding without plans.`);
+        }
+
+        // Step 3: Split into chunks
         let chunks = [];
         if (GROQ_KEY) {
             logs.push('Analyzing logical chunks with Groq...');
@@ -478,14 +485,11 @@ export default async function handler(req, res) {
         const temperature = 0.7 + Math.random() * 0.3;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Humanize chunks sequentially
+        // Step 4: Humanize chunks sequentially (Passing the plans)
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
-            let prevChunk = i > 0 ? humanizedChunks[i - 1] : "";
-            let nextChunk = i < chunks.length - 1 ? chunks[i + 1] : "";
-            
             try {
-                const humanized = await humanizeChunk(chunks[i], prevChunk, nextChunk, GEMINI_KEY, temperature);
+                const humanized = await humanizeChunk(chunks[i], plans, GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
                 logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
             } catch (err) {
@@ -494,12 +498,13 @@ export default async function handler(req, res) {
             }
         }
 
-        // Step 4: Rejoin and initial regex post-process
+        // Step 5: Rejoin and apply One Big Hardcoded Regex
         let result = humanizedChunks.join(' ');
         result = postProcess(result);
-        logs.push('Applied regex post-processing & mechanical burstiness');
+        logs.push('Applied master regex post-processing');
 
-        // Step 5: Groq Targeted Sentence Restructuring
+        // Step 6: Groq Targeted Sentence Restructuring (Optional, if you still want Groq)
+        // If you want to keep Groq, leave this. Otherwise, you can remove it.
         let groqFixes = { restructures: 0 };
         if (GROQ_KEY) {
             logs.push('Starting Groq targeted sentence restructuring...');
@@ -508,26 +513,11 @@ export default async function handler(req, res) {
             groqFixes.restructures = groqResult.fixes;
             logs.push(`Groq restructured ${groqFixes.restructures} sentences for perplexity.`);
             
-            // Run regex one last time to clean up any artifacts
+            // Run regex one last time to clean up Groq's output
             result = cleanTextMechanics(result);
         } else {
             logs.push('Skipped Groq post-processing (no API key provided).');
         }
-
-        // Step 6: Final word swap pass
-        result = applyWordSwaps(result);
-
-        const totalTimeMs = Date.now() - startTime;
-        logs.push(`Final: ${result.length} chars`);
-
-        const geminiUsage = getGeminiUsage();
-        const groqUsage = getGroqModelUsage();
-
-        const formatUsage = (usage) => {
-            return Object.entries(usage).map(([model, stats]) => 
-                `${model} (${stats.success} ok, ${stats.failed} fail)`
-            );
-        };
 
         const humanizerNetworkResult = {
             executionTimeMs: totalTimeMs,
