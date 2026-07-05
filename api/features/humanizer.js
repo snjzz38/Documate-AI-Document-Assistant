@@ -76,13 +76,21 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // Academic & Explanatory AI tells
-    "crucial aspect": "key part",
-    "essential fuels": "necessary fuels",
-    "significant implications": "major consequences",
-    "entirely impractical": "not practical",
-    "treasure trove of resources": "rich source of materials",
-    "vital supply stations": "supply stations"
+    // Tone De-escalation Swaps (Academic to Human)
+    "is the cornerstone of": "is the key to",
+    "unsustainable endeavor": "losing battle",
+    "primary hurdle": "biggest roadblock",
+    "severe limitations": "tight limits",
+    "critical target": "main focus",
+    "essential role": "big role",
+    "entirely impractical": "impossible",
+    "concrete reality": "reality",
+    "tangible reality": "reality",
+    "significant implications": "huge consequences",
+    "vital linchpin": "linchpin",
+    "vital supply stations": "supply stops",
+    "treasure trove": "jackpot",
+    "crucial aspect": "key detail"
 };
 
 
@@ -275,30 +283,34 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt that forces Gemini to apply the specific chunk-level variations.
+ * Step 2: Builds a prompt that forces Gemini to apply specific chunk-level variations.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
     if (plans && plans.length > 0) {
-        planBlock = `\nRESTRUCTURE PLANS FOR THIS SPECIFIC CHUNK (Apply these syntactic adjustments to matching sentences in your output):\n${JSON.stringify(plans, null, 2)}\n`;
+        planBlock = `\nRESTRUCTURE PLANS FOR THIS SPECIFIC CHUNK:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor. Rewrite the following text to randomize sentence structures, vary flow, and introduce natural cadence. Match the original tone and preserve the exact meaning.
+    return `You are an expert editor. Rewrite the following text to sound completely human, natural, and engaging. 
+    
+CRITICAL TONE SHIFT: 
+- Do NOT match the sterile, academic, or formal AI tone of the input. 
+- Pivot to an editorial, journalistic, or insightful blog voice (similar to Wired or Fast Company). 
+- Use active voice, simple vocabulary, and normal contractions (like it's, won't, don't, can't, we've).
+- Keep the core facts and technical meaning identical, but deliver them like an expert casually explaining a concept to a friend.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES FOR SYNTACTIC VARIATION:
-1. Output ONLY the rewritten text. No introduction, no commentary, no quotes, and no headers.
-2. Vary sentence lengths naturally. Mix short, clear assertions with longer, complex sentences.
-3. NEVER output trivial, robotic, 3-to-5 word sentences (like "Mars holds ice." or "This is important."). Ensure short thoughts still transition smoothly.
-4. Intentionally break up repetitive sentence rhythms. Avoid starting consecutive sentences with the same part of speech.
-5. Do NOT use ", and" or ", but" to link independent clauses into run-on sentences. Use a period to split them.
-6. Do NOT use em dashes (—) or semicolons (;).
-7. Avoid list-like sequences of three items. Pair them as two, or distribute them across separate thoughts.
-8. NEVER use known AI markers: "profound", "remarkable", "fabric", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally", "testament to", "delve".
-9. Transition naturally (e.g., "Because of this,", "To achieve this,", "Yet,"). Never use "Furthermore," "Moreover," "Thus," "Additionally," or "In conclusion,".
+STRICT RULES FOR BYPASSING AI DETECTORS:
+1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
+2. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
+3. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
+4. Do NOT use em dashes (—) or semicolons (;).
+5. Never structure your sentences like "By [verb]ing X, we can [verb] Y." Change it to: "If we [verb] X, we [verb] Y" or "We need to [verb] X so we can [verb] Y."
+6. Write in active voice. Instead of "water ice is estimated to be hidden," write "scientists estimate water ice is hiding."
+7. Avoid overly perfect grammatical balancing. Real human writing is direct, slightly asymmetric, and conversational.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -358,7 +370,11 @@ const AI_STERILE_SWAPS = {
     "fundamentally alters": "changes",
     "feasibility of utilizing": "possibility of using",
     "feasibility of": "possibility of",
-    "vast quantities of these deposits": "large amounts of these reserves"
+    "vast quantities of these deposits": "large amounts of these reserves",
+    "pioneers can move beyond": "pioneers can get past",
+    "long-term space travel becomes": "long-term space travel is",
+    "eliminating the need for": "cutting out",
+    "imposes severe limitations on": "places tight limits on"
 };
 
 /**
@@ -394,12 +410,18 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
     
-    // 5. GRAMMAR FIXES (a vs an)
+    // 5. CRITICAL AI PARTICIPLE STRIPPING (e.g. ", thereby ensuring" -> " and ensuring")
+    result = result.replace(/,\s+thereby\s+([a-z]+)ing/gi, ' and $1ing');
+    result = result.replace(/,\s+thereby\s+/gi, ' and ');
+    result = result.replace(/,\s+ensuring\s+/gi, ' and ensuring ');
+    result = result.replace(/,\s+paving\s+the\s+way\s+for/gi, ' and opening doors for');
+    
+    // 6. GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
 
-    // 6. SPACING & CAPITALIZATION
+    // 7. SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
