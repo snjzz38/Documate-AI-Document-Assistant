@@ -16,25 +16,27 @@
 2. TEXT UTILITIES MODULE
    - splitIntoChunks(): Safely splits text into sentence groups (Fallback).
    - groqLogicalChunk(): Uses Groq to group sentences into logical paragraphs.
+   - filterPlansForChunk(): Matches sentence plans with the correct chunk.
    - applyWordSwaps(): Case-preserving replacement of banned words.
    - parseGroqJson(): Safely parses JSON strings from Groq.
    - applyJsonReplacements(): Safely applies JSON before/after maps to text.
    - injectBurstiness(): Mechanically splits long sentences to increase burstiness.
+   - mechanicalCommaBreaker(): Breaks repetitive relative clause commas.
    
 3. PROMPT ENGINEERING MODULE
-   - buildChunkPrompt(): Constructs the LLM prompt mimicking human exemplar essays.
+   - buildAnalysisPrompt(): Plans structural variations for formulaic thoughts.
+   - buildChunkPrompt(): Directs specific syntactical modifications.
    
 4. LLM SERVICE MODULE
-   - humanizeChunk(): Handles the API call to Gemini with safe temperature.
+   - parseGeminiJson(): Safely parses JSON output from Gemini.
+   - analyzeText(): Runs the analytical pre-pass for structuring.
+   - humanizeChunk(): Runs the actual rewriting pass on a chunk.
    
 5. REGEX POST-PROCESSING MODULE
-   - cleanTextMechanics(): Light, safe cleanup of punctuation and grammar.
-   - postProcess(): Main regex wrapper.
+   - cleanTextMechanics(): Post-pass cleanup of punctuation and spacing.
+   - postProcess(): Parent post-processing pipeline executor.
    
-6. GROQ SINGLE-STAGE JSON FIXER MODULE
-   - runGroqStages(): Analyzes full text and fixes fragments, comma chains, and flow.
-   
-7. API HANDLER
+6. API HANDLER
    - handler(): Main entry point orchestrating the modules.
 // ==========================================================================
 */
@@ -102,7 +104,6 @@ const AI_VOCAB_SWAPS = {
     "sustenance": "support",
     "endeavors": "plans"
 };
-
 
 // ==========================================================================
 // 2. TEXT UTILITIES MODULE
@@ -228,7 +229,7 @@ function injectBurstiness(text) {
         let words = s.split(/\s+/);
 
         // Raised threshold to 32 words to avoid breaking structurally intact thoughts
-        if (words.length > 100 && Math.random() > 0.4) {
+        if (words.length > 32 && Math.random() > 0.4) {
             let splitIdx = words.findIndex((w, idx) => 
                 idx > 12 && 
                 idx < (words.length - 12) && 
@@ -511,7 +512,7 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 7. API HANDLER
+// 6. API HANDLER (Wiped out restructureSentences call)
 // ==========================================================================
 
 /**
@@ -588,20 +589,10 @@ export default async function handler(req, res) {
         result = postProcess(result);
         logs.push('Applied master regex post-processing');
 
-        // Step 6: Groq Targeted Sentence Restructuring
-        let groqFixes = { restructures: 0 };
-        if (GROQ_KEY) {
-            logs.push('Starting Groq targeted sentence restructuring...');
-            const groqResult = await restructureSentences(result, GROQ_KEY);
-            result = groqResult.text;
-            groqFixes.restructures = groqResult.fixes;
-            logs.push(`Groq restructured ${groqFixes.restructures} sentences for perplexity.`);
-            
-            // Run regex one last time to clean up Groq's output
-            result = cleanTextMechanics(result);
-        } else {
-            logs.push('Skipped Groq post-processing (no API key provided).');
-        }
+        // Step 6: Groq Targeted Sentence Restructuring has been completely removed
+        // to prevent the formal academic regressions and AI paraphrasing signatures
+        // previously introduced by Llama models.
+        logs.push('Skipping Groq sentence restructuring to prevent formal regressions.');
 
         // Calculate final stats and usage
         const totalTimeMs = Date.now() - startTime;
@@ -629,7 +620,7 @@ export default async function handler(req, res) {
             groq: {
                 totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
                 modelsUsed: formatUsage(groqUsage),
-                fixesApplied: groqFixes
+                fixesApplied: { restructures: 0 }
             }
         };
 
@@ -666,3 +657,5 @@ export default async function handler(req, res) {
         });
     }
 }
+
+--- END OF FILE ---
