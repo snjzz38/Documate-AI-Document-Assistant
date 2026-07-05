@@ -1,4 +1,4 @@
-// ==========================================================================
+z// ==========================================================================
 // FILE: api/features/humanizer.js
 // DESCRIPTION: 
 // An API route that humanizes AI-generated text using Gemini. It processes 
@@ -124,6 +124,19 @@ JSON OUTPUT:`;
 }
 
 /**
+ * Filters the master list of restructuring plans to only include plans matching 
+ * sentences present within the specific text chunk.
+ */
+function filterPlansForChunk(chunk, plans) {
+    if (!plans || !Array.isArray(plans)) return [];
+    return plans.filter(plan => {
+        if (!plan || typeof plan.original !== 'string') return false;
+        const cleanOriginal = plan.original.trim().toLowerCase();
+        return chunk.toLowerCase().includes(cleanOriginal);
+    });
+}
+
+/**
  * Replaces banned AI words while preserving the original capitalization.
  */
 function applyWordSwaps(text) {
@@ -187,9 +200,9 @@ function injectBurstiness(text) {
 
     for (let i = 0; i < sentences.length; i++) {
         let s = sentences[i].trim();
-        let words = s.split(' ');
+        let words = s.split(/\s+/);
 
-        // Lowered threshold to 16 words, 50% chance to split
+        // Limit threshold to 16 words, 50% chance to split
         if (words.length > 16 && Math.random() > 0.5) {
             let splitIdx = words.findIndex((w, idx) => idx > 6 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so' || w.toLowerCase() === 'while'));
             
@@ -229,11 +242,17 @@ function mechanicalCommaBreaker(text) {
 // ==========================================================================
 
 /**
- * Step 1: Analyzes the whole text to find robotic sentences and plan drastic restructures.
+ * Step 1: Analyzes the whole text to find robotic sentences and plan structural variations.
  */
 function buildAnalysisPrompt(text) {
-    return `You are an expert writing analyst. Analyze the following text and identify the 5 most robotic, predictable, or formulaic sentences. 
-For each, write a specific plan on how to drastically restructure them to sound more human and surprising (e.g., "Start with a dependent clause like 'Because of this,'", "Split into two very short sentences", "Invert the subject and verb").
+    return `You are an expert writing analyst. Analyze the following text and identify up to 5 sentences that display highly predictable, formulaic structures (such as monotonous Subject-Verb-Object rhythms). 
+For each, write a specific instruction on how to randomize its structure to sound more human and varied.
+Examples of restructuring plans:
+- "Invert sentence: lead with a dependent clause, prepositional phrase, or a gerund."
+- "Break into a brief fragment followed by a longer descriptive sentence."
+- "Shift the main verb or action to the beginning of the thought."
+- "Inject a qualifier mid-sentence to interrupt the predictable cadence."
+
 Return a JSON object with a key "plans" containing an array of objects, each with "original" (the exact sentence from the text) and "plan" (the restructuring instruction).
 
 TEXT TO ANALYZE:
@@ -243,27 +262,29 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt that forces Gemini to apply the specific restructuring plans.
+ * Step 2: Builds a prompt that forces Gemini to apply the specific chunk-level variations.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
     if (plans && plans.length > 0) {
-        planBlock = `\nRESTRUCTURE PLANS (Apply these specific changes to the matching sentences in your output):\n${JSON.stringify(plans, null, 2)}\n`;
+        planBlock = `\nRESTRUCTURE PLANS FOR THIS SPECIFIC CHUNK (Apply these syntactic adjustments to matching sentences in your output):\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor. Rewrite the following text to make it sound drastically more human and surprising. Keep the exact same meaning. MATCH THE ORIGINAL TONE.
- ${planBlock}
+    return `You are an expert editor. Rewrite the following text to randomize sentence structures, vary flow, and introduce natural cadence. Match the original tone and preserve the exact meaning.
+
+${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES:
-1. Output ONLY the rewritten text. No commentary. No titles or headers.
-2. Vary your sentence lengths drastically. Mix short, punchy sentences with longer, complex ones.
-3. Do NOT use ", and" or ", but" to glue independent clauses together. Use a period.
-4. Do NOT use em dashes (—) or semicolons (;).
-5. Do NOT use lists of three items. Use two items, or separate sentences.
-6. NEVER use the words: "profound", "remarkable", "fabric of the universe", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally".
-7. Use natural transitions (e.g., "Because of this,", "To achieve this,", "Unlike X, Y..."). NEVER start sentences with "Furthermore," "Moreover," "Thus," or "Additionally,".
+STRICT RULES FOR SYNTACTIC VARIATION:
+1. Output ONLY the rewritten text. No introduction, no commentary, no quotes, and no headers.
+2. Drastically vary sentence lengths. Mix short, punchy statements with longer, complex sentences.
+3. Intentionally break up repetitive sentence rhythms. Avoid starting consecutive sentences with the same part of speech.
+4. Do NOT use ", and" or ", but" to link independent clauses into run-on sentences. Use a period to split them.
+5. Do NOT use em dashes (—) or semicolons (;).
+6. Avoid list-like sequences of three items. Pair them as two, or distribute them across separate thoughts.
+7. NEVER use known AI markers: "profound", "remarkable", "fabric", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally", "testament to", "delve".
+8. Transition naturally (e.g., "Because of this,", "To achieve this,", "Yet,"). Never use "Furthermore," "Moreover," "Thus," "Additionally," or "In conclusion,".
 
 Output ONLY the rewritten chunk:`;
 }
@@ -304,7 +325,7 @@ async function humanizeChunk(chunk, plans, apiKey, temperature) {
 }
 
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE (ONE BIG HARDCODED MODULE)
+// 5. REGEX POST-PROCESSING MODULE
 // ==========================================================================
 
 const AI_STERILE_SWAPS = {
@@ -346,16 +367,11 @@ function cleanTextMechanics(text) {
     }
 
     // 3. MECHANICAL AI LOOP BREAKING (CRITICAL FOR BURSTINESS)
-    // Break ", and [Capital Letter]" into two sentences
-    result = result.replace(/,\s+and\s+([A-Z])/g, '. $1');
-    // Break ", but [Capital Letter]" into two sentences
-    result = result.replace(/,\s+but\s+([A-Z])/g, '. But $1');
-    // Break ", which" into ". This" to destroy relative clauses
-    result = result.replace(/,\s+which\s/gi, '. This ');
+    result = mechanicalCommaBreaker(result);
 
     // 4. FIX ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); 
-    result = result.replace(/,{2,}/g, ','); 
+    result = result.replace(/{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
@@ -380,6 +396,10 @@ function postProcess(text) {
     let result = text;
     result = result.replace(/[''`´]/g, "'");
     result = result.replace(/[""„]/g, '"');
+    
+    // Mechanically split excessively long sentences to vary structure length
+    result = injectBurstiness(result);
+    
     return cleanTextMechanics(result);
 }
 
@@ -485,13 +505,16 @@ export default async function handler(req, res) {
         const temperature = 0.7 + Math.random() * 0.3;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 4: Humanize chunks sequentially (Passing the plans)
+        // Step 4: Humanize chunks sequentially (Passing isolated plans)
         const humanizedChunks = [];
         for (let i = 0; i < chunks.length; i++) {
             try {
-                const humanized = await humanizeChunk(chunks[i], plans, GEMINI_KEY, temperature);
+                // Filter plans so Gemini only sees the instructions relevant to this specific chunk
+                const chunkPlans = filterPlansForChunk(chunks[i], plans);
+                
+                const humanized = await humanizeChunk(chunks[i], chunkPlans, GEMINI_KEY, temperature);
                 humanizedChunks.push(humanized);
-                logs.push(`Chunk ${i + 1}/${chunks.length}: OK`);
+                logs.push(`Chunk ${i + 1}/${chunks.length}: OK (Applied ${chunkPlans.length} local plans)`);
             } catch (err) {
                 logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
                 humanizedChunks.push(chunks[i]);
