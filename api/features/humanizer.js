@@ -78,7 +78,7 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // Generic Academic Tells (Universal)
+    // Stiff Academic/Explanatory AI Tells
     "unsustainable endeavor": "losing battle",
     "primary hurdle": "biggest roadblock",
     "severe limitations": "tight limits",
@@ -292,7 +292,7 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt designed to break Copyleaks' syllable, n-gram, and POS detection vectors.
+ * Step 2: Builds a prompt designed to break modern n-gram, parts-of-speech, and syllable cadence detectors.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -302,28 +302,26 @@ function buildChunkPrompt(chunk, plans) {
     
     return `You are an expert editor. Rewrite the following text to sound completely human, natural, and engaging. 
     
-CRITICAL ARCHITECTURAL SHIFT FOR BYPASSING DETECTORS:
-- Do NOT perform a simple word-for-word translation. Re-order the ideas, combine adjacent thoughts, and collapse redundant sentences.
-- Speak in an active, direct, and conversational voice (like a tech journalist writing an engaging column).
-- MANDATORY: Use natural contractions everywhere (it's, won't, don't, can't, we've, there's, shouldn't, we're). Avoid formal, fully spelled-out word pairs.
-- Inject occasional parenthetical remarks (like this one) to disrupt the sterile cadence of standard sentences.
+CRITICAL TONE SHIFT (DEFEAT AI DETECTORS):
+- Do NOT match the sterile, academic, or formal AI tone of the input.
+- Pivot to an intellectual, authoritative, yet lively editorial style—think Scientific American, Wired, or National Geographic. It should be smart, engaging, and clear.
+- Do NOT use childish, overly informal, or cheesy blog vocabulary (avoid "It's brilliant", "We're talking about", "billionaire bankrolling", "flip the script", "giant hardware stores", "total budget killer").
+- MANDATORY CONTRACTIONS: Naturally integrate common contractions (it's, won't, don't, can't, we've, there's, shouldn't, we're) to establish a natural human phrasing rhythm.
+- INTRODUCE HUMAN NUANCE: Inject elements of qualification, slight hesitation, or conditional parentheticals (e.g., "if the engineering holds up, at least," "which is far easier said than done," "at least in theory").
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES TO DEFEAT LINGUISTIC DETECTORS:
+STRICT RULES FOR SYNTACTIC VARIATION AND CADENCE:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. EXTREME SYLLABLE CADENCE: Avoid writing sentences that have a similar length or syllable count. Put a very short sentence of 4-6 words (low syllable count) directly next to a massive, winding sentence of 25-35 words (high syllable count). 
-3. SYNTACTIC VARIATION: Start some sentences with transition phrases, others with conditional clauses ("If we don't..."), and others with direct questions ("So, how do we fix this?"). Break the "Subject + Verb + Object" monotony.
-4. BAN MECHANICAL HYPHENATION: Avoid mechanical hyphenated adjective compounds (e.g., do NOT write "carbon-dioxide-heavy sky" or "life-saving mission"). 
-   Instead, write "sky heavy with carbon dioxide" or "mission to save lives." Keep hyphens to an absolute minimum.
-5. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
-6. BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do.").
-7. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
-   Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
-8. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
-9. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;).
+2. EXTREME SYLLABLE CADENCE: Avoid writing sentences that have a similar length or syllable count. Place an incredibly short sentence of 4-6 words directly next to a long, winding sentence of 25-35 words that opens with a dependent clause or prepositional phrase.
+3. ABSOLUTELY BAN GRAMMATICALLY BROKEN FRAGMENTS: Every sentence must be syntactically complete. Do NOT split compound subjects, compound verbs, or tightly linked clauses with a period (avoid errors like "...lunar bases. And trips..." or "...sacrifice distance. And mission duration...").
+4. SYNTACTIC VARIATION: Start some sentences with transition phrases, others with conditional clauses ("If we don't..."), and others with direct questions ("So, how do we fix this?"). Break the repetitive "Subject + Verb + Object" starter monotony.
+5. BAN MECHANICAL HYPHENATION: Avoid mechanical hyphenated adjective compounds (e.g., do NOT write "carbon-dioxide-heavy sky" or "life-support systems"). 
+   Instead, write "sky heavy with carbon dioxide" or "systems to support life." Keep hyphens to an absolute minimum.
+6. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
+7. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split sentences cleanly.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -461,6 +459,12 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bupon\s+employing\b/gi, 'by using');
     result = result.replace(/\bparadigm\s+shift\b/gi, 'major shift');
     result = result.replace(/\bfar-reaching\s+implications\b/gi, 'huge consequences');
+
+    // Clean up mechanical hyphen chains (Copyleaks Hyphen Vector Sweep)
+    result = result.replace(/\bcarbon-dioxide-heavy\b/gi, 'heavy with carbon dioxide');
+    result = result.replace(/\blife-saving\b/gi, 'essential');
+    result = result.replace(/\bcarry-along\b/gi, 'carry along');
+    result = result.replace(/\blong-term\b/gi, 'long term');
 
     // 6. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
