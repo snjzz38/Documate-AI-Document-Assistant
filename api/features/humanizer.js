@@ -76,7 +76,7 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // De-escalating Formal/Stiff Space Explanations
+    // De-mechanizing hyphenated compounds and AI tells (Copyleaks Pass)
     "nature of our extended space missions": "reality of long space flights",
     "it is essential that we refrain from": "we really shouldn't",
     "utilizing the resources available to us": "using what's already out there",
@@ -107,7 +107,9 @@ const AI_VOCAB_SWAPS = {
     "sufficient water resources": "enough water",
     "extended periods": "a long time",
     "profound shift": "massive change",
-    "unlocked new possibilities": "opened new doors"
+    "unlocked new possibilities": "opened new doors",
+    "carry-along model": "carry along system",
+    "long-term space travel": "long term space travel"
 };
 
 
@@ -298,7 +300,7 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt that forces Gemini to conceptually rebuild the text with contractions.
+ * Step 2: Builds a prompt designed to break Copyleaks' syllable, n-gram, and POS detection vectors.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -318,16 +320,17 @@ ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT RULES TO BYPASS MULTILINGUAL DETECTORS:
+STRICT RULES TO DEFEAT LINGUISTIC DETECTORS:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. Vary sentence structures randomly. Start some sentences with transition phrases, others with conditional clauses ("If we don't..."), and others with direct questions ("So, how do we fix this?").
-3. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
-4. BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do.").
-5. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
+2. EXTREME SYLLABLE CADENCE: Avoid writing sentences that have a similar length or syllable count. Put a very short sentence of 4-6 words (low syllable count) directly next to a massive, winding sentence of 25-35 words (high syllable count). 
+3. SYNTACTIC VARIATION: Start some sentences with transition phrases, others with conditional clauses ("If we don't..."), and others with direct questions ("So, how do we fix this?"). Break the "Subject + Verb + Object" monotony.
+4. BAN MECHANICAL HYPHENATION: Avoid mechanical hyphenated adjective compounds (e.g., do NOT write "carbon-dioxide-heavy sky" or "life-saving mission"). 
+   Instead, write "sky heavy with carbon dioxide" or "mission to save lives." Keep hyphens to an absolute minimum.
+5. ABSOLUTELY BAN cosmic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
+6. BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do.").
+7. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
    Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
-6. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
-7. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
-8. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
+8. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). Use active past or present perfect verbs instead.
 9. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;).
 
 Output ONLY the rewritten chunk:`;
@@ -466,6 +469,12 @@ function cleanTextMechanics(text) {
     // Wipe out cosmic/philosophical wrap-up clichés that trigger detection
     result = result.replace(/\bpoised\s+to\s+redefine\s+our\s+relationship\s+with\s+the\s+universe\b/gi, 'changing how we explore');
     result = result.replace(/\btransforming\s+our\s+understanding\s+of\s+the\s+cosmos\s+and\s+our\s+place\s+within\s+it\b/gi, 'and how we look at space');
+
+    // Clean up mechanical hyphen chains (Copyleaks Hyphen Vector Sweep)
+    result = result.replace(/\bcarbon-dioxide-heavy\b/gi, 'heavy with carbon dioxide');
+    result = result.replace(/\blife-saving\b/gi, 'essential');
+    result = result.replace(/\bcarry-along\b/gi, 'carry along');
+    result = result.replace(/\blong-term\b/gi, 'long term');
 
     // 6. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
