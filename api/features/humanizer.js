@@ -76,7 +76,7 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // Tone De-escalation Swaps (Academic to Human)
+    // Academic & Structural AI tells (Scanned Text Pass)
     "is the cornerstone of": "is the key to",
     "unsustainable endeavor": "losing battle",
     "primary hurdle": "biggest roadblock",
@@ -90,7 +90,13 @@ const AI_VOCAB_SWAPS = {
     "vital linchpin": "linchpin",
     "vital supply stations": "supply stops",
     "treasure trove": "jackpot",
-    "crucial aspect": "key detail"
+    "crucial aspect": "key detail",
+    "formidable obstacle": "big problem",
+    "significant shift": "huge change",
+    "sufficient water resources": "enough water",
+    "extended periods": "a long time",
+    "profound shift": "massive change",
+    "unlocked new possibilities": "opened new doors"
 };
 
 
@@ -305,12 +311,16 @@ TEXT TO REWRITE:
 
 STRICT RULES FOR BYPASSING AI DETECTORS:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
-3. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
-4. Do NOT use em dashes (—) or semicolons (;).
-5. Never structure your sentences like "By [verb]ing X, we can [verb] Y." Change it to: "If we [verb] X, we [verb] Y" or "We need to [verb] X so we can [verb] Y."
-6. Write in active voice. Instead of "water ice is estimated to be hidden," write "scientists estimate water ice is hiding."
-7. Avoid overly perfect grammatical balancing. Real human writing is direct, slightly asymmetric, and conversational.
+2. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
+   Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
+3. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). 
+   Instead, use normal active verbs ("After we transcend..." or "Once we complete...").
+4. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
+5. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
+6. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split the sentences.
+7. Never structure your sentences like "By [verb]ing X, we can [verb] Y." Change it to: "If we [verb] X, we [verb] Y" or "We need to [verb] X so we can [verb] Y."
+8. Write in active voice. Instead of "water ice is estimated to be hidden," write "scientists estimate water ice is hiding."
+9. Avoid overly perfect grammatical balancing. Real human writing is direct, slightly asymmetric, and conversational.
 
 Output ONLY the rewritten chunk:`;
 }
@@ -383,8 +393,8 @@ const AI_STERILE_SWAPS = {
 function cleanTextMechanics(text) {
     let result = text;
 
-    // 1. STRICT EM-DASH & SEMICOLON BANNING
-    result = result.replace(/\s*\u2014\s*|\s*\u2013\s*|\s*--\s*/g, ', ');
+    // 1. ABSOLUTE BAN ON EM DASHES, EN DASHES, AND DOUBLE HYPHENS
+    result = result.replace(/[\u2014\u2013]|\s*--+\s*/g, ', ');
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
@@ -410,11 +420,28 @@ function cleanTextMechanics(text) {
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
     
-    // 5. CRITICAL AI PARTICIPLE STRIPPING (e.g. ", thereby ensuring" -> " and ensuring")
+    // 5. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
+    // Converts dangling AI participles following a comma into direct coordinating statements
+    result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
+    result = result.replace(/,\s+altering\s+/gi, ' and changing ');
+    result = result.replace(/,\s+underscoring\s+/gi, ' and underscores ');
+    result = result.replace(/,\s+highlighting\s+/gi, ' and highlights ');
+    result = result.replace(/,\s+enabling\s+/gi, ' and enables ');
+    result = result.replace(/,\s+facilitating\s+/gi, ' and helps ');
+    result = result.replace(/,\s+making\s+/gi, ' and makes ');
+    result = result.replace(/,\s+paving\s+/gi, ' and paves ');
+    result = result.replace(/,\s+demonstrating\s+/gi, ' and shows ');
+    result = result.replace(/,\s+proving\s+/gi, ' and proves ');
+    
+    // Convert common AI relative clause loops (", thereby [verb]ing" -> " and [verb]ing")
     result = result.replace(/,\s+thereby\s+([a-z]+)ing/gi, ' and $1ing');
     result = result.replace(/,\s+thereby\s+/gi, ' and ');
     result = result.replace(/,\s+ensuring\s+/gi, ' and ensuring ');
     result = result.replace(/,\s+paving\s+the\s+way\s+for/gi, ' and opening doors for');
+    
+    // Clean up perfect participle leftovers (e.g. "Having transcended" -> "After transcending")
+    result = result.replace(/\bHaving\s+transcended\s+/gi, 'Once we move past ');
+    result = result.replace(/\bhaving\s+transcended\s+/gi, 'once we move past ');
     
     // 6. GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
