@@ -235,7 +235,7 @@ function injectBurstiness(text) {
         let words = s.split(/\s+/);
 
         // Raised threshold to 32 words to avoid breaking structurally intact thoughts
-        if (words.length > 32 && Math.random() > 0.4) {
+        if (words.length > 100 && Math.random() > 0.4) {
             let splitIdx = words.findIndex((w, idx) => 
                 idx > 12 && 
                 idx < (words.length - 12) && 
