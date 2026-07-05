@@ -74,8 +74,15 @@ const AI_VOCAB_SWAPS = {
     "extensive set": "large number",
     "supports the view": "argues",
     "holds that": "claims",
-    "in turn": ""
-    // Removed "fundamental": "basic" to stop "basically" from sounding clunky
+    "in turn": "",
+    
+    // Academic & Explanatory AI tells
+    "crucial aspect": "key part",
+    "essential fuels": "necessary fuels",
+    "significant implications": "major consequences",
+    "entirely impractical": "not practical",
+    "treasure trove of resources": "rich source of materials",
+    "vital supply stations": "supply stations"
 };
 
 
@@ -192,7 +199,7 @@ function applyJsonReplacements(text, jsonMap) {
 }
 
 /**
- * Mechanically splits long sentences to increase burstiness.
+ * Mechanically splits long sentences to increase burstiness while protecting flow.
  */
 function injectBurstiness(text) {
     let sentences = text.match(/[^.!?]+[.!?]+/g) || [];
@@ -202,9 +209,13 @@ function injectBurstiness(text) {
         let s = sentences[i].trim();
         let words = s.split(/\s+/);
 
-        // Limit threshold to 16 words, 50% chance to split
-        if (words.length > 16 && Math.random() > 0.5) {
-            let splitIdx = words.findIndex((w, idx) => idx > 6 && (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'so' || w.toLowerCase() === 'while'));
+        // Limit threshold to 24 words, keeping segments at least 8 words long to prevent 3-word fragments
+        if (words.length > 24 && Math.random() > 0.4) {
+            let splitIdx = words.findIndex((w, idx) => 
+                idx > 8 && 
+                idx < (words.length - 8) && 
+                (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'while')
+            );
             
             if (splitIdx !== -1) {
                 let part1 = words.slice(0, splitIdx).join(' ').trim();
@@ -249,9 +260,11 @@ function buildAnalysisPrompt(text) {
 For each, write a specific instruction on how to randomize its structure to sound more human and varied.
 Examples of restructuring plans:
 - "Invert sentence: lead with a dependent clause, prepositional phrase, or a gerund."
-- "Break into a brief fragment followed by a longer descriptive sentence."
+- "Break into a brief phrase followed by a longer descriptive sentence."
 - "Shift the main verb or action to the beginning of the thought."
 - "Inject a qualifier mid-sentence to interrupt the predictable cadence."
+
+Do NOT plan or recommend trivial, 3-to-5 word fragments (e.g. 'Mars holds ice.'). Ensure sentences retain descriptive depth.
 
 Return a JSON object with a key "plans" containing an array of objects, each with "original" (the exact sentence from the text) and "plan" (the restructuring instruction).
 
@@ -278,13 +291,14 @@ TEXT TO REWRITE:
 
 STRICT RULES FOR SYNTACTIC VARIATION:
 1. Output ONLY the rewritten text. No introduction, no commentary, no quotes, and no headers.
-2. Drastically vary sentence lengths. Mix short, punchy statements with longer, complex sentences.
-3. Intentionally break up repetitive sentence rhythms. Avoid starting consecutive sentences with the same part of speech.
-4. Do NOT use ", and" or ", but" to link independent clauses into run-on sentences. Use a period to split them.
-5. Do NOT use em dashes (—) or semicolons (;).
-6. Avoid list-like sequences of three items. Pair them as two, or distribute them across separate thoughts.
-7. NEVER use known AI markers: "profound", "remarkable", "fabric", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally", "testament to", "delve".
-8. Transition naturally (e.g., "Because of this,", "To achieve this,", "Yet,"). Never use "Furthermore," "Moreover," "Thus," "Additionally," or "In conclusion,".
+2. Vary sentence lengths naturally. Mix short, clear assertions with longer, complex sentences.
+3. NEVER output trivial, robotic, 3-to-5 word sentences (like "Mars holds ice." or "This is important."). Ensure short thoughts still transition smoothly.
+4. Intentionally break up repetitive sentence rhythms. Avoid starting consecutive sentences with the same part of speech.
+5. Do NOT use ", and" or ", but" to link independent clauses into run-on sentences. Use a period to split them.
+6. Do NOT use em dashes (—) or semicolons (;).
+7. Avoid list-like sequences of three items. Pair them as two, or distribute them across separate thoughts.
+8. NEVER use known AI markers: "profound", "remarkable", "fabric", "dynamic interplay", "intrinsic value", "facilitate", "game changer", "fundamentally", "testament to", "delve".
+9. Transition naturally (e.g., "Because of this,", "To achieve this,", "Yet,"). Never use "Furthermore," "Moreover," "Thus," "Additionally," or "In conclusion,".
 
 Output ONLY the rewritten chunk:`;
 }
@@ -341,7 +355,10 @@ const AI_STERILE_SWAPS = {
     "the nature world": "the natural world",
     "global challenges": "major world problems",
     "game changer": "major shift",
-    "fundamentally alters": "changes"
+    "fundamentally alters": "changes",
+    "feasibility of utilizing": "possibility of using",
+    "feasibility of": "possibility of",
+    "vast quantities of these deposits": "large amounts of these reserves"
 };
 
 /**
@@ -371,7 +388,7 @@ function cleanTextMechanics(text) {
 
     // 4. FIX ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); 
-    result = result.replace(/,{2,}/g, ','); // Corrected to target consecutive commas
+    result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
