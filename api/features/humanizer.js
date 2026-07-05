@@ -292,7 +292,7 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Builds a prompt designed to break Copyleaks' syllable, n-gram, and POS detection vectors.
+ * Step 2: Builds a prompt designed to break detection vectors (frequency, parts-of-speech, cadence).
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -306,7 +306,7 @@ CRITICAL ARCHITECTURAL SHIFT FOR BYPASSING DETECTORS:
 - Do NOT perform a simple sentence-for-sentence rewrite. Restructure the entire paragraph flow. Combine adjacent thoughts, delete filler words, and collapse redundant sentences.
 - TARGET TONE: Write in a polished, highly engaging editorial voice (similar to Wired, National Geographic, or The New Yorker). It must sound smart and authoritative, avoiding both dry academic stiffness and low-effort, childish blog slang.
 - MANDATORY CONTRACTIONS: Naturally integrate common contractions (it's, won't, don't, can't, we've, there's, shouldn't, we're) throughout. Avoid formal, fully spelled-out word pairs.
-- INTRODUCE HUMAN NUANCE: Inject elements of human qualification, parenthetical asides, or slight hesitation (e.g., "if the data holds up, at least," "which is far easier said than done," "at least in theory").
+- INTRODUCE HUMAN NUANCE: Inject elements of human qualification, parenthetical asides, or slight hesitation. Do NOT copy any direct examples; instead, invent original, brief, context-appropriate qualifying remarks naturally.
 
 ${planBlock}
 TEXT TO REWRITE:
@@ -314,8 +314,8 @@ TEXT TO REWRITE:
 
 STRICT RULES TO DEFEAT LINGUISTIC DETECTORS:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. ABSOLUTELY NO EMPTY ONE-LINER DRAMA FILLER: Never write shallow, clichéd, or dramatic summary statements (e.g., do NOT write "It is the only way forward.", "Logistics are brutal.", "Resource weight is the enemy.", "We need that water."). Every sentence—whether short or long—must carry actual, concrete informational value.
-3. UNPREDICTABLE CADENCE: Avoid writing sentences that have a repeating length or syllable pattern. Place structurally diverse sentences adjacent to each other (e.g., follow a winding 30-word sentence starting with a dependent clause with a clear, active 10-word assertion). Avoid any alternating rhythmic templates.
+2. ABSOLUTELY NO EMPTY ONE-LINER DRAMA FILLER: Never write shallow, clichéd, or dramatic summary statements (e.g., do NOT write "It's the only way forward.", "Logistics are brutal.", "Resource weight is the enemy.", "We need that water."). Every sentence—whether short or long—must carry actual, concrete informational value.
+3. UNPREDICTABLE CADENCE: Avoid writing sentences that have a repeating length or syllable pattern. Place structurally diverse sentences adjacent to each other (e.g., follow a winding 30-word sentence starting with a dependent clause with a clear, active 10-word assertion). Avoid any repeating sentence-length templates or alternating rhythmic patterns.
 4. SYNTACTIC VARIATION: Start sentences with varying parts of speech. Use transition phrases, conditional clauses ("If we do not..."), or occasional questions ("Why does this matter?"). Break the "Subject + Verb + Object" starter monotony.
 5. BAN MECHANICAL HYPHENATION: Avoid mechanical hyphenated adjective compounds. Use descriptive prepositional phrases instead. Keep hyphens to an absolute minimum.
 6. ABSOLUTELY BAN academic, philosophical, or grand AI clichés (e.g., do NOT write "redefine our relationship with the universe", "transforming our understanding of the cosmos", "our place within it", "starkly highlights the enormity of the challenge", "underscores the imperative for innovative solutions"). Focus strictly on concrete physical facts.
@@ -384,7 +384,6 @@ const AI_STERILE_SWAPS = {
     "feasibility of": "possibility of",
     "vast quantities of these deposits": "large amounts of these reserves",
     "pioneers can move beyond": "pioneers can get past",
-    "long-term space travel becomes": "long-term space travel is",
     "eliminating the need for": "cutting out",
     "imposes severe limitations on": "places tight limits on"
 };
