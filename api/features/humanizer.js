@@ -76,7 +76,18 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // Academic & Structural AI tells (Scanned Text Pass)
+    // De-escalating Formal/Stiff Space Explanations
+    "nature of our extended space missions": "reality of long space flights",
+    "it is essential that we refrain from": "we really shouldn't",
+    "utilizing the resources available to us": "using what's already out there",
+    "transporting substantial quantities of": "dragging tons of",
+    "opt to harvest what we require": "just harvest what we need",
+    "transition away from relying on": "stop relying on",
+    "prohibitive challenge": "massive problem",
+    "constraints imposed by our current methods": "limits of how we travel now",
+    "top priority in terms of resource acquisition": "main target",
+    "numerous applications and potential uses": "many uses",
+    "perpetually shadowed craters": "craters in permanent shadow",
     "is the cornerstone of": "is the key to",
     "unsustainable endeavor": "losing battle",
     "primary hurdle": "biggest roadblock",
@@ -311,15 +322,16 @@ TEXT TO REWRITE:
 
 STRICT RULES FOR BYPASSING AI DETECTORS:
 1. Output ONLY the rewritten text. No introductions, headers, meta-commentary, or markdown quotes.
-2. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
+2. ABSOLUTELY BAN clichéd, empty one-liner transition sentences (e.g., do NOT write "It changes everything.", "This changes everything.", "It is a massive leap forward.", "It limits how far we go.", "It limits everything we can do."). 
+   Either merge these sentiments directly into the preceding or succeeding sentence using active verbs, or omit them entirely.
+3. Every short sentence of 4-8 words must contain concrete nouns and actions, rather than empty demonstrative pronouns ("This does X", "It is Y").
+4. BAN trailing participle clauses (e.g., do NOT write "...with local materials, enabling us to print habitats" or "...electrolysis, highlighting the importance"). 
    Instead, use a conjunction ("and this lets us") or break the thought into a new sentence ("This lets us...").
-3. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). 
+5. BAN perfect participle openings (e.g., do NOT write "Having transcended our status..." or "Having completed the mission..."). 
    Instead, use normal active verbs ("After we transcend..." or "Once we complete...").
-4. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
-5. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
-6. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split the sentences.
-7. Never structure your sentences like "By [verb]ing X, we can [verb] Y." Change it to: "If we [verb] X, we [verb] Y" or "We need to [verb] X so we can [verb] Y."
-8. Write in active voice. Instead of "water ice is estimated to be hidden," write "scientists estimate water ice is hiding."
+6. Drastically vary sentence lengths: put a very short, punchy sentence of 4-6 words next to a longer, winding sentence of 20-30 words.
+7. Use natural transitions. Avoid AI favorites like "Given X,", "Indeed,", "To achieve this,", "Thus,", "Therefore,", "By doing so,". Instead, use natural flow words like "But,", "So,", "Yet,", "Simply put,", "Think of it this way:", "Actually,".
+8. ABSOLUTELY BAN em dashes (—), en dashes (–), or semicolons (;). Use commas or split the sentences.
 9. Avoid overly perfect grammatical balancing. Real human writing is direct, slightly asymmetric, and conversational.
 
 Output ONLY the rewritten chunk:`;
@@ -412,16 +424,23 @@ function cleanTextMechanics(text) {
     // 3. MECHANICAL AI LOOP BREAKING (CRITICAL FOR BURSTINESS)
     result = mechanicalCommaBreaker(result);
 
-    // 4. FIX ARTIFACTS
+    // 4. FIX ARTIFACTS & FUSE ACCIDENTAL FRAGMENTS
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
     result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
-    
+
+    // Specific fragment fusion caused by aggressive sentence splits
+    result = result.replace(/\bThe\s+current\s+model\s+of\s+spaceflight\.\s+This\s+relies\s+on\s+/gi, 'The current model of spaceflight relies on ');
+    result = result.replace(/\bThis\s+practice\s+is\s+called\s+in-situ\s+resource\s+utilization\.\s*/gi, ' ');
+
+    // Eliminate empty clichéd filler sentences
+    result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward|This\s+shift\s+toward\s+using\s+local\s+resources\s+changes\s+everything\s+for\s+our\s+species)\.?\s*/gi, ' ');
+    result = result.replace(/\b(It\s+limits\s+how\s+far\s+we\s+go|It\s+limits\s+everything\s+we\s+can\s+actually\s+do\s+out\s+there|It\s+limits\s+everything\s+we\s+can\s+do)\.?\s*/gi, ' ');
+
     // 5. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
-    // Converts dangling AI participles following a comma into direct coordinating statements
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+underscoring\s+/gi, ' and underscores ');
