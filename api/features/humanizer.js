@@ -76,19 +76,7 @@ const AI_VOCAB_SWAPS = {
     "holds that": "claims",
     "in turn": "",
     
-    // De-mechanizing hyphenated compounds and AI tells (Copyleaks Pass)
-    "nature of our extended space missions": "reality of long space flights",
-    "it is essential that we refrain from": "we really shouldn't",
-    "utilizing the resources available to us": "using what's already out there",
-    "transporting substantial quantities of": "dragging tons of",
-    "opt to harvest what we require": "just harvest what we need",
-    "transition away from relying on": "stop relying on",
-    "prohibitive challenge": "massive problem",
-    "constraints imposed by our current methods": "limits of how we travel now",
-    "top priority in terms of resource acquisition": "main target",
-    "numerous applications and potential uses": "many uses",
-    "perpetually shadowed craters": "craters in permanent shadow",
-    "is the cornerstone of": "is the key to",
+    // Generic Academic Tells (Universal)
     "unsustainable endeavor": "losing battle",
     "primary hurdle": "biggest roadblock",
     "severe limitations": "tight limits",
@@ -104,12 +92,15 @@ const AI_VOCAB_SWAPS = {
     "crucial aspect": "key detail",
     "formidable obstacle": "big problem",
     "significant shift": "huge change",
-    "sufficient water resources": "enough water",
     "extended periods": "a long time",
     "profound shift": "massive change",
     "unlocked new possibilities": "opened new doors",
-    "carry-along model": "carry along system",
-    "long-term space travel": "long term space travel"
+    "pressing concern": "big issue",
+    "careful consideration": "attention",
+    "detrimental impact": "bad effect",
+    "upon employing": "by using",
+    "sustenance": "support",
+    "endeavors": "plans"
 };
 
 
@@ -450,31 +441,25 @@ function cleanTextMechanics(text) {
     // 4. MECHANICAL AI LOOP BREAKING
     result = mechanicalCommaBreaker(result);
 
-    // 5. FIX ARTIFACTS & FUSE ACCIDENTAL FRAGMENTS
+    // 5. FIX ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moreover|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    result = result.replace(/\b(Also|Furthermore|Moving|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
 
-    // Specific fragment fusion caused by aggressive sentence splits
-    result = result.replace(/\bThe\s+current\s+model\s+of\s+spaceflight\.\s+This\s+relies\s+on\s+/gi, 'The current model of spaceflight relies on ');
-    result = result.replace(/\bThis\s+practice\s+is\s+called\s+in-situ\s+resource\s+utilization\.\s*/gi, ' ');
+    // Eliminate empty, robotic transition clichés
+    result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward)\.?\s*/gi, ' ');
+    result = result.replace(/\b(It\s+limits\s+how\s+far\s+we\s+can\s+go|It\s+limits\s+everything\s+we\s+can\s+do)\.?\s*/gi, ' ');
 
-    // Eliminate empty clichéd filler sentences
-    result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward|This\s+shift\s+toward\s+using\s+local\s+resources\s+changes\s+everything\s+for\s+our\s+species)\.?\s*/gi, ' ');
-    result = result.replace(/\b(It\s+limits\s+how\s+far\s+we\s+go|It\s+limits\s+everything\s+we\s+can\s+actually\s+do\s+out\s+there|It\s+limits\s+everything\s+we\s+can\s+do)\.?\s*/gi, ' ');
-
-    // Wipe out cosmic/philosophical wrap-up clichés that trigger detection
-    result = result.replace(/\bpoised\s+to\s+redefine\s+our\s+relationship\s+with\s+the\s+universe\b/gi, 'changing how we explore');
-    result = result.replace(/\btransforming\s+our\s+understanding\s+of\s+the\s+cosmos\s+and\s+our\s+place\s+within\s+it\b/gi, 'and how we look at space');
-
-    // Clean up mechanical hyphen chains (Copyleaks Hyphen Vector Sweep)
-    result = result.replace(/\bcarbon-dioxide-heavy\b/gi, 'heavy with carbon dioxide');
-    result = result.replace(/\blife-saving\b/gi, 'essential');
-    result = result.replace(/\bcarry-along\b/gi, 'carry along');
-    result = result.replace(/\blong-term\b/gi, 'long term');
+    // Clean up generic academic/explanatory structures
+    result = result.replace(/\bpressing\s+concern\s+that\s+warrants\s+careful\s+consideration\b/gi, 'big issue that needs attention');
+    result = result.replace(/\bdetrimental\s+impact\b/gi, 'bad effect');
+    result = result.replace(/\bin\s+this\s+regard\b/gi, 'here');
+    result = result.replace(/\bupon\s+employing\b/gi, 'by using');
+    result = result.replace(/\bparadigm\s+shift\b/gi, 'major shift');
+    result = result.replace(/\bfar-reaching\s+implications\b/gi, 'huge consequences');
 
     // 6. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
@@ -522,50 +507,6 @@ function postProcess(text) {
     result = injectBurstiness(result);
     
     return cleanTextMechanics(result);
-}
-
-// ==========================================================================
-// 6. GROQ SENTENCE RESTRUCTURER MODULE
-// ==========================================================================
-
-const RESTRUCTURE_PROMPT = `You are an expert syntax editor. Rewrite the syntax of the provided sentences to make them highly complex and human-like. 
-RULES:
-1. Use dependent clauses (e.g., "Because of X, Y...", "Although X, Y...", "While X, Y...").
-2. Keep the EXACT same meaning. Do not add new facts.
-3. Do NOT use em dashes (—) or semicolons (;).
-4. Do NOT use ", and" or ", but" to connect independent clauses.
-5. Return a JSON object with a key "rewrites" containing an array of objects, each with "original" (the exact input sentence) and "rewritten" (the new sentence).`;
-
-async function restructureSentences(text, groqKey) {
-    const sentenceRegex = /[^.!?]+[.!?]+/g;
-    let sentences = text.match(sentenceRegex) || [];
-    if (sentences.length < 4) return { text: text, fixes: 0 };
-
-    // Randomly pick ~30% of the sentences to restructure
-    const numToPick = Math.max(1, Math.floor(sentences.length * 0.3));
-    const picked = [...sentences].sort(() => 0.5 - Math.random()).slice(0, numToPick);
-    
-    if (picked.length === 0) return { text: text, fixes: 0 };
-
-    const prompt = `${RESTRUCTURE_PROMPT}\n\nSENTENCES TO REWRITE:\n${JSON.stringify(picked)}\n\nJSON OUTPUT:`;
-    const messages = [{ role: 'user', content: prompt }];
-
-    try {
-        const content = await GroqAPI.chat(messages, groqKey, true);
-        const parsed = parseGroqJson(content);
-        
-        if (parsed.rewrites && Array.isArray(parsed.rewrites)) {
-            const rewriteMap = {};
-            parsed.rewrites.forEach(r => {
-                if (r.original && r.rewritten) rewriteMap[r.original] = r.rewritten;
-            });
-            const newText = applyJsonReplacements(text, rewriteMap);
-            return { text: newText, fixes: parsed.rewrites.length };
-        }
-    } catch (error) {
-        console.error('Groq Sentence Restructure Failed:', error);
-    }
-    return { text: text, fixes: 0 };
 }
 
 
