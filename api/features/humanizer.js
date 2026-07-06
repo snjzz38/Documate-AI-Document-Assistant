@@ -293,7 +293,7 @@ JSON OUTPUT:`;
 
 /**
  * Step 2: Advanced chunk prompt designed to enforce active human framing,
- * professional qualification, and strict paragraph decoupling.
+ * lexical friction (banning predictable adjective-noun clusters), and paragraph asymmetry.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -309,13 +309,14 @@ TEXT TO REWRITE:
 
 STRICT EDITORIAL REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. ABSOLUTELY NO REPETITIVE PHRASES: Do NOT repeat the same qualifying phrase, caveat, or parenthetical remark across different paragraphs (e.g., if you write "assuming the engineering holds up" once, do NOT use "assuming", "holds up", or "expected" in any other paragraph). Every single qualification or aside must be entirely unique and context-specific. Use qualifiers very sparingly (maximum of two across the entire text).
-3. PARAGRAPH DECOUPLING & ASYMMETRY: Do not mimic the sentence count or paragraph structure of the input. Feel free to combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Create an uneven, natural human paragraph layout.
-4. ACTIVE TECHNICAL FRAMING: Shift the focus from passive, abstract AI definitions to active human challenges. Instead of writing "Gravity remains the primary hurdle for deep-space travel," write "Engineers trying to reach deep space are still fighting a single roadblock: gravity."
-5. MANDATORY CONTRACTIONS: Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-6. RANDOMIZE SENTENCE STRUCTURES: Syntactically invert thoughts by opening with dependent clauses ("While X, Y," "If X, Y"), prepositional phrases, or active questions. Do not start consecutive sentences with the same nouns or pronouns.
-7. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+2. ABSOLUTELY NO REPETITIVE PHRASES: Do NOT repeat the same qualifying phrase, caveat, or parenthetical remark across different paragraphs. Every single qualification or aside must be entirely unique and context-specific. Use qualifiers very sparingly (maximum of two across the entire text).
+3. LEXICAL FRICTION (BAN PREDICTABLE WORD PAIRINGS): Avoid mathematically "smooth" or highly predictable academic word pairings (adjective-noun or adverb-verb clusters). For example, do NOT write clichéd combinations like "fundamental shift", "exorbitant price tag", "fundamentally unsustainable", "essential building blocks", "vast deposits", "promising results", "turning point", "mere visitors", "reachable frontier", "impossible goal". Use unexpected, sharp, and highly specific synonyms instead.
+4. PARAGRAPH DECOUPLING & ASYMMETRY: Do not mimic the sentence count or paragraph structure of the input. Feel free to combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Create an uneven, natural human paragraph layout.
+5. ACTIVE TECHNICAL FRAMING: Shift the focus from passive, abstract AI definitions to active human challenges. Instead of writing "Gravity remains the primary hurdle for deep-space travel," write "Engineers trying to reach deep space are still fighting a single roadblock: gravity."
+6. MANDATORY CONTRACTIONS: Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+7. RANDOMIZE SENTENCE STRUCTURES: Syntactically invert thoughts by opening with dependent clauses ("While X, Y," "If X, Y"), prepositional phrases, or active questions. Do not start consecutive sentences with the same nouns or pronouns.
+8. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
@@ -369,7 +370,6 @@ const AI_STERILE_SWAPS = {
     "serves as a bridge": "acts as a link",
     "global challenges": "major problems",
     "game changer": "major shift",
-    "fundamentally alters": "changes",
     "feasibility of": "possibility of",
     "eliminating the need for": "cutting out",
     "imposes severe limitations on": "places tight limits on"
@@ -442,11 +442,18 @@ function cleanTextMechanics(text) {
 
     // Clean up generic academic/explanatory structures
     result = result.replace(/\bpressing\s+concern\s+that\s+warrants\s+careful\s+consideration\b/gi, 'big issue that needs attention');
+    result = result.replace(/\bpressing\s+concern\b/gi, 'big issue');
+    result = result.replace(/\bcareful\s+consideration\b/gi, 'careful thought');
     result = result.replace(/\bdetrimental\s+impact\b/gi, 'bad effect');
     result = result.replace(/\bin\s+this\s+regard\b/gi, 'here');
     result = result.replace(/\bupon\s+employing\b/gi, 'by using');
     result = result.replace(/\bparadigm\s+shift\b/gi, 'major shift');
     result = result.replace(/\bfar-reaching\s+implications\b/gi, 'huge consequences');
+    result = result.replace(/\bturning\s+point\b/gi, 'shift');
+    result = result.replace(/\bessential\s+building\s+blocks\b/gi, 'raw materials');
+
+    // Erase the AI's favorite adverb "fundamentally" (Universal sweep)
+    result = result.replace(/\bfundamentally\s+(\w+)\b/gi, 'completely $1');
 
     // 6. OXFORD COMMA & COMPOUND CLAUSE COMMA STRIPPER (Critical to destroy predictable AI list cadences)
     result = result.replace(/,\s+(and|but|or)\s+/gi, ' $1 ');
