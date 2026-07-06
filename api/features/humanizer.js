@@ -292,8 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Chunk prompt optimized to inject conversational noise, highly simplified
- * explanations, and direct active phrasing, while protecting technical accuracy.
+ * Step 2: Advanced chunk prompt designed to enforce active human framing,
+ * professional qualification, and strict logical re-ordering.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -301,21 +301,22 @@ function buildChunkPrompt(chunk, plans) {
         planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor rewriting a draft to sound completely human, organic, and direct.
+    return `You are an expert editor rewriting a highly technical draft to sound completely human, organic, and professional.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT REWRITE RULES FOR BYPASSING ADVANCED DETECTORS:
+STRICT EDITORIAL REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. PROTECT FACTUAL ACCURACY: Keep the technical facts, terms, and core meaning 100% identical. Do NOT hallucinate, change, or contradict the science of the text.
-3. CONVERSATIONAL NOISE: Write in a highly direct, simplified, and personal human voice. Inject natural elements of human thought, such as mild self-corrections, conversational parentheticals, or slightly informal explanations.
-4. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or questions. 
-5. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-6. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates across paragraphs.
-7. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+2. ABSOLUTE SCIENTIFIC ACCURACY: Maintain 100% of the technical details, names, and precise data. Do NOT hallucinate, oversimplify, or alter the core science.
+3. INTELLECTUAL EDITORIAL TONE: Write in a polished, highly engaging professional voice (think Wired, Scientific American, or Nature). Do NOT use casual, childish, or slangy blog phrases (absolutely BAN "you know," "basically," "let's be honest," "game changer," or "gas stations").
+4. ACTIVE HUMAN FRAMING: Shift the focus from passive definitions to active human agents. Instead of "Gravity is the biggest hurdle," write "Engineers are still fighting a single roadblock: gravity."
+5. ACADEMIC QUALIFICATION & HESITATION: Introduce natural human elements of professional hesitation, brief caveats, or mechanical conditions (e.g., use phrases like "assuming the hardware performs as expected," "at least on paper," "if the structural integrity holds up under stress").
+6. RANDOMIZE SENTENCE STRUCTURES: Syntactically invert thoughts by opening with dependent clauses ("While X, Y," "If X, Y"), prepositional phrases, or active questions. Do not start consecutive sentences with the same nouns or pronouns.
+7. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+8. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
