@@ -292,8 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Advanced chunk prompt designed to enforce active human framing,
- * lexical friction (banning predictable adjective-noun clusters), and paragraph asymmetry.
+ * Step 2: Chunk prompt designed to enforce an 8th-grade conversational reading level,
+ * stripping out academic vocabulary and high-complexity metaphors.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -301,22 +301,26 @@ function buildChunkPrompt(chunk, plans) {
         planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor rewriting a highly technical draft to sound completely human, organic, and professional.
+    return `You are an expert editor rewriting a highly technical draft to sound completely human, organic, and direct.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT EDITORIAL REWRITE RULES:
+STRICT SIMPLIFIED HUMANIZATION RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. ABSOLUTELY NO REPETITIVE PHRASES: Do NOT repeat the same qualifying phrase, caveat, or parenthetical remark across different paragraphs. Every single qualification or aside must be entirely unique and context-specific. Use qualifiers very sparingly (maximum of two across the entire text).
-3. LEXICAL FRICTION (BAN PREDICTABLE WORD PAIRINGS): Avoid mathematically "smooth" or highly predictable academic word pairings (adjective-noun or adverb-verb clusters). For example, do NOT write clichéd combinations like "fundamental shift", "exorbitant price tag", "fundamentally unsustainable", "essential building blocks", "vast deposits", "promising results", "turning point", "mere visitors", "reachable frontier", "impossible goal". Use unexpected, sharp, and highly specific synonyms instead.
-4. PARAGRAPH DECOUPLING & ASYMMETRY: Do not mimic the sentence count or paragraph structure of the input. Feel free to combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Create an uneven, natural human paragraph layout.
-5. ACTIVE TECHNICAL FRAMING: Shift the focus from passive, abstract AI definitions to active human challenges. Instead of writing "Gravity remains the primary hurdle for deep-space travel," write "Engineers trying to reach deep space are still fighting a single roadblock: gravity."
-6. MANDATORY CONTRACTIONS: Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-7. RANDOMIZE SENTENCE STRUCTURES: Syntactically invert thoughts by opening with dependent clauses ("While X, Y," "If X, Y"), prepositional phrases, or active questions. Do not start consecutive sentences with the same nouns or pronouns.
-8. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+2. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced vocabulary.
+3. FORCE LEXICAL SIMPLICITY: Avoid "intelligent" or polished words. Replace them with basic human alternatives:
+   - Instead of "stifles," "stunted," "constrains," or "curtails," use "stops," "limits," or "holds back."
+   - Instead of "pivoting," "transition," or "paradigm shift," use "changing," "switching," or "moving."
+   - Instead of "brimming with," "abundant," or "saturated," use "has plenty of," "packed with," or "full of."
+   - Instead of "transient," "pioneers," or "residents," use "visitors" or "people living there."
+   - Instead of "utilize," "extraction," or "harness," use "use" or "take."
+4. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or active questions.
+5. BAN PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+6. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences.
+7. INTEGRATE CONTRACTIONS: Ensure extremely high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
@@ -370,6 +374,7 @@ const AI_STERILE_SWAPS = {
     "serves as a bridge": "acts as a link",
     "global challenges": "major problems",
     "game changer": "major shift",
+    "fundamentally alters": "changes",
     "feasibility of": "possibility of",
     "eliminating the need for": "cutting out",
     "imposes severe limitations on": "places tight limits on"
@@ -454,6 +459,11 @@ function cleanTextMechanics(text) {
 
     // Erase the AI's favorite adverb "fundamentally" (Universal sweep)
     result = result.replace(/\bfundamentally\s+(\w+)\b/gi, 'completely $1');
+
+    // Clean up advanced vocabulary words to maintain grade-level simplicity
+    result = result.replace(/\bbrimming\s+with\b/gi, 'full of');
+    result = result.replace(/\bbrims\s+with\b/gi, 'is full of');
+    result = result.replace(/\bshackled\s+to\b/gi, 'tied to');
 
     // 6. OXFORD COMMA & COMPOUND CLAUSE COMMA STRIPPER (Critical to destroy predictable AI list cadences)
     result = result.replace(/,\s+(and|but|or)\s+/gi, ' $1 ');
