@@ -292,8 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Simplified chunk prompt targeting structure inversion, contraction injection, 
- * participle bans, and rhythm randomization.
+ * Step 2: Streamlined chunk prompt focused strictly on syntactic inversion, 
+ * participle bans, high-perplexity structures, and cadence randomization.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -301,7 +301,7 @@ function buildChunkPrompt(chunk, plans) {
         planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor rewriting a draft to sound completely organic, human, and conversational.
+    return `You are an expert editor rewriting a draft to sound completely human, organic, and direct.
 
 ${planBlock}
 TEXT TO REWRITE:
@@ -309,9 +309,9 @@ TEXT TO REWRITE:
 
 STRICT SIMPLIFIED REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or questions. 
+2. SYNTACTIC INVERSION: Break repetitive "Subject-Verb-Object" layouts. Start sentences with different parts of speech consecutively. Avoid starting sentences with introductory infinitive or participle phrases like "To survive," "By harvesting," or "To overcome." Instead, use straight, active declarations.
 3. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-4. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates across paragraphs.
+4. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates or balanced parallel clauses across paragraphs.
 5. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
 6. ELIMINATE AI CLICHÉS: Ban clichéd summary statements and cosmic wrap-up phrases (e.g., "It changes everything", "The logistics are brutal", "We aren't visitors anymore"). Every sentence must convey concrete information.
 7. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
