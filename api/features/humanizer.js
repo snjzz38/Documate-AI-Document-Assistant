@@ -292,8 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Chunk prompt designed to minimize comma density, eliminate appositives,
- * and enforce subordinating syntax for complex thoughts.
+ * Step 2: Chunk prompt optimized to inject conversational noise, highly simplified
+ * explanations, and direct active phrasing, while protecting technical accuracy.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -307,16 +307,15 @@ ${planBlock}
 TEXT TO REWRITE:
 "${chunk}"
 
-STRICT SIMPLIFIED REWRITE RULES:
+STRICT REWRITE RULES FOR BYPASSING ADVANCED DETECTORS:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or questions. 
-3. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-4. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates across paragraphs.
-5. BAN COMMA CHAINS AND APPOSITIVES: Do NOT use consecutive comma-separated descriptive clauses, and do NOT wrap parenthetical asides in commas (avoid patterns like "X, arguably the most important Y, sits..."). Limit sentences to a maximum of two commas.
-6. SUBORDINATE FOR LENGTH: When writing longer sentences, use subordinating conjunctions ("since," "although," "unless," "because") or conditional clauses ("if") instead of joining simple clauses with commas and coordinating conjunctions.
+2. PROTECT FACTUAL ACCURACY: Keep the technical facts, terms, and core meaning 100% identical. Do NOT hallucinate, change, or contradict the science of the text.
+3. CONVERSATIONAL NOISE: Write in a highly direct, simplified, and personal human voice. Inject natural elements of human thought, such as mild self-corrections, conversational parentheticals, or slightly informal explanations.
+4. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or questions. 
+5. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+6. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences. Do not use repeating rhythmic templates across paragraphs.
 7. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-8. ELIMINATE AI CLICHÉS: Ban clichéd summary statements and cosmic wrap-up phrases (e.g., "It changes everything", "The logistics are brutal", "We aren't visitors anymore"). Every sentence must convey concrete information.
-9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
