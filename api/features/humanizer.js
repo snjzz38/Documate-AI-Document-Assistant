@@ -293,7 +293,7 @@ JSON OUTPUT:`;
 
 /**
  * Step 2: Advanced chunk prompt designed to enforce active human framing,
- * professional qualification, and strict logical re-ordering.
+ * professional qualification, and strict paragraph decoupling.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -309,14 +309,13 @@ TEXT TO REWRITE:
 
 STRICT EDITORIAL REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. ABSOLUTE SCIENTIFIC ACCURACY: Maintain 100% of the technical details, names, and precise data. Do NOT hallucinate, oversimplify, or alter the core science.
-3. INTELLECTUAL EDITORIAL TONE: Write in a polished, highly engaging professional voice (think Wired, Scientific American, or Nature). Do NOT use casual, childish, or slangy blog phrases (absolutely BAN "you know," "basically," "let's be honest," "game changer," or "gas stations").
-4. ACTIVE HUMAN FRAMING: Shift the focus from passive definitions to active human agents. Instead of "Gravity is the biggest hurdle," write "Engineers are still fighting a single roadblock: gravity."
-5. ACADEMIC QUALIFICATION & HESITATION: Introduce natural human elements of professional hesitation, brief caveats, or mechanical conditions (e.g., use phrases like "assuming the hardware performs as expected," "at least on paper," "if the structural integrity holds up under stress").
+2. ABSOLUTELY NO REPETITIVE PHRASES: Do NOT repeat the same qualifying phrase, caveat, or parenthetical remark across different paragraphs (e.g., if you write "assuming the engineering holds up" once, do NOT use "assuming", "holds up", or "expected" in any other paragraph). Every single qualification or aside must be entirely unique and context-specific. Use qualifiers very sparingly (maximum of two across the entire text).
+3. PARAGRAPH DECOUPLING & ASYMMETRY: Do not mimic the sentence count or paragraph structure of the input. Feel free to combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Create an uneven, natural human paragraph layout.
+4. ACTIVE TECHNICAL FRAMING: Shift the focus from passive, abstract AI definitions to active human challenges. Instead of writing "Gravity remains the primary hurdle for deep-space travel," write "Engineers trying to reach deep space are still fighting a single roadblock: gravity."
+5. MANDATORY CONTRACTIONS: Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
 6. RANDOMIZE SENTENCE STRUCTURES: Syntactically invert thoughts by opening with dependent clauses ("While X, Y," "If X, Y"), prepositional phrases, or active questions. Do not start consecutive sentences with the same nouns or pronouns.
 7. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-8. INTEGRATE CONTRACTIONS: Ensure high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
@@ -452,6 +451,11 @@ function cleanTextMechanics(text) {
     // 6. OXFORD COMMA & COMPOUND CLAUSE COMMA STRIPPER (Critical to destroy predictable AI list cadences)
     result = result.replace(/,\s+(and|but|or)\s+/gi, ' $1 ');
 
+    // Fix accidental capitalization artifacts mid-sentence (e.g. ", And " -> ", and ")
+    result = result.replace(/,\s+And\b/g, ', and');
+    result = result.replace(/,\s+But\b/g, ', but');
+    result = result.replace(/,\s+Or\b/g, ', or');
+
     // 7. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+altering\s+/gi, ' and changing ');
@@ -483,6 +487,8 @@ function cleanTextMechanics(text) {
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
+    
+    // Capitalize only after genuine sentence-ending punctuation (safeguarding mid-sentence words)
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
 
