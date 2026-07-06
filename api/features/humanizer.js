@@ -292,8 +292,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Chunk prompt designed to enforce an 8th-grade conversational reading level,
- * stripping out academic vocabulary and high-complexity metaphors.
+ * Step 2: Advanced chunk prompt designed to enforce an 8th-grade conversational reading level,
+ * lexical simplicity, and strict outline/paragraph sequence reordering.
  */
 function buildChunkPrompt(chunk, plans) {
     let planBlock = "";
@@ -309,18 +309,19 @@ TEXT TO REWRITE:
 
 STRICT SIMPLIFIED HUMANIZATION RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced vocabulary.
-3. FORCE LEXICAL SIMPLICITY: Avoid "intelligent" or polished words. Replace them with basic human alternatives:
+2. OUTLINE DECOUPLING (DEFEAT PARAPHRASING DETECTORS): Do NOT follow the chronological, linear progression of the input ideas. Intentionally reorder the concepts. Place the conclusion or a key experimental result at the opening as a hook, and move the technical explanations or gravity constraints to the middle or end as a flashback. Re-sequence the conceptual blueprint completely.
+3. PARAGRAPH ASYMMETRY: Merge adjacent paragraphs or split a long paragraph into a quick, sharp transition followed by a deeper explanation. Break the uniform paragraph size of the original text.
+4. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced vocabulary.
+5. FORCE LEXICAL SIMPLICITY: Avoid "intelligent" or polished words. Replace them with basic human alternatives:
    - Instead of "stifles," "stunted," "constrains," or "curtails," use "stops," "limits," or "holds back."
    - Instead of "pivoting," "transition," or "paradigm shift," use "changing," "switching," or "moving."
    - Instead of "brimming with," "abundant," or "saturated," use "has plenty of," "packed with," or "full of."
    - Instead of "transient," "pioneers," or "residents," use "visitors" or "people living there."
    - Instead of "utilize," "extraction," or "harness," use "use" or "take."
-4. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or active questions.
-5. BAN PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-6. CADENCE VARIATION: Put short, clear statements next to long, winding multi-clause sentences.
-7. INTEGRATE CONTRACTIONS: Ensure extremely high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-8. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+6. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or active questions.
+7. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+8. INTEGRATE CONTRACTIONS: Ensure extremely high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
 
 // ==========================================================================
@@ -374,7 +375,6 @@ const AI_STERILE_SWAPS = {
     "serves as a bridge": "acts as a link",
     "global challenges": "major problems",
     "game changer": "major shift",
-    "fundamentally alters": "changes",
     "feasibility of": "possibility of",
     "eliminating the need for": "cutting out",
     "imposes severe limitations on": "places tight limits on"
@@ -392,7 +392,6 @@ function cleanTextMechanics(text) {
     result = result.replace(/,\s*,/g, ',');
 
     // 2. CASE-PRESERVING MECHANICAL CONTRACTION ENGINE
-    // Forces contractions on common word pairs to guarantee high human signature counts
     result = result.replace(/\bIs\s+not\b/g, "Isn't");
     result = result.replace(/\bis\s+not\b/g, "isn't");
     result = result.replace(/\bDo\s+not\b/g, "Don't");
