@@ -281,7 +281,7 @@ Examples of restructuring plans:
 - "Shift the main verb or action to the beginning of the thought."
 - "Inject a qualifier mid-sentence to interrupt the predictable cadence."
 
-Do NOT plan or recommend or output trivial 3-to-5 word fragments (e.g. 'Mars holds ice.'). Ensure sentences retain descriptive depth.
+Do NOT plan or recommend or output trivial 3-to-5 word fragments. Ensure sentences retain descriptive depth.
 
 Return a JSON object with a key "plans" containing an array of objects, each with "original" (the exact sentence from the text) and "plan" (the restructuring instruction).
 
@@ -292,26 +292,26 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Advanced chunk prompt designed to enforce an 8th-grade conversational reading level,
- * lexical simplicity, and strict outline/paragraph sequence reordering.
+ * Step 2: Full-text prompt designed to rewrite the entire document, scramble the 
+ * paragraph outline, lower the reading level to 8th-grade, and inject human asymmetry.
  */
-function buildChunkPrompt(chunk, plans) {
+function buildFullTextPrompt(text, plans) {
     let planBlock = "";
     if (plans && plans.length > 0) {
-        planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
+        planBlock = `\nRESTRUCTURE PLANS (Apply these variations to matching sentences during the rewrite):\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor rewriting a highly technical draft to sound completely human, organic, and direct.
+    return `You are an expert editor rewriting a draft to sound completely human, organic, and direct.
 
 ${planBlock}
 TEXT TO REWRITE:
-"${chunk}"
+"${text}"
 
-STRICT SIMPLIFIED HUMANIZATION RULES:
+STRICT EDITORIAL REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. OUTLINE DECOUPLING (DEFEAT PARAPHRASING DETECTORS): Do NOT follow the chronological, linear progression of the input ideas. Intentionally reorder the concepts. Place the conclusion or a key experimental result at the opening as a hook, and move the technical explanations or gravity constraints to the middle or end as a flashback. Re-sequence the conceptual blueprint completely.
-3. PARAGRAPH ASYMMETRY: Merge adjacent paragraphs or split a long paragraph into a quick, sharp transition followed by a deeper explanation. Break the uniform paragraph size of the original text.
-4. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced vocabulary.
+2. OUTLINE SCRAMBLING (DEFEAT DETECTORS): Do NOT follow the chronological, linear progression of the input ideas. Intentionally reorder the concepts. For example, open the text directly with the Martian MOXIE experiment as a hook, and then flashback to gravity or launch constraints as the explanation for why it matters. Break the expected AI outline completely.
+3. PARAGRAPH ASYMMETRY: Combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Write completely uneven, asymmetrical paragraphs.
+4. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced academic vocabulary.
 5. FORCE LEXICAL SIMPLICITY: Avoid "intelligent" or polished words. Replace them with basic human alternatives:
    - Instead of "stifles," "stunted," "constrains," or "curtails," use "stops," "limits," or "holds back."
    - Instead of "pivoting," "transition," or "paradigm shift," use "changing," "switching," or "moving."
@@ -524,7 +524,7 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 6. API HANDLER (Wiped out restructureSentences call)
+// 7. API HANDLER
 // ==========================================================================
 
 /**
@@ -546,7 +546,6 @@ export default async function handler(req, res) {
     try {
         const { text, apiKey, groqApiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
-        const GROQ_KEY = groqApiKey || process.env.GROQ_API_KEY;
 
         if (!text) throw new Error("No text provided.");
         if (!GEMINI_KEY) throw new Error("No Gemini API key provided.");
@@ -567,51 +566,25 @@ export default async function handler(req, res) {
             logs.push(`Analysis failed (${err.message}), proceeding without plans.`);
         }
 
-        // Step 3: Split into chunks
-        let chunks = [];
-        if (GROQ_KEY) {
-            logs.push('Analyzing logical chunks with Groq...');
-            chunks = await groqLogicalChunk(processed, GROQ_KEY);
-        } else {
-            chunks = splitIntoChunks(processed, 4);
-        }
-        logs.push(`Split into ${chunks.length} logical chunks`);
-
         const temperature = 0.7 + Math.random() * 0.3;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 4: Humanize chunks sequentially (Passing isolated plans)
-        const humanizedChunks = [];
-        for (let i = 0; i < chunks.length; i++) {
-            try {
-                // Filter plans so Gemini only sees the instructions relevant to this specific chunk
-                const chunkPlans = filterPlansForChunk(chunks[i], plans);
-                
-                const humanized = await humanizeChunk(chunks[i], chunkPlans, GEMINI_KEY, temperature);
-                humanizedChunks.push(humanized);
-                logs.push(`Chunk ${i + 1}/${chunks.length}: OK (Applied ${chunkPlans.length} local plans)`);
-            } catch (err) {
-                logs.push(`Chunk ${i + 1}/${chunks.length}: FAILED (${err.message})`);
-                humanizedChunks.push(chunks[i]);
-            }
-        }
+        // Step 3: Single-Pass Structural Reconstruction
+        // Bypassing chunking completely to allow Gemini to restructure paragraph and outline sequence
+        logs.push('Executing single-pass humanization to decouple logical outline...');
+        const prompt = buildFullTextPrompt(processed, plans);
+        const rawResult = await GeminiAPI.chat(prompt, GEMINI_KEY, temperature);
+        let result = rawResult.trim().replace(/^["']|["']$/g, '');
 
-        // Step 5: Rejoin and apply One Big Hardcoded Regex
-        let result = humanizedChunks.join(' ');
+        // Step 4: Apply Post-Processing Swaps and Syntax Corrections
         result = postProcess(result);
         logs.push('Applied master regex post-processing');
-
-        // Step 6: Groq Targeted Sentence Restructuring has been completely removed
-        // to prevent the formal academic regressions and AI paraphrasing signatures
-        // previously introduced by Llama models.
-        logs.push('Skipping Groq sentence restructuring to prevent formal regressions.');
 
         // Calculate final stats and usage
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
         const geminiUsage = getGeminiUsage();
-        const groqUsage = getGroqModelUsage();
 
         const formatUsage = (usage) => {
             return Object.entries(usage).map(([model, stats]) => 
@@ -624,14 +597,14 @@ export default async function handler(req, res) {
             executionTimeSec: (totalTimeMs / 1000).toFixed(2),
             inputChars: text.length,
             outputChars: result.length,
-            chunksProcessed: chunks.length,
+            chunksProcessed: 1,
             gemini: {
                 totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
                 modelsUsed: formatUsage(geminiUsage)
             },
             groq: {
-                totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                modelsUsed: formatUsage(groqUsage),
+                totalCalls: 0,
+                modelsUsed: [],
                 fixesApplied: { restructures: 0 }
             }
         };
@@ -648,7 +621,6 @@ export default async function handler(req, res) {
         logs.push(`ERROR: ${error.message}`);
         
         const geminiUsage = getGeminiUsage() || {};
-        const groqUsage = getGroqModelUsage() || {};
         const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
         
         return res.status(500).json({ 
@@ -662,8 +634,8 @@ export default async function handler(req, res) {
                     modelsUsed: formatUsage(geminiUsage)
                 },
                 groq: {
-                    totalCalls: Object.values(groqUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
-                    modelsUsed: formatUsage(groqUsage)
+                    totalCalls: 0,
+                    modelsUsed: []
                 }
             }
         });
