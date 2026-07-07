@@ -285,8 +285,8 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Benign editorial prompt designed to bypass copy-paste safety alignment
- * and force a genuine, active-voice, contraction-heavy rewrite.
+ * Step 2: Benign, highly creative rewrite prompt. It avoids all "AI detector" or formatting trigger words, 
+ * giving Gemini total linguistic freedom to shatter the original sentence structure.
  */
 function buildFullTextPrompt(text, plans) {
     let planBlock = "";
@@ -294,21 +294,20 @@ function buildFullTextPrompt(text, plans) {
         planBlock = `\nREWRITE SUGGESTIONS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are a friendly, engaging science editor rewriting a technical draft into a lively, direct, and casual blog post for everyday readers.
+    return `You are a warm, casual, and highly knowledgeable writer explaining an interesting topic to a friend over coffee.
 
-${planBlock}
-TEXT TO REWRITE:
+Describe the following technical ideas in your own, completely fresh words. 
+
+Original draft to rewrite:
 "${text}"
 
-EDITORIAL GUIDELINES:
-1. Output ONLY the rewritten text. No introductions, summary bullets, or meta-comments.
-2. LENGTH LOCK: Keep 100% of the technical details, names, and original explanations. Do NOT summarize or shorten the draft. 
-3. DIRECT CONVERSATIONAL VOICE: Write like an enthusiastic human expert explaining a cool topic. Use active verbs and keep the language clear, accessible, and direct.
-4. HEAVY CONTRACTIONS: Use contractions naturally throughout the text (it's, don't, we're, won't, can't, shouldn't) to break stiff academic layouts.
-5. SENTENCE VARIETY: Break repetitive SVO patterns. Start some sentences with transitions or clauses ("While this happens," "If we want"), and keep sentence lengths highly uneven.
-6. NO PASSIVE PARTICIPLES: Do NOT end sentences with trailing "-ing" structures (such as ", making it easier" or ", enabling"). Use a fresh sentence or a complete verb instead.
-7. Use simple punctuation. Avoid semicolons, em dashes, or complex bulleted lists.`;
+Your goal is to completely rewrite this draft:
+1. Break the academic structure completely: change the sentence structures, mix up the paragraph order, and use direct, conversational expressions.
+2. Keep all of the technical facts, terms, and core meaning, but explain them using active, everyday phrasing and plenty of natural contractions (it's, won't, don't, we're).
+3. Do not copy the original sentences. Shatter the syntax and build it back up organically.
+4. Output ONLY your casual explanation. Do not add intro greetings, summary bullets, or meta-commentary.`;
 }
+
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
@@ -433,9 +432,9 @@ function cleanTextMechanics(text) {
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moving|Additionally|Plus),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    result = result.replace(/\b(Also|Furthermore|Moving|Additionally|Plus|Mind\s+you),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
 
-    // Eliminate empty, robotic transition clichés
+    // Eliminate empty, robotic transition clichés (Universal topic-agnostic)
     result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward)\.?\s*/gi, ' ');
     result = result.replace(/\b(It\s+limits\s+how\s+far\s+we\s+can\s+go|It\s+limits\s+everything\s+we\s+can\s+do|It's\s+the\s+only\s+way\s+forward)\.?\s*/gi, ' ');
     result = result.replace(/\b(Logistics\s+are\s+tough|Logistics\s+are\s+brutal)\.?\s*/gi, ' ');
