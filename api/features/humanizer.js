@@ -292,38 +292,30 @@ JSON OUTPUT:`;
 }
 
 /**
- * Step 2: Full-text prompt designed to rewrite the entire document, scramble the 
- * paragraph outline, lower the reading level to 8th-grade, and inject human asymmetry.
+ * Step 2: Full-text prompt strictly locked to preserve original length, technical details,
+ * and meaning while forcing high-perplexity sentence structures.
  */
 function buildFullTextPrompt(text, plans) {
     let planBlock = "";
     if (plans && plans.length > 0) {
-        planBlock = `\nRESTRUCTURE PLANS (Apply these variations to matching sentences during the rewrite):\n${JSON.stringify(plans, null, 2)}\n`;
+        planBlock = `\nRESTRUCTURE PLANS:\n${JSON.stringify(plans, null, 2)}\n`;
     }
     
-    return `You are an expert editor rewriting a draft to sound completely human, organic, and direct.
+    return `You are an expert editor rewriting a technical draft to sound completely human, organic, and direct.
 
 ${planBlock}
 TEXT TO REWRITE:
 "${text}"
 
-STRICT EDITORIAL REWRITE RULES:
+STRICT SIMPLIFIED REWRITE RULES:
 1. Output ONLY the rewritten text. No meta-commentary, introductions, or markdown quotes.
-2. OUTLINE SCRAMBLING (DEFEAT DETECTORS): Do NOT follow the chronological, linear progression of the input ideas. Intentionally reorder the concepts. For example, open the text directly with the Martian MOXIE experiment as a hook, and then flashback to gravity or launch constraints as the explanation for why it matters. Break the expected AI outline completely.
-3. PARAGRAPH ASYMMETRY: Combine adjacent thoughts into a single, cohesive paragraph, or break a long paragraph into a quick, sharp transition followed by a deeper explanation. Write completely uneven, asymmetrical paragraphs.
-4. TARGET READABILITY: Write strictly at an 8th-grade, conversational reading level. Use simple, direct, everyday language. Do NOT use complex metaphors, flashy descriptors, or advanced academic vocabulary.
-5. FORCE LEXICAL SIMPLICITY: Avoid "intelligent" or polished words. Replace them with basic human alternatives:
-   - Instead of "stifles," "stunted," "constrains," or "curtails," use "stops," "limits," or "holds back."
-   - Instead of "pivoting," "transition," or "paradigm shift," use "changing," "switching," or "moving."
-   - Instead of "brimming with," "abundant," or "saturated," use "has plenty of," "packed with," or "full of."
-   - Instead of "transient," "pioneers," or "residents," use "visitors" or "people living there."
-   - Instead of "utilize," "extraction," or "harness," use "use" or "take."
-6. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or active questions.
-7. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
-8. INTEGRATE CONTRACTIONS: Ensure extremely high contraction density (use don't, it's, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
-9. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
+2. ABSOLUTE LENGTH AND DETAIL LOCK: Maintain the exact same length, depth, and technical density as the input. Do NOT summarize, shorten, or omit any technical definitions, factual statements, or explanatory details.
+3. ACTIVE INTELLECTUAL VOICE: Write in an active, direct professional voice. Avoid dry academic passive structures, but strictly avoid childish or slangy vocabulary.
+4. RANDOMIZE SENTENCE STRUCTURES: Break repetitive "Subject-Verb-Object" layouts. Syntactically invert thoughts by opening with dependent clauses (e.g., "While X, Y," "If X, Y"), prepositional phrases, or active questions. Avoid consecutive sentences starting with the same nouns or pronouns.
+5. EXCLUDE PARTICIPIAL PHRASES: Do NOT use trailing participle clauses (e.g., do NOT end sentences with ", enabling..." or ", highlighting..."). Use active, complete verbs linked by simple conjunctions (e.g., "and this lets us") or start a new sentence instead.
+6. INTEGRATE CONTRACTIONS: Ensure frequent, natural use of contractions (it's, don't, we're, won't, can't, shouldn't). Avoid stiff, fully spelled-out word pairs.
+7. BAN em dashes (—), en dashes (–), and semicolons (;). Use commas or periods instead.`;
 }
-
 // ==========================================================================
 // 4. LLM SERVICE MODULE
 // ==========================================================================
@@ -391,7 +383,19 @@ function cleanTextMechanics(text) {
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // 2. CASE-PRESERVING MECHANICAL CONTRACTION ENGINE
+    // 2. PROGRAMMATIC TRANSITION DISRUPTOR (Crucial for Bypassing Predictability Models)
+    // Intercepts predictable AI transitional adverbs and replaces them with high-entropy human alternatives
+    result = result.replace(/\bHowever,\s+/gi, 'Mind you, ');
+    result = result.replace(/\bTherefore,\s+/gi, 'So, ');
+    result = result.replace(/\bFurthermore,\s+/gi, 'Plus, ');
+    result = result.replace(/\bAdditionally,\s+/gi, 'On top of that, ');
+    result = result.replace(/\bSpecifically,\s+/gi, 'To be exact, ');
+    result = result.replace(/\bIn\s+fact,\s+/gi, 'Actually, ');
+    result = result.replace(/\bUltimately,\s+/gi, 'At the end of the day, ');
+    result = result.replace(/\bConsequently,\s+/gi, 'As a result, ');
+    result = result.replace(/\bMoreover,\s+/gi, 'Plus, ');
+
+    // 3. CASE-PRESERVING MECHANICAL CONTRACTION ENGINE
     result = result.replace(/\bIs\s+not\b/g, "Isn't");
     result = result.replace(/\bis\s+not\b/g, "isn't");
     result = result.replace(/\bDo\s+not\b/g, "Don't");
@@ -417,7 +421,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bWould\s+not\b/g, "Wouldn't");
     result = result.replace(/\bwould\s+not\b/g, "wouldn't");
 
-    // 3. STERILE VOCABULARY SWAPS
+    // 4. STERILE VOCABULARY SWAPS
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -428,16 +432,16 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // 4. MECHANICAL AI LOOP BREAKING
+    // 5. MECHANICAL AI LOOP BREAKING
     result = mechanicalCommaBreaker(result);
 
-    // 5. FIX ARTIFACTS
+    // 6. FIX ARTIFACTS
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
     result = result.replace(/,\s*\./g, '.');   
     result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moving|Additionally),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    result = result.replace(/\b(Also|Furthermore|Moving|Additionally|Plus),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
 
     // Eliminate empty, robotic transition clichés (Universal topic-agnostic)
     result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward)\.?\s*/gi, ' ');
@@ -446,8 +450,6 @@ function cleanTextMechanics(text) {
 
     // Clean up generic academic/explanatory structures
     result = result.replace(/\bpressing\s+concern\s+that\s+warrants\s+careful\s+consideration\b/gi, 'big issue that needs attention');
-    result = result.replace(/\bpressing\s+concern\b/gi, 'big issue');
-    result = result.replace(/\bcareful\s+consideration\b/gi, 'careful thought');
     result = result.replace(/\bdetrimental\s+impact\b/gi, 'bad effect');
     result = result.replace(/\bin\s+this\s+regard\b/gi, 'here');
     result = result.replace(/\bupon\s+employing\b/gi, 'by using');
@@ -464,7 +466,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bbrims\s+with\b/gi, 'is full of');
     result = result.replace(/\bshackled\s+to\b/gi, 'tied to');
 
-    // 6. OXFORD COMMA & COMPOUND CLAUSE COMMA STRIPPER (Critical to destroy predictable AI list cadences)
+    // 7. OXFORD COMMA & COMPOUND CLAUSE COMMA STRIPPER (Critical to destroy predictable AI list cadences)
     result = result.replace(/,\s+(and|but|or)\s+/gi, ' $1 ');
 
     // Fix accidental capitalization artifacts mid-sentence (e.g. ", And " -> ", and ")
@@ -472,7 +474,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/,\s+But\b/g, ', but');
     result = result.replace(/,\s+Or\b/g, ', or');
 
-    // 7. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
+    // 8. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
     result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+altering\s+/gi, ' and changing ');
     result = result.replace(/,\s+underscoring\s+/gi, ' and underscores ');
@@ -494,12 +496,12 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bHaving\s+transcended\s+/gi, 'Once we move past ');
     result = result.replace(/\bhaving\s+transcended\s+/gi, 'once we move past ');
     
-    // 8. GRAMMAR FIXES (a vs an)
+    // 9. GRAMMAR FIXES (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
 
-    // 9. SPACING & CAPITALIZATION
+    // 10. SPACING & CAPITALIZATION
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
@@ -524,7 +526,7 @@ function postProcess(text) {
 
 
 // ==========================================================================
-// 7. API HANDLER
+// 6. API HANDLER
 // ==========================================================================
 
 /**
