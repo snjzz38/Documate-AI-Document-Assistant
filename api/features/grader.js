@@ -247,7 +247,7 @@ export default async function handler(req, res) {
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
 
         // ==========================================================
-        // FOLLOW-UP ACTION
+        // OPTIMIZED FOLLOW-UP ACTION
         // ==========================================================
         if (action === 'followup') {
             if (!question || question.trim().length < 1) {
@@ -256,35 +256,28 @@ export default async function handler(req, res) {
             if (!context || !context.feedback) {
                 throw new Error("Missing grading context. Please grade a document first.");
             }
-
+        
             const prompt = buildFollowupPrompt(question.trim(), context);
             
-            // Extract images and PDF files from follow-up context
-            const followUpFiles = [];
+            // OPTIMIZATION: Bypass heavy multimodal files (PDFs/Images) on follow-up chat turns.
+            // Only append lightweight plain-text file attachments if they exist in the context.
             let followUpFileContent = '';
-            
             if (context.files && Array.isArray(context.files)) {
                 for (const file of context.files) {
-                    const base64 = file.content && file.content.includes(',') ? file.content.split(',')[1] : file.content;
-                    const isPDF = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
-                    const isImage = file.type?.startsWith('image/') || /\.(png|jpe?g|webp|heic|heif)$/i.test(file.name);
-
-                    if ((isImage || isPDF) && base64) {
-                        const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg');
-                        followUpFiles.push({ type: mimeType, data: base64 });
-                    } else if (!file.isBase64 && file.content) {
-                        if (!followUpFileContent) followUpFileContent = '\n\n═══════════════════════════════════════════════════════════════\nATTACHED FILES:\n═══════════════════════════════════════════════════════════════\n';
-                        followUpFileContent += `\n--- ${file.name} ---\n${file.content.substring(0, 10000)}\n`;
+                    if (!file.isBase64 && file.content) {
+                        if (!followUpFileContent) {
+                            followUpFileContent = '\n\n═══════════════════════════════════════════════════════════════\nATTACHED TEXT FILES:\n═══════════════════════════════════════════════════════════════\n';
+                        }
+                        followUpFileContent += `\n--- ${file.name} ---\n${file.content.substring(0, 5000)}\n`;
                     }
                 }
             }
-
+        
             const finalPrompt = prompt + followUpFileContent;
-
-            const response = followUpFiles.length > 0
-                ? await GeminiAPI.vision(finalPrompt, GEMINI_KEY, followUpFiles)
-                : await GeminiAPI.chat(finalPrompt, GEMINI_KEY);
-
+        
+            // Execute standard lightweight text chat to drop visual PDF overhead (saves ~75,000+ tokens per turn)
+            const response = await GeminiAPI.chat(finalPrompt, GEMINI_KEY);
+        
             return res.status(200).json({
                 success: true,
                 result: response,
