@@ -237,9 +237,8 @@ export default async function handler(req, res) {
             text, 
             instructions, 
             rubric,
-            files,  // NEW: Array of {name, type, content, isBase64}
+            files,  
             apiKey,
-            // Follow-up specific fields
             action,
             question,
             context 
@@ -259,7 +258,32 @@ export default async function handler(req, res) {
             }
 
             const prompt = buildFollowupPrompt(question.trim(), context);
-            const response = await GeminiAPI.chat(prompt, GEMINI_KEY);
+            
+            // Extract images and PDF files from follow-up context
+            const followUpFiles = [];
+            let followUpFileContent = '';
+            
+            if (context.files && Array.isArray(context.files)) {
+                for (const file of context.files) {
+                    const base64 = file.content && file.content.includes(',') ? file.content.split(',')[1] : file.content;
+                    const isPDF = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
+                    const isImage = file.type?.startsWith('image/') || /\.(png|jpe?g|webp|heic|heif)$/i.test(file.name);
+
+                    if ((isImage || isPDF) && base64) {
+                        const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg');
+                        followUpFiles.push({ type: mimeType, data: base64 });
+                    } else if (!file.isBase64 && file.content) {
+                        if (!followUpFileContent) followUpFileContent = '\n\n═══════════════════════════════════════════════════════════════\nATTACHED FILES:\n═══════════════════════════════════════════════════════════════\n';
+                        followUpFileContent += `\n--- ${file.name} ---\n${file.content.substring(0, 10000)}\n`;
+                    }
+                }
+            }
+
+            const finalPrompt = prompt + followUpFileContent;
+
+            const response = followUpFiles.length > 0
+                ? await GeminiAPI.vision(finalPrompt, GEMINI_KEY, followUpFiles)
+                : await GeminiAPI.chat(finalPrompt, GEMINI_KEY);
 
             return res.status(200).json({
                 success: true,
@@ -274,15 +298,18 @@ export default async function handler(req, res) {
         if (!text) throw new Error("No student text provided.");
         if (text.length < 10) throw new Error("Student submission too short (minimum 10 characters).");
 
-        // Separate image files (pass to vision API) from text files (append to prompt)
-        const imageFiles = [];
+        // Parse multimodal binary files (Images & PDFs) alongside text files
+        const multimodalFiles = [];
         let fileContent = '';
         if (files && Array.isArray(files) && files.length > 0) {
             for (const file of files) {
-                if (file.type?.startsWith('image/') && file.content) {
-                    // Strip data URL prefix to get raw base64
-                    const base64 = file.content.includes(',') ? file.content.split(',')[1] : file.content;
-                    imageFiles.push({ type: file.type, data: base64 });
+                const base64 = file.content && file.content.includes(',') ? file.content.split(',')[1] : file.content;
+                const isPDF = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
+                const isImage = file.type?.startsWith('image/') || /\.(png|jpe?g|webp|heic|heif)$/i.test(file.name);
+
+                if ((isImage || isPDF) && base64) {
+                    const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg');
+                    multimodalFiles.push({ type: mimeType, data: base64 });
                 } else if (!file.isBase64 && file.content) {
                     if (!fileContent) fileContent = '\n\n═══════════════════════════════════════════════════════════════\nATTACHED FILES:\n═══════════════════════════════════════════════════════════════\n';
                     fileContent += `\n--- ${file.name} ---\n${file.content.substring(0, 10000)}\n`;
@@ -305,8 +332,8 @@ export default async function handler(req, res) {
             parsedCriteria
         );
 
-        const feedback = imageFiles.length > 0
-            ? await GeminiAPI.vision(prompt, GEMINI_KEY, imageFiles)
+        const feedback = multimodalFiles.length > 0
+            ? await GeminiAPI.vision(prompt, GEMINI_KEY, multimodalFiles)
             : await GeminiAPI.chat(prompt, GEMINI_KEY);
 
         return res.status(200).json({ 
