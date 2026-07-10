@@ -271,13 +271,33 @@ function formatBib(source, style) {
 // ==========================================================================
 
 /**
- * Universal alphabetical sorting helper (Author Family Name -> Site Fallback -> Title)
+ * Universal alphabetical sorting helper (Primary Author Family Name -> Site Fallback -> Title)
  */
 function sortSourcesAlphabetically(srcList) {
     if (!srcList || !Array.isArray(srcList)) return [];
     return srcList.sort((a, b) => {
-        const nameA = DoiAPI.cleanAuthorName(a.meta?.author) || DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
-        const nameB = DoiAPI.cleanAuthorName(b.meta?.author) || DoiAPI.cleanSiteName(b.meta?.siteName || b.title);
+        // Resolve primary sorting name for Source A
+        let nameA = '';
+        if (a.meta?.isDOI && a.meta?.authors?.length > 0) {
+            nameA = a.meta.authors[0].family;
+        } else {
+            nameA = DoiAPI.cleanAuthorName(a.meta?.author);
+        }
+        if (!nameA) {
+            nameA = DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
+        }
+
+        // Resolve primary sorting name for Source B
+        let nameB = '';
+        if (b.meta?.isDOI && b.meta?.authors?.length > 0) {
+            nameB = b.meta.authors[0].family;
+        } else {
+            nameB = DoiAPI.cleanAuthorName(b.meta?.author);
+        }
+        if (!nameB) {
+            nameB = DoiAPI.cleanSiteName(b.meta?.siteName || b.title);
+        }
+
         return nameA.toLowerCase().localeCompare(nameB.toLowerCase());
     });
 }
@@ -367,13 +387,13 @@ function processInsertions(text, insertions, sources, style, outputType) {
     let footer = '\n\n';
     if (outputType === 'footnotes') {
         footer += '### Footnotes\n\n';
-        // Note: Footnote list must print in chronological sequence (1, 2, 3...) to match the in-text indices.
+        // Note: Footnote lists print in chronological appearance sequence to align with superscript numbers.
         footnotes.forEach(f => footer += `${f.num}. ${f.cit}\n\n`);
     } else {
         footer += '### References\n\n';
         const usedSources = sources.filter(s => used.has(s.id));
         
-        // Alphabetize the References list
+        // Alphabetize the References list cleanly by author family name
         sortSourcesAlphabetically(usedSources);
         usedSources.forEach(s => { footer += DoiAPI.formatBib(s, style) + '\n\n'; });
     }
@@ -382,7 +402,7 @@ function processInsertions(text, insertions, sources, style, outputType) {
     if (unused.length) {
         footer += '\n### Further Reading\n\n';
         
-        // Alphabetize the Further Reading list
+        // Alphabetize the Further Reading list cleanly by author family name
         sortSourcesAlphabetically(unused);
         unused.forEach(s => footer += DoiAPI.formatBib(s, style) + '\n\n');
     }
@@ -390,7 +410,6 @@ function processInsertions(text, insertions, sources, style, outputType) {
     footer += `\n---\n*${used.size}/${sources.length} sources cited*`;
     return result + footer;
 }
-
 
 // ════════════════════════════════════════════════════════════════════════════
 // MODULE 5: PROMPT BUILDING
@@ -486,7 +505,7 @@ export default async function handler(req, res) {
                 return true;
             });
             
-            // Alphabetize the Bibliography list
+            // Alphabetize Bibliography Mode sources by author family name
             sortSourcesAlphabetically(uniqueSources);
             
             const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
