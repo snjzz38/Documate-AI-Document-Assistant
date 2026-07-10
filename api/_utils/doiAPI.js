@@ -9,9 +9,10 @@
  * Table of Contents:
  * 1. DOI Extraction Module
  * 2. Crossref Metadata Fetcher Module
- * 3. Unified URL Resolver Module
- * 4. Author Name Formatter Module
- * 5. Academic Style Generator Module
+ * 3. Doi.org Content Negotiation Fallback Module
+ * 4. Unified URL Resolver Module
+ * 5. Author Name Formatter Module
+ * 6. Academic Style Generator Module
  */
 
 // ==========================================================================
@@ -49,6 +50,7 @@ export const DoiAPI = {
         }
         return null;
     },
+
 // ==========================================================================
 // MODULE 2: Crossref Metadata Fetcher
 // ==========================================================================
@@ -59,7 +61,7 @@ export const DoiAPI = {
             const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
             
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeout = setTimeout(() => controller.abort(), 6000); // Increased timeout for slower queries
             
             const res = await fetch(url, {
                 signal: controller.signal,
@@ -73,16 +75,13 @@ export const DoiAPI = {
             
             const data = await res.json();
             const work = data.message;
-            
             if (!work) return null;
             
-            // Extract authors
             const authors = (work.author || []).map(a => ({
                 given: a.given || '',
                 family: a.family || ''
             })).filter(a => a.family);
             
-            // Extract year
             let year = 'n.d.';
             if (work.published?.['date-parts']?.[0]?.[0]) {
                 year = String(work.published['date-parts'][0][0]);
@@ -92,7 +91,6 @@ export const DoiAPI = {
                 year = String(work['published-online']['date-parts'][0][0]);
             }
             
-            // Extract journal/publisher
             const journal = work['container-title']?.[0] || 
                            work.publisher || 
                            'Unknown Journal';
@@ -112,13 +110,70 @@ export const DoiAPI = {
                 isDOI: true
             };
         } catch (e) {
-            console.error('[DOI] Crossref fetch failed:', e.message);
+            console.error('[DOI] Crossref lookup bypassed:', e.message);
             return null;
         }
     },
 
 // ==========================================================================
-// MODULE 3: Unified URL Resolver
+// MODULE 3: Doi.org Content Negotiation Fallback
+// ==========================================================================
+    async fetchFromDoiOrg(doi) {
+        if (!doi) return null;
+        
+        try {
+            const url = `https://doi.org/${encodeURIComponent(doi)}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 6000);
+            
+            // Standard CSL-JSON content negotiation request
+            const res = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'application/vnd.citationstyles.csl+json',
+                    'User-Agent': 'Documate/1.0 (Citation Tool; mailto:contact@example.com)'
+                }
+            });
+            clearTimeout(timeout);
+            
+            if (!res.ok) return null;
+            
+            const work = await res.json();
+            
+            const authors = (work.author || []).map(a => ({
+                given: a.given || '',
+                family: a.family || ''
+            })).filter(a => a.family);
+            
+            let year = 'n.d.';
+            if (work.issued?.['date-parts']?.[0]?.[0]) {
+                year = String(work.issued['date-parts'][0][0]);
+            }
+            
+            const journal = work['container-title'] || work.publisher || 'Unknown Journal';
+            
+            return {
+                doi: doi,
+                title: work.title || 'Untitled',
+                authors: authors,
+                year: year,
+                journal: journal,
+                volume: work.volume || null,
+                issue: work.issue || null,
+                pages: work.page || null,
+                type: work.type || 'article',
+                url: `https://doi.org/${doi}`,
+                abstract: work.abstract || null,
+                isDOI: true
+            };
+        } catch (e) {
+            console.error('[DOI] Doi.org fallback lookup failed:', e.message);
+            return null;
+        }
+    },
+
+// ==========================================================================
+// MODULE 4: Unified URL Resolver
 // ==========================================================================
     async resolve(url, snippet = '') {
         let doi = this.extractDOI(url);
@@ -128,11 +183,13 @@ export const DoiAPI = {
         }
         
         if (!doi) return null;
-        return await this.fetchFromCrossref(doi);
+        
+        // Attempt Primary (Crossref) -> Fallback (Doi.org content negotiation)
+        return (await this.fetchFromCrossref(doi)) || (await this.fetchFromDoiOrg(doi));
     },
 
 // ==========================================================================
-// MODULE 4: Author Name Formatter
+// MODULE 5: Author Name Formatter
 // ==========================================================================
     formatAPAAuthors(authors) {
         if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
@@ -236,7 +293,7 @@ export const DoiAPI = {
     },
 
 // ==========================================================================
-// MODULE 5: Academic Style Generator
+// MODULE 6: Academic Style Generator
 // ==========================================================================
     formatInText(source, style) {
         const s = String(style || 'chicago').toLowerCase();
@@ -293,7 +350,6 @@ export const DoiAPI = {
                 journalSpecs += `, ${pages}`;
             }
 
-            // Centralized double-period safeguard
             const authorPeriod = author.endsWith('.') ? '' : '.';
             return `${author}${authorPeriod} (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
         }
