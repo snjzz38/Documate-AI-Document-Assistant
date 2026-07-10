@@ -100,40 +100,168 @@ function getYear(source) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// MODULE 3: CITATION FORMATTING
+// MODULE 3: ACADEMIC CITATION FORMATTING (APA, MLA, CHICAGO)
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Format authors strictly according to APA 7th Edition rules (Initials + Ampersands)
+ */
+function formatAPAAuthors(authors) {
+    if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+    
+    const formatted = authors.map(a => {
+        const family = (a.family || '').trim();
+        const given = (a.given || '').trim();
+        if (!family) return '';
+        
+        // Convert given names to capitalized initials (e.g., "Hanna Bertilsdotter" -> "H. B.")
+        const initials = given
+            ? given.split(/[\s-]+/).map(part => `${part[0].toUpperCase()}.`).join(' ')
+            : '';
+        return initials ? `${family}, ${initials}` : family;
+    }).filter(Boolean);
+
+    if (formatted.length === 0) return null;
+    if (formatted.length === 1) return formatted[0];
+    if (formatted.length === 2) return `${formatted[0]}, & ${formatted[1]}`;
+    
+    // APA 7 supports listing up to 20 authors before using ellipses
+    if (formatted.length <= 20) {
+        return formatted.slice(0, -1).join(', ') + `, & ${formatted[formatted.length - 1]}`;
+    }
+    return formatted.slice(0, 19).join(', ') + ', ... ' + formatted[formatted.length - 1];
+}
+
+/**
+ * Format authors for MLA / Chicago Style (First Author Reversed, rest natural)
+ */
+function formatStandardAuthors(authors, useAnd = true) {
+    if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+    
+    const formatted = authors.map((a, i) => {
+        const family = (a.family || '').trim();
+        const given = (a.given || '').trim();
+        if (!family) return '';
+        
+        if (i === 0) {
+            // First author reversed: "Stenning, Anna"
+            return given ? `${family}, ${given}` : family;
+        } else {
+            // Subsequent authors natural: "Hanna Bertilsdotter Rosqvist"
+            return given ? `${given} ${family}` : family;
+        }
+    }).filter(Boolean);
+
+    const amp = useAnd ? 'and' : '&';
+    if (formatted.length === 0) return null;
+    if (formatted.length === 1) return formatted[0];
+    if (formatted.length === 2) return `${formatted[0]} ${amp} ${formatted[1]}`;
+    return formatted.slice(0, -1).join(', ') + `, ${amp} ${formatted[formatted.length - 1]}`;
+}
+
+/**
+ * Capitalizes a string to Title Case (for APA Journal Titles)
+ */
+function toTitleCase(str) {
+    if (!str) return '';
+    const minorWords = /^(a|an|the|and|but|or|for|nor|on|in|at|by|to|for|of|with|about|as)$/i;
+    return str.split(/\s+/).map((word, index) => {
+        if (index > 0 && minorWords.test(word)) return word.toLowerCase();
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
+}
+
 function formatInText(source, style) {
-    const author = getAuthorName(source);
-    const year = getYear(source);
     const s = String(style || 'chicago').toLowerCase();
-    if (s.includes('mla')) return `(${author})`;
-    if (s.includes('apa')) return `(${author}, ${year})`;
-    return `(${author} ${year})`;
+    const year = getYear(source);
+    
+    let authorName = '';
+    if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
+        const firstAuthor = source.meta.authors[0];
+        authorName = firstAuthor.family || cleanSiteName(source.meta?.siteName || source.title);
+        
+        if (source.meta.authors.length === 2) {
+            const secondAuthor = source.meta.authors[1];
+            authorName += s.includes('apa') ? ` & ${secondAuthor.family}` : ` and ${secondAuthor.family}`;
+        } else if (source.meta.authors.length > 2) {
+            authorName += ' et al.';
+        }
+    } else {
+        authorName = cleanAuthorName(source.meta?.author, source) || cleanSiteName(source.meta?.siteName || source.title);
+    }
+    
+    if (s.includes('mla')) return `(${authorName})`;
+    if (s.includes('apa')) return `(${authorName}, ${year})`;
+    return `(${authorName} ${year})`;
 }
 
 function formatBib(source, style) {
     const s = String(style || 'chicago').toLowerCase();
     const year = getYear(source);
     const site = cleanSiteName(source.meta?.siteName || source.title);
-    const today = TODAY();
-    
-    let author;
-    if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
-        const authors = source.meta.authors;
-        if (authors.length === 1) author = `${authors[0].family}, ${authors[0].given}`;
-        else if (authors.length === 2) author = `${authors[0].family}, ${authors[0].given}, and ${authors[1].given} ${authors[1].family}`;
-        else author = `${authors[0].family}, ${authors[0].given}, et al.`;
-    } else {
-        author = cleanAuthorName(source.meta?.author, source) || site;
-    }
-
     const url = source.doi ? `https://doi.org/${source.doi}` : source.link;
     const title = source.title || 'Untitled';
+    const today = TODAY();
 
-    if (s.includes('apa')) return `${author}. (${year}). ${title}. *${site}*. ${url}`;
-    if (s.includes('mla')) return `${author}. "${title}." *${site}*, ${year}, ${url}.`;
-    return `${author}. "${title}." *${site}*. ${year}. ${url} (Accessed ${today})`;
+    // Pull journal metadata if extracted by DoiAPI
+    const volume = source.meta?.volume || source.volume || null;
+    const issue = source.meta?.issue || source.issue || null;
+    const pages = source.meta?.pages || source.pages || null;
+
+    let author;
+    const hasDoiAuthors = !!(source.meta?.isDOI && source.meta?.authors?.length > 0);
+
+    if (s.includes('apa')) {
+        author = hasDoiAuthors
+            ? formatAPAAuthors(source.meta.authors)
+            : (cleanAuthorName(source.meta?.author, source) || site);
+            
+        const cleanSite = toTitleCase(site);
+        
+        // Build APA 7 Journal specs: Volume(Issue), Pages
+        let journalSpecs = '';
+        if (volume) {
+            journalSpecs += `, *${volume}*`;
+            if (issue) journalSpecs += `(${issue})`;
+        }
+        if (pages) {
+            journalSpecs += `, ${pages}`;
+        }
+
+        return `${author}. (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+    }
+
+    if (s.includes('mla')) {
+        author = hasDoiAuthors
+            ? formatStandardAuthors(source.meta.authors, true)
+            : (cleanAuthorName(source.meta?.author, source) || site);
+
+        // Build MLA container specifications
+        let containerSpecs = '';
+        if (volume) containerSpecs += `, vol. ${volume}`;
+        if (issue) containerSpecs += `, no. ${issue}`;
+        if (pages) containerSpecs += `, pp. ${pages}`;
+
+        return `${author}. "${title}." *${site}*${containerSpecs}, ${year}, ${url}.`;
+    }
+
+    // Chicago Notes-Bibliography fallback
+    author = hasDoiAuthors
+        ? formatStandardAuthors(source.meta.authors, true)
+        : (cleanAuthorName(source.meta?.author, source) || site);
+
+    let chicagoSpecs = '';
+    if (volume) {
+        chicagoSpecs += ` ${volume}`;
+        if (issue) chicagoSpecs += `, no. ${issue}`;
+    }
+    if (pages) {
+        chicagoSpecs += ` (${year}): ${pages}`;
+    } else {
+        chicagoSpecs += ` (${year})`;
+    }
+
+    return `${author}. "${title}." *${site}*${chicagoSpecs}. ${url} (Accessed ${today})`;
 }
 
 
