@@ -169,7 +169,14 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
             stage.failures += 1;
             console.error('[Search] _analyzeTopic failed:', e.message);
-            return null;
+            
+            // Return structurally safe fallback brief instead of null to prevent downstream query/exclude crashes
+            return {
+                queries: [this._buildFallbackQuery(text)],
+                exclude_fields: [],
+                discipline: '',
+                must_engage_with: []
+            };
         }
     },
 
@@ -283,7 +290,7 @@ Return ONLY the raw JSON object, no markdown.`;
     },
 
 
-    // ════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════
     // MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
     // ════════════════════════════════════════════════════════════════════════
 
@@ -292,9 +299,11 @@ Return ONLY the raw JSON object, no markdown.`;
         const seenTitles = new Set();
         const seenDomains = new Set();
         
-        const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
-        const isEducationEssay = (brief.discipline || '').toLowerCase().includes('education') || 
-                                 (brief.discipline || '').toLowerCase().includes('pedagogy');
+        // Defensive check to bypass null parameters
+        const safeBrief = brief || {};
+        const excludeFields = (safeBrief.exclude_fields || []).map(f => f.toLowerCase());
+        const isEducationEssay = (safeBrief.discipline || '').toLowerCase().includes('education') || 
+                                 (safeBrief.discipline || '').toLowerCase().includes('pedagogy');
 
         return results
             .filter(r => {
