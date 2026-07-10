@@ -21,6 +21,7 @@
 import { GoogleSearchAPI } from '../_utils/googleSearch.js';
 import { ScraperAPI } from '../_utils/scraper.js';
 import { GroqAPI } from '../_utils/groqAPI.js';
+import { DoiAPI } from '../_utils/doiAPI.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // MODULE 1: DEPENDENCIES & CONFIGURATION
