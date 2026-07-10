@@ -17,7 +17,9 @@ import { DoiAPI } from './doiAPI.js';
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+// ==========================================================================
 // MODULE 1: Main Source Scraper
+// ==========================================================================
 export const ScraperAPI = {
     async scrape(sources) {
         const results = await Promise.all(
@@ -27,7 +29,7 @@ export const ScraperAPI = {
                     const doi = DoiAPI.extractDOI(source.link) || DoiAPI.extractDOI(source.snippet);
                     
                     if (doi) {
-                        const doiData = await DoiAPI.fetchFromCrossref(doi);
+                        const doiData = await DoiAPI.resolve(source.link, source.snippet);
                         if (doiData) {
                             console.log('[Scraper] Programmatic DOI resolved:', doi);
                             return {
@@ -60,7 +62,9 @@ export const ScraperAPI = {
         return results;
     },
 
+// ==========================================================================
 // MODULE 2: HTML Scraper & Parser
+// ==========================================================================
     async _scrapeHTML(source, index) {
         if (source.link.toLowerCase().endsWith('.pdf') || 
             source.link.includes('/pdf/') ||
@@ -101,7 +105,7 @@ export const ScraperAPI = {
             // Scan HTML context for hidden DOIs
             const doiInHtml = this._extractDoiFromHtml(html);
             if (doiInHtml) {
-                const doiData = await DoiAPI.fetchFromCrossref(doiInHtml);
+                const doiData = await DoiAPI.resolve(doiInHtml);
                 if (doiData) {
                     console.log('[Scraper] Found DOI in HTML content:', doiInHtml);
                     return {
@@ -133,7 +137,9 @@ export const ScraperAPI = {
         }
     },
 
+// ==========================================================================
 // MODULE 3: Metadata Extraction
+// ==========================================================================
     _extractDoiFromHtml(html) {
         const patterns = [
             /<meta[^>]*name=["']citation_doi["'][^>]*content=["']([^"']+)["']/i,
@@ -220,7 +226,9 @@ export const ScraperAPI = {
         };
     },
 
+// ==========================================================================
 // MODULE 4: Content Extractor & Cleaners
+// ==========================================================================
     _extractContent(html) {
         let clean = html
             .replace(/<script[\s\S]*?<\/script>/gi, '')
