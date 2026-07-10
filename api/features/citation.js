@@ -265,9 +265,21 @@ function formatBib(source, style) {
 }
 
 
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 4: INSERTION PROCESSING
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
+
+/**
+ * Universal alphabetical sorting helper (Author Family Name -> Site Fallback -> Title)
+ */
+function sortSourcesAlphabetically(srcList) {
+    if (!srcList || !Array.isArray(srcList)) return [];
+    return srcList.sort((a, b) => {
+        const nameA = DoiAPI.cleanAuthorName(a.meta?.author) || DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
+        const nameB = DoiAPI.cleanAuthorName(b.meta?.author) || DoiAPI.cleanSiteName(b.meta?.siteName || b.title);
+        return nameA.toLowerCase().localeCompare(nameB.toLowerCase());
+    });
+}
 
 function processInsertions(text, insertions, sources, style, outputType) {
     let result = text;
@@ -282,13 +294,36 @@ function processInsertions(text, insertions, sources, style, outputType) {
         tokens.push({ word: m[0].toLowerCase(), end: m.index + m[0].length });
     }
 
+    const claimedIndices = new Set();
+
     const valid = insertions.map(ins => {
         if (!ins.anchor || !ins.source_id) return null;
         const words = ins.anchor.toLowerCase().match(/[a-z0-9]+/g);
         if (!words || words.length < 2) return null;
         for (let i = 0; i <= tokens.length - words.length; i++) {
-            if (words.every((w, j) => tokens[i + j].word === w)) {
+            if (claimedIndices.has(i)) continue;
+            
+            const isMatch = words.every((w, j) => tokens[i + j].word === w);
+            if (isMatch) {
+                for (let k = 0; k < words.length; k++) claimedIndices.add(i + k);
                 return { sourceId: ins.source_id, pos: tokens[i + words.length - 1].end };
+            }
+        }
+
+        // Fuzzy fallback match (tolerates 1 minor word deviation)
+        if (words.length >= 4) {
+            for (let i = 0; i <= tokens.length - words.length; i++) {
+                if (claimedIndices.has(i)) continue;
+
+                let mismatches = 0;
+                for (let j = 0; j < words.length; j++) {
+                    if (tokens[i + j].word !== words[j]) mismatches++;
+                }
+
+                if (mismatches <= 1) {
+                    for (let k = 0; k < words.length; k++) claimedIndices.add(i + k);
+                    return { sourceId: ins.source_id, pos: tokens[i + words.length - 1].end };
+                }
             }
         }
         return null;
@@ -305,37 +340,50 @@ function processInsertions(text, insertions, sources, style, outputType) {
         if (!src) return;
         used.add(src.id);
         if (outputType === 'footnotes') {
-            footnotes.push({ num: fnNum, cit: formatBib(src, style) });
+            footnotes.push({ num: fnNum, cit: DoiAPI.formatBib(src, style) });
             posData.set(pos, { type: 'fn', num: fnNum++ });
         } else {
-            posData.set(pos, { type: 'it', cit: formatInText(src, style) });
+            posData.set(pos, { type: 'it', cit: DoiAPI.formatInText(src, style) });
         }
     });
 
     const toSuper = n => n.toString().split('').map(d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]).join('');
+    
     [...positions].reverse().forEach(pos => {
         const d = posData.get(pos);
         if (!d) return;
+
+        // Academic Punctuation Look-Ahead
+        let adjustedPos = pos;
+        while (adjustedPos < text.length && /^[.,;:!?"']/.test(text[adjustedPos])) {
+            adjustedPos++;
+        }
+
         const insert = d.type === 'fn' ? toSuper(d.num) : ` ${d.cit}`;
-        result = result.slice(0, pos) + insert + result.slice(pos);
+        result = result.slice(0, adjustedPos) + insert + result.slice(adjustedPos);
     });
 
     let footer = '\n\n';
     if (outputType === 'footnotes') {
         footer += '### Footnotes\n\n';
+        // Note: Footnote list must print in chronological sequence (1, 2, 3...) to match the in-text indices.
         footnotes.forEach(f => footer += `${f.num}. ${f.cit}\n\n`);
     } else {
         footer += '### References\n\n';
         const usedSources = sources.filter(s => used.has(s.id));
-        usedSources.sort((a, b) => getAuthorName(a).toLowerCase().localeCompare(getAuthorName(b).toLowerCase()));
-        usedSources.forEach(s => { footer += formatBib(s, style) + '\n\n'; });
+        
+        // Alphabetize the References list
+        sortSourcesAlphabetically(usedSources);
+        usedSources.forEach(s => { footer += DoiAPI.formatBib(s, style) + '\n\n'; });
     }
 
     const unused = sources.filter(s => !used.has(s.id));
     if (unused.length) {
         footer += '\n### Further Reading\n\n';
-        unused.sort((a, b) => getAuthorName(a).toLowerCase().localeCompare(getAuthorName(b).toLowerCase()));
-        unused.forEach(s => footer += formatBib(s, style) + '\n\n');
+        
+        // Alphabetize the Further Reading list
+        sortSourcesAlphabetically(unused);
+        unused.forEach(s => footer += DoiAPI.formatBib(s, style) + '\n\n');
     }
 
     footer += `\n---\n*${used.size}/${sources.length} sources cited*`;
@@ -372,10 +420,9 @@ Rules:
 }
 
 
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 6: MAIN HANDLER
-// ════════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -388,7 +435,6 @@ export default async function handler(req, res) {
         const GKEY = googleKey || process.env.GOOGLE_SEARCH_API_KEY;
         const GCX = process.env.SEARCH_ENGINE_ID;
         
-        // ADDED: Extract OpenAlex Key
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
         // QUOTES MODE
@@ -415,7 +461,6 @@ export default async function handler(req, res) {
         // SEARCH & SCRAPE
         console.log('[Citation] Starting search...');
         
-        // ADDED: Pass OPENALEX key to search function
         const raw = await GoogleSearchAPI.search(context, GKEY, GCX, GROQ, OPENALEX);
         console.log('[Citation] Search returned:', raw?.length || 0, 'results');
         
@@ -439,7 +484,11 @@ export default async function handler(req, res) {
                 seen.add(key);
                 return true;
             });
-            const bibs = uniqueSources.map(s => formatBib(s, style)).join('\n\n');
+            
+            // Alphabetize the Bibliography list
+            sortSourcesAlphabetically(uniqueSources);
+            
+            const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
             return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw.stats, count: uniqueSources.length });
         }
 
