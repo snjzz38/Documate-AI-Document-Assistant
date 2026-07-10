@@ -1,10 +1,20 @@
-// api/_utils/doiAPI.js
-// Fetches citation metadata from DOIs using Crossref API (free, no key needed)
+// ==========================================================================
+// FILE PATH: api/_utils/doiAPI.js
+// ==========================================================================
 
+/**
+ * api/_utils/doiAPI.js
+ * DocuMate DOI Resolution API Utility
+ * 
+ * Table of Contents:
+ * 1. DOI Extraction Module
+ * 2. Crossref Metadata Fetcher Module
+ * 3. Unified URL Resolver Module
+ */
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 1: DOI Extraction
+// ════════════════════════════════════════════════════════════════════════════
 export const DoiAPI = {
-    /**
-     * Extract DOI from URL or text
-     */
     extractDOI(text) {
         if (!text) return null;
         
@@ -12,26 +22,34 @@ export const DoiAPI = {
         const patterns = [
             /doi\.org\/([^\s"'<>]+)/i,
             /doi:\s*([^\s"'<>]+)/i,
-            /(10\.\d{4,}\/[^\s"'<>]+)/i
+            /doi\/([^\s"'<>?#]+)/i,
+            /(10\.\d{4,}\/[^\s"'<>?#]+)/i
         ];
         
         for (const pattern of patterns) {
             const match = text.match(pattern);
             if (match) {
-                // Clean up the DOI
+                // Clean up trailing punctuation, query parameters, and hashes
                 let doi = match[1]
                     .replace(/[.,;)}\]]+$/, '') // Remove trailing punctuation
-                    .replace(/\/full$/, '')     // Remove /full suffix
-                    .replace(/\/abstract$/, ''); // Remove /abstract suffix
+                    .replace(/\?(.*)$/, '')     // Remove query parameters completely
+                    .replace(/#(.*)$/, '');     // Remove fragment identifiers completely
+                
+                // Clean publisher-specific path prefixes (e.g., Wiley/Springer "/full/", "/abs/")
+                doi = doi.replace(/^(abs|full|pdf|epdf|abstract)\//i, '');
+                
+                // Clean suffixes
+                doi = doi.replace(/\/(full|abstract|pdf)$/i, '');
+
                 return doi;
             }
         }
         return null;
     },
 
-    /**
-     * Fetch metadata from Crossref API
-     */
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 2: Crossref Metadata Fetcher
+// ════════════════════════════════════════════════════════════════════════════
     async fetchFromCrossref(doi) {
         if (!doi) return null;
         
@@ -76,15 +94,16 @@ export const DoiAPI = {
             const journal = work['container-title']?.[0] || 
                            work.publisher || 
                            'Unknown Journal';
+                           
             return {
                 doi: doi,
                 title: work.title?.[0] || 'Untitled',
                 authors: authors,
                 year: year,
-                journal: work['container-title']?.[0] || work.publisher || 'Unknown Journal',
-                volume: work.volume || null,      // ADD
-                issue: work.issue || null,        // ADD
-                pages: work.page || null,         // ADD
+                journal: journal,
+                volume: work.volume || null,
+                issue: work.issue || null,
+                pages: work.page || null,
                 type: work.type || 'article',
                 url: `https://doi.org/${doi}`,
                 abstract: work.abstract?.replace(/<[^>]+>/g, '').substring(0, 500) || null,
@@ -96,9 +115,10 @@ export const DoiAPI = {
         }
     },
 
-    /**
-     * Try to resolve a URL to DOI metadata
-     */
+// ════════════════════════════════════════════════════════════════════════════
+// MODULE 3: Unified URL Resolver
+// ════════════════════════════════════════════════════════════════════════════
+    
     async resolve(url, snippet = '') {
         // Try to extract DOI from URL first
         let doi = this.extractDOI(url);
