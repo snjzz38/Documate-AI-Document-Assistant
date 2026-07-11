@@ -36,7 +36,7 @@ export const SearxQueryBuilder = {
 // ==========================================================================
 export const SearxAPI = {
     // Shuffled pool of public instances known to support the json format
-    INSTANCES = [
+    INSTANCES: [
       "https://search.ononoki.org",
       "https://northboot.xyz",
       "https://xo.wtf",
@@ -54,7 +54,7 @@ export const SearxAPI = {
       "https://search.bus-hit.me",
       "https://paulgo.io",
       "https://search.mdosch.de"
-    ];
+    ],
 
     async search(query, limit = 10) {
         if (!query) return [];
