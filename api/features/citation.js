@@ -18,7 +18,7 @@
  *    - handler()
  */
 
-import { GoogleSearchAPI } from '../_utils/googleSearch.js';
+import { OpenalexAPI } from '../_utils/googleSearch.js';
 import { ScraperAPI } from '../_utils/scraper.js';
 import { GroqAPI } from '../_utils/groqAPI.js';
 import { DoiAPI } from '../_utils/doiAPI.js';
@@ -481,7 +481,7 @@ export default async function handler(req, res) {
         // SEARCH & SCRAPE
         console.log('[Citation] Starting search...');
         
-        const raw = await GoogleSearchAPI.search(context, GKEY, GCX, GROQ, OPENALEX);
+        const raw = await OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX);
         console.log('[Citation] Search returned:', raw?.length || 0, 'results');
         
         if (!raw || raw.length === 0) {

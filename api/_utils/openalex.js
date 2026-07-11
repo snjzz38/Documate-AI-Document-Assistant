@@ -1,5 +1,5 @@
 // ==========================================================================
-// FILE PATH: api/_utils/googleSearch.js
+// FILE PATH: api/_utils/openalex.js
 // ==========================================================================
 
 /*
@@ -65,7 +65,7 @@ const MINIMUM_RESULTS = 6;
 // MODULE 2: CORE INTERFACE
 // ════════════════════════════════════════════════════════════════════════════
 
-export const GoogleSearchAPI = {
+export const OpenalexAPI = {
 
     /**
      * Main entry point. Added openAlexKey parameter.
