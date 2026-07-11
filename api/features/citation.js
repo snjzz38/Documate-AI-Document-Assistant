@@ -18,14 +18,16 @@
  *    - handler()
  */
 
-import { OpenalexAPI } from '../_utils/openalex.js';
+
+// ==========================================================================
+// MODULE 1: DEPENDENCIES & CONFIGURATION
+// ==========================================================================
+
+import { OpenalexAPI } from '../_utils/openalex.js'; // Renamed from GoogleSearchAPI
+import { SearxAPI } from '../_utils/searx.js'; // Added SearXNG import for general search
 import { ScraperAPI } from '../_utils/scraper.js';
 import { GroqAPI } from '../_utils/groqAPI.js';
 import { DoiAPI } from '../_utils/doiAPI.js';
-
-// ════════════════════════════════════════════════════════════════════════════
-// MODULE 1: DEPENDENCIES & CONFIGURATION
-// ════════════════════════════════════════════════════════════════════════════
 
 const TODAY = () => new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -481,14 +483,20 @@ export default async function handler(req, res) {
         // SEARCH & SCRAPE
         console.log('[Citation] Starting search...');
         
-        const raw = await OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX);
-        console.log('[Citation] Search returned:', raw?.length || 0, 'results');
+        // Execute both search pipelines concurrently to balance research without increasing response latency
+        const [academicResults, generalResults] = await Promise.all([
+            OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
+            SearxAPI.search(context, 8) // Fetch up to 8 general web sources
+        ]);
+
+        const raw = [...academicResults, ...generalResults];
+        console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
         
         if (!raw || raw.length === 0) {
             return res.status(200).json({ 
                 success: false, 
                 error: 'No search results. The search service may be temporarily unavailable.',
-                sources: [], text: '', citations: [], stats: raw?.stats || null, count: 0
+                sources: [], text: '', citations: [], stats: null, count: 0
             });
         }
         
@@ -509,7 +517,7 @@ export default async function handler(req, res) {
             sortSourcesAlphabetically(uniqueSources);
             
             const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
-            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw.stats, count: uniqueSources.length });
+            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: null, count: uniqueSources.length });
         }
 
         // CITATION MODE
@@ -525,7 +533,7 @@ export default async function handler(req, res) {
         }
 
         const result = processInsertions(context, insertions, sources, style, outputType);
-        return res.status(200).json({ success: true, sources, text: result, citations: sources, stats: raw.stats, count: sources.length });
+        return res.status(200).json({ success: true, sources, text: result, citations: sources, stats: null, count: sources.length });
 
     } catch (error) {
         console.error('[Citation] Error:', error);
