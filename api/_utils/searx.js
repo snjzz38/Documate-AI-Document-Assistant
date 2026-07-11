@@ -37,13 +37,7 @@ export const SearxQueryBuilder = {
 export const SearxAPI = {
     // Shuffled pool of public instances known to support the json format
     INSTANCES: [
-        'https://priv.au',
-        'https://searx.be',
-        'https://searx.tiekoetter.com',
-        'https://searx.work',
-        'https://search.ononoki.org',
-        'https://searx.or.at',
-        'https://searx.underworld.fr'
+        "https://search.mdosch.de"
     ],
 
     async search(query, limit = 10) {
