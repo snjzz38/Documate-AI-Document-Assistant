@@ -18,7 +18,7 @@
  *    - handler()
  */
 
-import { OpenalexAPI } from '../_utils/googleSearch.js';
+import { OpenalexAPI } from '../_utils/openalex.js';
 import { ScraperAPI } from '../_utils/scraper.js';
 import { GroqAPI } from '../_utils/groqAPI.js';
 import { DoiAPI } from '../_utils/doiAPI.js';
