@@ -36,9 +36,25 @@ export const SearxQueryBuilder = {
 // ==========================================================================
 export const SearxAPI = {
     // Shuffled pool of public instances known to support the json format
-    INSTANCES: [
-        "https://search.mdosch.de"
-    ],
+    INSTANCES = [
+      "https://search.ononoki.org",
+      "https://northboot.xyz",
+      "https://xo.wtf",
+      "https://opnxng.com",
+      "https://priv.au",
+      "https://search.projectsegfau.lt",
+      "https://ooglester.com",
+      "https://etsi.me",
+      "https://search.sapti.me",
+      "https://s.trung.fun",
+      "https://searx.foss.family",
+      "https://search.inetol.net",
+      "https://search.rhscz.eu",
+      "https://search.incogniweb.net",
+      "https://search.bus-hit.me",
+      "https://paulgo.io",
+      "https://search.mdosch.de"
+    ];
 
     async search(query, limit = 10) {
         if (!query) return [];
