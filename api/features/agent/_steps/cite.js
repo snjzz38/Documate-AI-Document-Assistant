@@ -56,7 +56,8 @@ export async function runCite({
             outputType: type,
             apiKey: GROQ,
             googleKey: null,
-            preLoadedSources: researchSources
+            preLoadedSources: researchSources,
+            isAgent: true // Added flag to let citation handler bypass appended footer
         }
     };
 
