@@ -15,9 +15,9 @@
  * 6. Quality Assurance & Fixers Module
  */
 
-import { GroqAPI } from '../../_utils/groqAPI.js'; // Corrected path to '../../'
-import { GeminiAPI } from '../../_utils/geminiAPI.js'; // Corrected path to '../../'
-import { DoiAPI } from '../../_utils/doiAPI.js'; // Corrected path to '../../'
+import { GroqAPI } from '../../_utils/groqAPI.js';
+import { GeminiAPI } from '../../_utils/geminiAPI.js';
+import { DoiAPI } from '../../_utils/doiAPI.js';
 
 // ==========================================================================
 // MODULE 1: Request Budget Manager
@@ -67,6 +67,11 @@ Return a JSON outline with required sections, tone guidelines, and word count ta
     }
 }
 
+export function formatPlanForPrompt(plan) {
+    if (!plan || !plan.sections) return '';
+    return `\nWRITING BRIEF:\n- Target Sections: ${plan.sections.join(', ')}\n- Specific Requirements: ${plan.tone || 'Academic and objective'}\n`;
+}
+
 // ==========================================================================
 // MODULE 3: HTML Builders
 // ==========================================================================
@@ -113,6 +118,28 @@ export function buildBibliographyHTML(sources, style, formatType = 'bibliography
 export function splitSentences(text) {
     if (!text) return [];
     return text.match(/[^.!?]+[!=?.]+(?=\s|$)/g) || [text];
+}
+
+export function extractTopic(text) {
+    if (!text) return 'general research';
+    const words = text.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+    return words.slice(0, 3).join(' ') || 'general research';
+}
+
+export function cleanText(text) {
+    if (!text) return '';
+    return text
+        .replace(/\s+/g, ' ')
+        .replace(/ \./g, '.')
+        .replace(/ ,/g, ',')
+        .trim();
+}
+
+export function fmtAuthorLastOnly(source) {
+    if (source.authors?.length > 0) {
+        return source.authors[0].family || 'Unknown';
+    }
+    return DoiAPI.cleanAuthorName(source.author) || DoiAPI.cleanSiteName(source.venue || source.title);
 }
 
 export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitSentences) {

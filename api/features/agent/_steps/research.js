@@ -1,43 +1,75 @@
-// api/features/steps/research.js
-import { SourceFinderAPI } from '../../_utils/sourceFinder.js';
-import { extractTopicSmart } from '../../_utils/topicExtractor.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/research.js
+// ==========================================================================
 
 /**
- * Finds and normalizes academic sources for the given task.
- * No dependencies on other steps — always safe to run first / in parallel.
+ * api/features/agent/_steps/research.js
+ * Academic Research Step (Powered by OpenAlex & DoiAPI)
+ * 
+ * Table of Contents:
+ * 1. Research Step Executor Module
  */
+
+import { OpenalexAPI } from '../../../_utils/openalex.js';
+import { DoiAPI } from '../../../_utils/doiAPI.js';
+import { extractTopicSmart } from '../../../_utils/topicExtractor.js';
+
+// ==========================================================================
+// MODULE 1: Research Step Executor
+// ==========================================================================
 export async function runResearch({ task, citationStyle = 'apa7' }, GROQ, budget) {
     const topic = await extractTopicSmart(task || '', GROQ, budget);
     console.log('[Research] Topic:', topic, 'Style:', citationStyle);
-    budget.spend('research-search');
+    
+    const openAlexKey = process.env.OPENALEX_API_KEY;
 
-    const papers = await SourceFinderAPI.searchTopic(topic, 12, citationStyle);
+    budget.spend('research-search');
+    const papers = await OpenalexAPI.search(topic, null, null, GROQ, openAlexKey);
     if (!papers?.length) return { sources: [] };
 
-    const sources = papers.map(p => ({
-        id: p.id,
-        title: p.title,
-        url: p.url,
-        doi: p.doi,
-        venue: p.venue,
-        author: p.author,
-        authors: p.authors || [],
-        year: p.year,
-        displayName: p.author || p.displayName,
-        text: p.abstract || p.text,
-        citation: p.citation || SourceFinderAPI._formatCitation(p, citationStyle),
-        citationSource: p.citationSource || 'generated',
-        volume: p.volume || null,
-        issue: p.issue || null,
-        pages: p.pages || null
-    }));
+    // Resolve direct metadata and format academic citations via DoiAPI
+    const sources = await Promise.all(papers.slice(0, 12).map(async (p, idx) => {
+        const doi = DoiAPI.extractDOI(p.link);
+        
+        let enriched = {
+            id: idx + 1,
+            title: p.title,
+            url: p.link,
+            doi: doi,
+            venue: p.venue,
+            author: p.authors || 'Unknown',
+            authors: [],
+            year: p.year,
+            displayName: p.authors || 'Unknown',
+            text: p.snippet || '',
+            citationSource: 'generated'
+        };
 
-    console.log(
-        '[Research] Crossref sources:',
-        sources.filter(s => s.citationSource === 'crossref').length,
-        '/',
-        sources.length
-    );
+        if (doi) {
+            const meta = await DoiAPI.fetchFromCrossref(doi);
+            if (meta) {
+                enriched.authors = meta.authors || [];
+                enriched.title = meta.title || p.title;
+                enriched.venue = meta.journal || p.venue;
+                enriched.year = (meta.year && meta.year !== 'n.d.') ? meta.year : p.year;
+                enriched.volume = meta.volume || null;
+                enriched.issue = meta.issue || null;
+                enriched.pages = meta.pages || null;
+                enriched.citationSource = 'crossref';
+                
+                if (meta.authors?.length) {
+                    enriched.author = meta.authors.length > 2 
+                        ? `${meta.authors[0].family} et al.` 
+                        : meta.authors.map(a => a.family).join(' & ');
+                    enriched.displayName = enriched.author;
+                }
+            }
+        }
+
+        // Format central bibliography string using centralized DoiAPI formatting engine
+        enriched.citation = DoiAPI.formatBib(enriched, citationStyle);
+        return enriched;
+    }));
 
     return { sources };
 }

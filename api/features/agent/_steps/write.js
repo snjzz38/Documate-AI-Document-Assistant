@@ -1,16 +1,21 @@
-// api/features/steps/write.js
-import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { extractTopic, cleanText } from '../../_utils/textCleanup.js';
-import { formatPlanForPrompt } from '../../_utils/planner.js';
-import { fmtAuthorLastOnly } from '../../_utils/citationHelpers.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/write.js
+// ==========================================================================
 
 /**
- * Writes the task response.
- * `plan` is produced once upstream (agent.js, via planTask) and describes
- * concretely what this deliverable needs to contain — required sections,
- * specifics to invent if missing (e.g. a city), tone, length. This replaces
- * the old detectTaskFormat()/getFormatInstructions() template-matching system.
+ * api/features/agent/_steps/write.js
+ * Content Writing Step (Draft Generator)
+ * 
+ * Table of Contents:
+ * 1. Content Writing Executor Module
  */
+
+import { GeminiAPI } from '../../../_utils/geminiAPI.js';
+import { extractTopic, cleanText, formatPlanForPrompt, fmtAuthorLastOnly } from '../agentHelpers.js';
+
+// ==========================================================================
+// MODULE 1: Content Writing Executor
+// ==========================================================================
 export async function runWrite({ task, plan, researchSources = [], uploadedFiles = [] }, GEMINI, budget) {
     const imageFiles = uploadedFiles.filter(f => f.type?.startsWith('image/'));
     const pdfFiles = uploadedFiles.filter(f => f.type === 'application/pdf');
@@ -63,7 +68,7 @@ CRITICAL RULES — ALWAYS APPLY:
 - Do NOT start with any preamble — begin with the actual content immediately
 - Do NOT use direct quotes from sources — paraphrase all source material
 - NEVER start a sentence with "Because" — lead with the subject or claim instead
-- NEVER write a vague sentence that makes an observation without naming a specific consequence
+- NEVER write a vague sentence that makes an observation without academic grounding or specific detail
 ${imageFiles.length > 0 ? '- Carefully analyze any uploaded images as part of the response.' : ''}
 
 Complete the task now:`;
