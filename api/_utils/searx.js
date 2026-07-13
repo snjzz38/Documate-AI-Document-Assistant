@@ -35,25 +35,18 @@ export const SearxQueryBuilder = {
 // MODULE 2: SearXNG Client & Fetcher
 // ==========================================================================
 export const SearxAPI = {
-    // Shuffled pool of public instances known to support the json format
+    // Freshly synchronized pool of public instances with high uptimes
     INSTANCES: [
-      "https://search.ononoki.org",
-      "https://northboot.xyz",
-      "https://xo.wtf",
-      "https://opnxng.com",
-      "https://priv.au",
-      "https://search.projectsegfau.lt",
-      "https://ooglester.com",
-      "https://etsi.me",
-      "https://search.sapti.me",
-      "https://s.trung.fun",
-      "https://searx.foss.family",
-      "https://search.inetol.net",
-      "https://search.rhscz.eu",
-      "https://search.incogniweb.net",
-      "https://search.bus-hit.me",
-      "https://paulgo.io",
-      "https://search.mdosch.de"
+      "https://linxx.net",
+      "https://oloke.xyz",
+      "https://searxng.website",
+      "https://searx.ononoki.org",
+      "https://namejeff.xyz",
+      "https://catboy.house",
+      "https://xka.cz",
+      "https://chocolatemoo53.com",
+      "https://rowie.at",
+      "https://tiekoetter.com"
     ],
 
     async search(query, limit = 10) {
@@ -66,17 +59,25 @@ export const SearxAPI = {
         const instancesToTry = customUrl ? [customUrl] : [...this.INSTANCES].sort(() => Math.random() - 0.5);
 
         for (const baseUrl of instancesToTry) {
+            // trailing /search endpoint is explicitly defined
             const url = `${baseUrl}/search?q=${encodeURIComponent(searchQuery)}&format=json&categories=general`;
             
             try {
                 const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout per instance
+                const timeout = setTimeout(() => controller.abort(), 4000); // 4s aggressive timeout
                 
                 const res = await fetch(url, {
                     signal: controller.signal,
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'application/json'
+                        // ANTI-BOT SPOOFING HEADERS: Mimics real browser navigation signatures
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'Upgrade-Insecure-Requests': '1'
                     }
                 });
                 clearTimeout(timeout);
