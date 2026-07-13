@@ -29,10 +29,11 @@ export class RequestBudget {
         this.startTime = Date.now();
     }
 
-    increment() {
+    // Replaces increment() to globally support the steps' .spend(label) calls
+    spend(label) {
         this.requests++;
         if (this.requests > this.maxRequests) {
-            throw new Error(`Request budget exceeded: more than ${this.maxRequests} outbound API calls.`);
+            throw new Error(`Request budget exceeded: more than ${this.maxRequests} outbound API calls. Failed on: ${label}`);
         }
     }
 

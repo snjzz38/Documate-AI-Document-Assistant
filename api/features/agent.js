@@ -14,10 +14,9 @@
 
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
 
-// Centralized agent helpers imports (routed into the agent/ subfolder)
+// Centralized agent helpers sibling imports (resolves Vercel Require Stack crash)
 import {
     RequestBudget,
-    planTask,
     buildSourceDigest,
     mergeHumanizeIntoCited,
     splitSentences,
@@ -27,7 +26,8 @@ import {
     buildEssayHTML
 } from './agent/agentHelpers.js';
 
-// Step file imports (routed into the agent/_steps/ subfolder)
+// Step file imports (local to steps/ directory under features/)
+import { runPlan } from './agent/_steps/plan.js'; // Added precursor plan import
 import { runResearch } from './agent/_steps/research.js';
 import { runWrite } from './agent/_steps/write.js';
 import { runHumanize } from './agent/_steps/humanize.js';
@@ -74,16 +74,18 @@ async function runSwarm(req, res) {
     };
 
     try {
-        // ── PHASE 1: Research + content planning, in parallel (no deps) ──────
-        const tResearch = startTimer('research');
+        // ── PHASE 1: Precursor Content & Topic Planning ────────────────────────
         const tPlan = startTimer('plan');
+        const { topic, plan } = await runPlan({ task }, GROQ, budget);
+        tPlan();
 
-        const [{ sources }, plan] = await Promise.all([
-            runResearch({ task, citationStyle: style }, GROQ, budget).then(out => { tResearch(); return out; }),
-            planTask(task, GROQ, budget).then(p => { tPlan(); return p; })
-        ]);
+        console.log('[Swarm] Extracted Topic:', topic);
+        console.log('[Swarm] Generated Plan:', plan);
 
-        console.log('[Swarm] Plan:', plan);
+        // ── PHASE 1.5: Research, using the pre-planned topic query ─────────────
+        const tResearch = startTimer('research');
+        const { sources } = await runResearch({ topic, citationStyle: style }, GROQ, budget);
+        tResearch();
 
         // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
         const allFiles = context.uploadedFiles || (context.uploadedFile ? [context.uploadedFile] : []);

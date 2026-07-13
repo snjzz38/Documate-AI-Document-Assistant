@@ -12,15 +12,12 @@
 
 import { OpenalexAPI } from '../../../_utils/openalex.js';
 import { DoiAPI } from '../../../_utils/doiAPI.js';
-import { extractTopicSmart } from '../../../_utils/topicExtractor.js';
 
 // ==========================================================================
 // MODULE 1: Research Step Executor
 // ==========================================================================
-export async function runResearch({ task, citationStyle = 'apa7' }, GROQ, budget) {
-    const topic = await extractTopicSmart(task || '', GROQ, budget);
-    console.log('[Research] Topic:', topic, 'Style:', citationStyle);
-    
+export async function runResearch({ topic, citationStyle = 'apa7' }, GROQ, budget) {
+    console.log('[Research] Searching for topic:', topic, 'Style:', citationStyle);
     const openAlexKey = process.env.OPENALEX_API_KEY;
 
     budget.spend('research-search');
@@ -66,7 +63,7 @@ export async function runResearch({ task, citationStyle = 'apa7' }, GROQ, budget
             }
         }
 
-        // Format central bibliography string using centralized DoiAPI formatting engine
+        // Format central bibliography string using DoiAPI formatting engine
         enriched.citation = DoiAPI.formatBib(enriched, citationStyle);
         return enriched;
     }));
