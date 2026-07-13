@@ -1,17 +1,21 @@
-// api/features/steps/quotes.js
-import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { splitSentences, cleanText } from '../../_utils/textCleanup.js';
-import { buildSourceDigest } from '../../_utils/citationHelpers.js';
-import { buildEssayHTML } from '../../_utils/htmlBuilders.js';
-import { runFinalQA } from '../../_utils/qaHelpers.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/quotes.js
+// ==========================================================================
 
 /**
- * Inserts 2–3 direct quotes into already-cited text.
- * If quotesHandledInCite is true (CITE already merged quotes in), this just
- * runs final QA and exits — no extra Gemini call.
- *
- * taskFormat is resolved once upstream (agent.js) via detectTaskFormatSmart.
+ * api/features/agent/_steps/quotes.js
+ * Quote Insertion & Transition Step (Quotes Injector)
+ * 
+ * Table of Contents:
+ * 1. Quote Insertion Step Executor Module
  */
+
+import { GeminiAPI } from '../../../_utils/geminiAPI.js';
+import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes } from '../agentHelpers.js';
+
+// ==========================================================================
+// MODULE 1: Quote Insertion Step Executor
+// ==========================================================================
 export async function runQuotes({
     task,
     taskFormat,
@@ -28,15 +32,23 @@ export async function runQuotes({
         return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
-    // Quotes already merged into CITE — just run final QA and exit
+    // Quotes already merged into CITE — run QA on previous cited text and exit
     if (quotesHandledInCite) {
-        const cleaned = await runFinalQA(cleanText(input), taskFmt, GROQ, budget);
+        let cleaned = input;
+        if (GROQ && input.length > 1000) {
+            const checks = await checkWithGroq(input, GROQ, budget);
+            cleaned = applyFixes(input, checks);
+        }
         return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
     }
 
-    // Task didn't ask for quotes — still run QA
+    // Task didn't ask for quotes — run QA and exit
     if (!/quote|evidence|support|direct quote/i.test(task || '')) {
-        const cleaned = await runFinalQA(input, taskFmt, GROQ, budget);
+        let cleaned = input;
+        if (GROQ && input.length > 1000) {
+            const checks = await checkWithGroq(input, GROQ, budget);
+            cleaned = applyFixes(input, checks);
+        }
         return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
     }
 
@@ -44,7 +56,7 @@ export async function runQuotes({
 
     const availableQuotes = [];
     for (const [, d] of Object.entries(digest)) {
-        for (const quote of d.quotes) {
+        for (const quote of d.quotes || []) {
             if (quote.length > 40) {
                 availableQuotes.push({ quote, inTextKey: d.inTextKey, mainIdea: d.mainIdea });
             }
@@ -52,7 +64,11 @@ export async function runQuotes({
     }
 
     if (!availableQuotes.length) {
-        const cleaned = await runFinalQA(input, taskFmt, GROQ, budget);
+        let cleaned = input;
+        if (GROQ && input.length > 1000) {
+            const checks = await checkWithGroq(input, GROQ, budget);
+            cleaned = applyFixes(input, checks);
+        }
         return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
     }
 
@@ -106,8 +122,11 @@ Return ONLY valid JSON:`;
         console.error('[Quotes] JSON parse failed:', e.message);
     }
 
-    withQuotes = cleanText(withQuotes);
-    withQuotes = await runFinalQA(withQuotes, taskFmt, GROQ, budget);
+    let cleanedText = withQuotes;
+    if (GROQ && withQuotes.length > 1000) {
+        const checks = await checkWithGroq(withQuotes, GROQ, budget);
+        cleanedText = applyFixes(withQuotes, checks);
+    }
 
-    return { text: withQuotes, outputHtml: buildEssayHTML(withQuotes) };
+    return { text: cleanedText, outputHtml: buildEssayHTML(cleanedText) };
 }

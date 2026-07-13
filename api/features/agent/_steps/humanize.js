@@ -1,6 +1,21 @@
-// api/features/_steps/humanize.js
-import humanizerHandler from '../humanizer.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/humanize.js
+// ==========================================================================
 
+/**
+ * api/features/agent/_steps/humanize.js
+ * Text Humanization Step (Humanizer Delegator)
+ * 
+ * Table of Contents:
+ * 1. Humanizer Section Splitter Module
+ * 2. Humanizer Step Executor Module
+ */
+
+import humanizerHandler from '../../humanizer.js';
+
+// ==========================================================================
+// MODULE 1: Humanizer Section Splitter
+// ==========================================================================
 const isHeaderLine = s => /^[A-Z][A-Z\s\(\)\/\-&]{2,}:?\s*$/.test(s.trim()) && s.trim().length < 80;
 
 async function runHumanizer(text) {
@@ -28,10 +43,18 @@ function splitIntoSections(input) {
     return sections;
 }
 
-/**
- * Humanizes text section by section, batched with a concurrency cap
- * to avoid bursting the humanizer's rate limit.
- */
+function htmlUnescape(str) {
+    return str
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+}
+
+// ==========================================================================
+// MODULE 2: Humanizer Step Executor
+// ==========================================================================
 export async function runHumanize(input, budget, { concurrency = 3 } = {}) {
     if (!input) return '';
 
@@ -51,7 +74,7 @@ export async function runHumanize(input, budget, { concurrency = 3 } = {}) {
             let humanizedBody;
 
             if (isBulletSection) {
-                // Batch all bullets into one call — avoids N separate API calls per section
+                // Batch bullets to avoid excessive sequential API calls
                 const combined = bodyLines.map(l => l.replace(/^\s*[-•]\s+/, '')).join('\n');
                 const humanizedCombined = await runHumanizer(combined);
                 humanizedBody = humanizedCombined.split('\n')
@@ -67,5 +90,5 @@ export async function runHumanize(input, budget, { concurrency = 3 } = {}) {
         humanizedSections.push(...batchResults);
     }
 
-    return humanizedSections.join('\n\n');
+    return htmlUnescape(humanizedSections.join('\n\n'));
 }

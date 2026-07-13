@@ -1,11 +1,21 @@
-// api/features/_steps/grade.js
-import graderHandler from '../grader.js';
-import { buildBibliographyHTML } from '../../_utils/htmlBuilders.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/grade.js
+// ==========================================================================
 
 /**
- * Grades the final text submission, attaching a plaintext bibliography
- * to the grader's input when citations were enabled.
+ * api/features/agent/_steps/grade.js
+ * Academic Grading Step (Grader Delegator)
+ * 
+ * Table of Contents:
+ * 1. Academic Grading Executor Module
  */
+
+import graderHandler from '../../grader.js';
+import { buildBibliographyHTML } from '../agentHelpers.js';
+
+// ==========================================================================
+// MODULE 1: Academic Grading Executor
+// ==========================================================================
 export async function runGrade({
     task,
     rubric = '',
@@ -41,6 +51,8 @@ export async function runGrade({
 
     let gradeResult = null;
     const mockRes = { setHeader: () => {}, status: () => ({ end: () => {}, json: d => { gradeResult = d; } }) };
+    
+    // Execute central handler directly
     await graderHandler(mockReq, mockRes);
 
     const feedback = gradeResult?.result || 'Grading completed.';
