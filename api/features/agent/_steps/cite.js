@@ -11,7 +11,7 @@
  */
 
 import citationHandler from '../../citation.js';
-import { buildEssayHTML } from '../agentHelpers.js';
+import { buildEssayHTML, buildBibliographyHTML } from '../agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Citation Step Executor
@@ -28,6 +28,23 @@ export async function runCite({
     const text = previousOutput || '';
     if (!text) return { text: '', citedSources: [] };
 
+    const type = (citationType || 'in-text').toLowerCase().trim();
+    const isBibliographyOnly = type === 'bibliography';
+
+    // OPTIMIZATION: If Bibliography Only, do not run any inline semantic parsing/LLM matching.
+    // Simply format the bibliography alphabetically and return the untouched essay text.
+    if (isBibliographyOnly) {
+        const bib = buildBibliographyHTML(researchSources, citationStyle, 'bibliography');
+        return {
+            text: text, // Keep original essay text fully intact!
+            outputHtml: buildEssayHTML(text),
+            citedSources: researchSources,
+            bibliographyHtml: bib.html,
+            bibliographyPlain: bib.plain,
+            sourceDigest: preWarmedDigest || {}
+        };
+    }
+
     budget.spend('cite');
 
     // Mock direct API payload for central citation router
@@ -36,7 +53,7 @@ export async function runCite({
         body: {
             context: text,
             style: citationStyle,
-            outputType: citationType,
+            outputType: type,
             apiKey: GROQ,
             googleKey: null,
             preLoadedSources: researchSources
