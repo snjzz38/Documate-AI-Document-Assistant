@@ -11,7 +11,7 @@
  */
 
 import citationHandler from '../../citation.js';
-import { buildEssayHTML, buildBibliographyHTML } from '../_agentHelpers.js';
+import { buildEssayHTML, buildBibliographyHTML } from '../agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Citation Step Executor

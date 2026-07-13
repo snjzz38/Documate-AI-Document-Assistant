@@ -14,7 +14,7 @@
 
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
 
-// Centralized agent helpers imports (routed into the ignored _agentHelpers.js sibling)
+// Centralized agent helpers imports (routed into the ignored agentHelpers.js sibling)
 import {
     RequestBudget,
     buildSourceDigest,
@@ -24,7 +24,7 @@ import {
     applyFixes,
     buildBibliographyHTML,
     buildEssayHTML
-} from './agent/_agentHelpers.js';
+} from './agent/agentHelpers.js';
 
 // Step file imports (local to steps/ directory under features/)
 import { runPlan } from './agent/_steps/plan.js'; // Added precursor plan import
