@@ -4,7 +4,7 @@
 
 /**
  * api/features/agent.js
- * DocuMate Agent Coordinator
+ * DocuMate Agent Coordinator Endpoint
  * 
  * Table of Contents:
  * 1. Cosmetic Step Planner Module
@@ -12,11 +12,11 @@
  * 3. Central Router Handler Module
  */
 
-import { RequestBudget } from '../_utils/budget.js';
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
 
-// Centralized agent helpers import (replacing 5 fragmented files)
+// Centralized agent helpers sibling imports (resolves Vercel Require Stack crash)
 import {
+    RequestBudget,
     planTask,
     buildSourceDigest,
     mergeHumanizeIntoCited,
@@ -25,9 +25,9 @@ import {
     applyFixes,
     buildBibliographyHTML,
     buildEssayHTML
-} from '../_utils/agentHelpers.js';
+} from './agentHelpers.js';
 
-// Step file imports (kept intact for clean execution splitting)
+// Step file imports (local to steps/ directory under features/)
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
 import { runHumanize } from './_steps/humanize.js';

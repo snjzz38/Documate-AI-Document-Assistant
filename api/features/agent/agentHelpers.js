@@ -1,9 +1,9 @@
 // ==========================================================================
-// FILE PATH: api/features/agent/agentHelpers.js
+// FILE PATH: api/features/agentHelpers.js
 // ==========================================================================
 
 /**
- * api/features/agent/agentHelpers.js
+ * api/features/agentHelpers.js
  * Consolidated Utility Helpers for the AI Agent Pipeline
  * 
  * Table of Contents:
@@ -15,9 +15,9 @@
  * 6. Quality Assurance & Fixers Module
  */
 
-import { GroqAPI } from '../../_utils/groqAPI.js';
-import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { DoiAPI } from '../../_utils/doiAPI.js';
+import { GroqAPI } from '../_utils/groqAPI.js';
+import { GeminiAPI } from '../_utils/geminiAPI.js';
+import { DoiAPI } from '../_utils/doiAPI.js';
 
 // ==========================================================================
 // MODULE 1: Request Budget Manager
@@ -72,7 +72,6 @@ Return a JSON outline with required sections, tone guidelines, and word count ta
 // ==========================================================================
 export function buildEssayHTML(text) {
     if (!text) return '<i>No essay output.</i>';
-    // Format paragraphs double-spaced (standard academic paper layout)
     return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:2;color:#000;">` +
         text.split(/\n\n+/).map(p => {
             const cleanP = p.trim().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
@@ -83,7 +82,6 @@ export function buildEssayHTML(text) {
 export function buildBibliographyHTML(sources, style, formatType = 'bibliography') {
     if (!sources || !sources.length) return { html: '', plain: '' };
     
-    // De-duplicate sources
     const seen = new Set();
     const unique = sources.filter(s => {
         const key = s.doi || s.link;
@@ -92,7 +90,6 @@ export function buildBibliographyHTML(sources, style, formatType = 'bibliography
         return true;
     });
 
-    // Alphabetize the unique sources by author name
     unique.sort((a, b) => {
         const nameA = DoiAPI.cleanAuthorName(a.meta?.author) || DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
         const nameB = DoiAPI.cleanAuthorName(b.meta?.author) || DoiAPI.cleanSiteName(b.meta?.siteName || b.title);
@@ -115,7 +112,6 @@ export function buildBibliographyHTML(sources, style, formatType = 'bibliography
 // ==========================================================================
 export function splitSentences(text) {
     if (!text) return [];
-    // Basic sentence splitting by terminal punctuation followed by space
     return text.match(/[^.!?]+[!=?.]+(?=\s|$)/g) || [text];
 }
 
@@ -123,12 +119,10 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
     const humanSentences = splitterFn(humanText);
     const citedSentences = splitterFn(citedText);
     
-    // Realign sentences, prioritizing the citations embedded in the cited draft
     return citedSentences.map((cited, index) => {
         const human = humanSentences[index];
         if (!human) return cited;
         
-        // Extract citation annotations from cited string (e.g. [1] or superscripts)
         const citations = cited.match(/\[\d+\]|[\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+/g);
         if (citations) {
             return human + ' ' + citations.join('');
