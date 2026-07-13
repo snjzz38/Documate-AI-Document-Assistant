@@ -14,7 +14,7 @@
 
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
 
-// Centralized agent helpers sibling imports (resolves Vercel Require Stack crash)
+// Centralized agent helpers imports (routed into the agent/ subfolder)
 import {
     RequestBudget,
     planTask,
@@ -25,15 +25,15 @@ import {
     applyFixes,
     buildBibliographyHTML,
     buildEssayHTML
-} from './agentHelpers.js';
+} from './agent/agentHelpers.js';
 
-// Step file imports (local to steps/ directory under features/)
-import { runResearch } from './_steps/research.js';
-import { runWrite } from './_steps/write.js';
-import { runHumanize } from './_steps/humanize.js';
-import { runCite } from './_steps/cite.js';
-import { runQuotes } from './_steps/quotes.js';
-import { runGrade } from './_steps/grade.js';
+// Step file imports (routed into the agent/_steps/ subfolder)
+import { runResearch } from './agent/_steps/research.js';
+import { runWrite } from './agent/_steps/write.js';
+import { runHumanize } from './agent/_steps/humanize.js';
+import { runCite } from './agent/_steps/cite.js';
+import { runQuotes } from './agent/_steps/quotes.js';
+import { runGrade } from './agent/_steps/grade.js';
 
 // ==========================================================================
 // MODULE 1: Cosmetic Step Planner
