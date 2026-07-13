@@ -459,8 +459,8 @@ export default async function handler(req, res) {
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE
-        if (preLoadedSources?.length) {
+        // QUOTES MODE — FIXED: Now strictly gated by outputType === 'quotes'
+        if (outputType === 'quotes' && preLoadedSources?.length) {
             const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
                     try { return (await ScraperAPI.scrape([s]))[0] || s; } 

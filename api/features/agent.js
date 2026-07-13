@@ -75,19 +75,25 @@ async function runSwarm(req, res) {
 
     try {
         // ── PHASE 1: Precursor Content & Topic Planning ────────────────────────
+        console.log('[Swarm Logger] Initiating Phase 1: Topic Planning...');
         const tPlan = startTimer('plan');
         const { topic, plan } = await runPlan({ task }, GROQ, budget);
         tPlan();
 
-        console.log('[Swarm] Extracted Topic:', topic);
-        console.log('[Swarm] Generated Plan:', plan);
+        console.log('[Swarm Logger] Planning Complete.');
+        console.log('[Swarm Logger] Extracted Topic:', topic);
+        console.log('[Swarm Logger] Generated Outline Sections:', plan.sections);
+        console.log('[Swarm Logger] Custom Writing Quality Guidelines:', plan.writing_tips);
 
         // ── PHASE 1.5: Research, using the pre-planned topic query ─────────────
+        console.log('[Swarm Logger] Initiating Phase 1.5: Academic Research...');
         const tResearch = startTimer('research');
         const { sources } = await runResearch({ topic, citationStyle: style }, GROQ, budget);
         tResearch();
+        console.log(`[Swarm Logger] Research Complete. ${sources.length} sources resolved.`);
 
         // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
+        console.log('[Swarm Logger] Initiating Phase 2: Parallel Draft Generation & Pre-warm...');
         const allFiles = context.uploadedFiles || (context.uploadedFile ? [context.uploadedFile] : []);
 
         const tWrite = startTimer('write');
@@ -101,8 +107,10 @@ async function runSwarm(req, res) {
                 : Promise.resolve({})
             ).then(d => { tDigest(); return d; })
         ]);
+        console.log(`[Swarm Logger] Phase 2 Complete. Draft generated (${writeOutput.length} chars).`);
 
         // ── PHASE 3: Humanize + Cite, in parallel (both read writeOutput) ────
+        console.log('[Swarm Logger] Initiating Phase 3: Parallel Style Humanizer & Citation Insertion...');
         const tHumanize = startTimer('humanize');
         const tCite = startTimer('cite');
 
@@ -122,6 +130,7 @@ async function runSwarm(req, res) {
                 }, GEMINI, GROQ, budget).then(out => { tCite(); return out; })
                 : Promise.resolve(null)
         ]);
+        console.log('[Swarm Logger] Phase 3 Complete.');
 
         // ── Merge humanize + cite output ──────────────────────────────────────
         let mergedText = writeOutput;
@@ -142,6 +151,7 @@ async function runSwarm(req, res) {
         // ── PHASE 3.5: Quotes (depends on merged text + cite digest) ─────────
         let finalText = mergedText;
         if (enableQuotes) {
+            console.log('[Swarm Logger] Initiating Phase 3.5: Verbatim Quote Insertion...');
             const tQuotes = startTimer('quotes');
             const quotesResult = await runQuotes({
                 task,
@@ -153,9 +163,11 @@ async function runSwarm(req, res) {
             }, GEMINI, GROQ, budget);
             finalText = quotesResult.text;
             tQuotes();
+            console.log('[Swarm Logger] Quotes Injected.');
         }
 
         // ── PHASE 4: Final QA + Grade, in parallel ────────────────────────────
+        console.log('[Swarm Logger] Initiating Phase 4: Parallel Quality Assurance & Grading...');
         const tQA = startTimer('qa');
         const tGrade = startTimer('grade');
 
@@ -178,6 +190,7 @@ async function runSwarm(req, res) {
             : Promise.resolve(null);
 
         const [qaFinalText, gradeOutput] = await Promise.all([qaPromise, gradePromise]);
+        console.log('[Swarm Logger] Swarm Execution Complete.');
 
         // ── Bibliography ───────────────────────────────────────────────────────
         const bib = enableCite
