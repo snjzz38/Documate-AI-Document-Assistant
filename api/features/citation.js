@@ -459,7 +459,7 @@ export default async function handler(req, res) {
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE — FIXED: Now strictly gated by outputType === 'quotes'
+        // QUOTES MODE — Now strictly gated by outputType === 'quotes'
         if (outputType === 'quotes' && preLoadedSources?.length) {
             const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
@@ -481,33 +481,38 @@ export default async function handler(req, res) {
         }
 
         // SEARCH & SCRAPE
-        console.log('[Citation] Starting search...');
-        
-        // Execute both search pipelines concurrently to balance research without increasing response latency
-        const [academicResults, generalResults] = await Promise.all([
-            OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
-            SearxAPI.search(context, 8) // Fetch up to 8 general web sources
-        ]);
+        let sources = [];
+        let raw = null;
 
-        const raw = [...academicResults, ...generalResults];
-        console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
-        
-        if (!raw || raw.length === 0) {
-            return res.status(200).json({ 
-                success: false, 
-                error: 'No search results. The search service may be temporarily unavailable.',
-                sources: [], text: '', citations: [], stats: null, count: 0
-            });
+        // OPTIMIZATION: If pre-loaded sources are passed, bypass search and re-use them immediately
+        if (preLoadedSources && Array.isArray(preLoadedSources) && preLoadedSources.length > 0) {
+            console.log('[Citation] Re-using pre-loaded research sources...');
+            sources = preLoadedSources;
+        } else {
+            console.log('[Citation] Starting on-the-fly search...');
+            const [academicResults, generalResults] = await Promise.all([
+                OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
+                SearxAPI.search(context, 8)
+            ]);
+            raw = [...academicResults, ...generalResults];
+            console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
+            
+            if (!raw || raw.length === 0) {
+                return res.status(200).json({ 
+                    success: false, 
+                    error: 'No search results. The search service may be temporarily unavailable.',
+                    sources: [], text: '', citations: [], stats: null, count: 0
+                });
+            }
+            sources = await ScraperAPI.scrape(raw);
+            console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
         }
-        
-        const sources = await ScraperAPI.scrape(raw);
-        console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
 
         // BIBLIOGRAPHY MODE
         if (outputType === 'bibliography') {
             const seen = new Set();
             const uniqueSources = sources.filter(s => {
-                const key = s.doi || s.link;
+                const key = s.doi || s.link || s.url;
                 if (seen.has(key)) return false;
                 seen.add(key);
                 return true;
@@ -517,7 +522,7 @@ export default async function handler(req, res) {
             sortSourcesAlphabetically(uniqueSources);
             
             const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
-            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: null, count: uniqueSources.length });
+            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw?.stats || null, count: uniqueSources.length });
         }
 
         // CITATION MODE
@@ -533,7 +538,33 @@ export default async function handler(req, res) {
         }
 
         const result = processInsertions(context, insertions, sources, style, outputType);
-        return res.status(200).json({ success: true, sources, text: result, citations: sources, stats: null, count: sources.length });
+
+        // Generate matching bibliography HTML/Plain payload for the secondary textbox
+        const seen = new Set();
+        const uniqueSources = sources.filter(s => {
+            const key = s.doi || s.link || s.url;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        sortSourcesAlphabetically(uniqueSources);
+        const plainTexts = uniqueSources.map(s => DoiAPI.formatBib(s, style));
+        const bibPlain = plainTexts.join('\n\n');
+        const bibHtml = `<div class="bibliography-section" style="margin-top:20px;font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;">
+            <h3 style="text-align:center;margin-bottom:20px;">${outputType === 'footnotes' ? 'Footnotes' : 'Bibliography'}</h3>
+            ${plainTexts.map(text => `<p style="margin:0 0 12px 36px;text-indent:-36px;padding-left:36px;">${text}</p>`).join('\n')}
+        </div>`;
+
+        return res.status(200).json({ 
+            success: true, 
+            sources, 
+            text: result, 
+            citations: sources, 
+            bibliographyHtml: bibHtml, 
+            bibliographyPlain: bibPlain,
+            stats: raw?.stats || null, 
+            count: sources.length 
+        });
 
     } catch (error) {
         console.error('[Citation] Error:', error);
