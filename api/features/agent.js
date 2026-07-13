@@ -24,7 +24,7 @@ import {
     applyFixes,
     buildBibliographyHTML,
     buildEssayHTML
-} from '../../_agentHelpers.js';
+} from './_agentHelpers.js';
 
 // Step file imports (local to steps/ directory under features/)
 import { runPlan } from './agent/_steps/plan.js'; // Added precursor plan import
