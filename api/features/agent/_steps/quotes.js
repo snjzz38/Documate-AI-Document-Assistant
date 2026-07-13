@@ -11,7 +11,8 @@
  */
 
 import { GeminiAPI } from '../../../_utils/geminiAPI.js';
-import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes } from '../agentHelpers.js';
+// Fixed: Added cleanText to the imported helper list
+import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes, cleanText } from '../agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Quote Insertion Step Executor
