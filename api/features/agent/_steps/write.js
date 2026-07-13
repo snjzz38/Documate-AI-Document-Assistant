@@ -11,7 +11,7 @@
  */
 
 import { GeminiAPI } from '../../../_utils/geminiAPI.js';
-import { extractTopic, cleanText, formatPlanForPrompt, fmtAuthorLastOnly } from '../_agentHelpers.js';
+import { extractTopic, cleanText, formatPlanForPrompt, fmtAuthorLastOnly } from '../../_agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Content Writing Executor

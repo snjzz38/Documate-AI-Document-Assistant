@@ -11,7 +11,7 @@
  */
 
 import { GeminiAPI } from '../../../_utils/geminiAPI.js';
-import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes } from '../_agentHelpers.js';
+import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes } from '../../_agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Quote Insertion Step Executor

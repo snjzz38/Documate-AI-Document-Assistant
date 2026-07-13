@@ -11,7 +11,7 @@
  */
 
 import graderHandler from '../../grader.js';
-import { buildBibliographyHTML } from '../_agentHelpers.js';
+import { buildBibliographyHTML } from '../../_agentHelpers.js';
 
 // ==========================================================================
 // MODULE 1: Academic Grading Executor
