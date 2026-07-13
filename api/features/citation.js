@@ -413,14 +413,16 @@ function processInsertions(text, insertions, sources, style, outputType, isAgent
     return result + footer;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 5: PROMPT BUILDING
-// ════════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
 function buildPrompt(text, sources) {
     const srcList = sources.map(s => {
-        const author = getAuthorName(s);
-        const year = getYear(s);
+        const author = (s.meta?.isDOI && s.meta?.authors?.length > 0)
+            ? s.meta.authors[0].family
+            : (DoiAPI.cleanAuthorName(s.meta?.author) || DoiAPI.cleanSiteName(s.meta?.siteName || s.title));
+            
+        const year = DoiAPI.getYear(s);
         return `[${s.id}] ${author} (${year}) - ${s.title.substring(0, 50)}`;
     }).join('\n');
 
@@ -436,9 +438,10 @@ Return JSON only:
 {"insertions":[{"anchor":"3-6 exact words from text","source_id":1}]}
 
 Rules:
-- anchor = exact consecutive words from the text
-- Create 10+ insertions across all paragraphs
-- Distribute sources evenly`;
+1. anchor = exact consecutive words from the text
+2. Create 10+ insertions across all paragraphs
+3. Distribute sources evenly
+4. CITATION PLACEMENT FLOW: Choose anchors that are at the END of sentences or clauses (e.g., right before a period, comma, or coordinating conjunction) to maintain reading flow. Avoid choosing mid-phrase anchors.`;
 }
 
 

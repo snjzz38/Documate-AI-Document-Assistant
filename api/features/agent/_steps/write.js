@@ -67,7 +67,8 @@ CRITICAL RULES — ALWAYS APPLY:
 - Do NOT mention specific researchers, papers, or organisations by name
 - Do NOT start with any preamble — begin with the actual content immediately
 - Do NOT use direct quotes from sources — paraphrase all source material
-- NEVER use markdown tables (using "|" or dashes) — instead, write the arguments out as clean, plain-text bullet points or normal paragraphs.
+- NEVER use markdown tables (using "|" or dashes) — write the arguments out as clean, plain-text bullet points or normal paragraphs.
+- NEVER use asterisks (*) or hyphens (-) for bullet points or lists. If you need to list items, use standard paragraphs (e.g. starting with "First," "Second," "Third,") or standard clean text layouts.
 - NEVER start a sentence with "Because" — lead with the subject or claim instead
 - NEVER write a vague sentence that makes an observation without academic grounding or specific detail
 ${imageFiles.length > 0 ? '- Carefully analyze any uploaded images as part of the response.' : ''}

@@ -130,9 +130,10 @@ export function extractTopic(text) {
 export function cleanText(text) {
     if (!text) return '';
     return text
-        .replace(/\*\*+/g, '')       // Strips bold markdown (**)
-        .replace(/#+\s*/g, '')        // Strips header markdown (###, ##)
+        .replace(/\*\*+/g, '')       // Strips all bold markdown (**)
+        .replace(/#+\s*/g, '')        // Strips all header hashtag markdown (###, ##)
         .replace(/\|/g, '')           // Strips raw table pipes completely (|)
+        .replace(/^\s*[-*•]\s+/gm, '') // Strips asterisks, hyphens, and bullet symbols at the start of lines
         .replace(/\s+/g, ' ')
         .replace(/ \./g, '.')
         .replace(/ ,/g, ',')
@@ -145,10 +146,9 @@ export function fmtAuthorLastOnly(source) {
     }
     const rawAuthor = DoiAPI.cleanAuthorName(source.author);
     if (rawAuthor) {
-        // Strip out secondary co-authors to ensure ONLY the primary author's last name is returned [3]
         const clean = rawAuthor.replace(/\s+et\s+al\.?$/i, '').split(',')[0].trim();
         const parts = clean.split(/\s+/);
-        return parts[parts.length - 1]; // Resolves family name
+        return parts[parts.length - 1]; 
     }
     return DoiAPI.cleanSiteName(source.venue || source.title);
 }
@@ -172,18 +172,47 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
 // MODULE 5: Source Digest Warm-Up
 // ==========================================================================
 export async function buildSourceDigest(sources, style, geminiKey, budget) {
-    console.log('[Agent Helper] Compiling source digest...');
+    console.log('[Agent Helper] Compiling source digest & extracting direct quotes...');
     if (!sources || !sources.length) return {};
 
     const digest = {};
-    sources.forEach((s, idx) => {
-        digest[idx + 1] = {
+    const targetSources = sources.slice(0, 5); // Conserve API budget by targeting top 5 sources
+
+    await Promise.all(targetSources.map(async (s, idx) => {
+        const key = idx + 1;
+        const textToAnalyze = s.text || s.snippet || '';
+        
+        let quotes = [];
+        if (textToAnalyze.length > 100 && geminiKey) {
+            try {
+                budget.spend('extract-quotes-digest');
+                const prompt = `Extract exactly 2-3 short, highly impactful verbatim direct quotes (1-2 sentences each) representing key data, findings, or conclusions from this academic text. Do NOT modify the wording.
+
+TEXT:
+"${textToAnalyze.substring(0, 1500)}"
+
+Return a raw JSON array of strings only: ["quote 1", "quote 2"]`;
+                
+                const res = await GeminiAPI.chat(prompt, geminiKey, 0.2);
+                const jsonMatch = res.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                    quotes = JSON.parse(jsonMatch[0]).filter(q => typeof q === 'string' && q.length > 10);
+                }
+            } catch (e) {
+                console.warn(`[Agent Helper] Quote extraction failed for source ${key}:`, e.message);
+            }
+        }
+
+        digest[key] = {
             title: s.title,
-            link: s.link,
+            link: s.link || s.url,
             citation: DoiAPI.formatInText(s, style),
-            keyFacts: s.snippet ? s.snippet.substring(0, 300) : ''
+            inTextKey: DoiAPI.getShortAuthorName(s),
+            mainIdea: s.title,
+            quotes: quotes
         };
-    });
+    }));
+
     return digest;
 }
 
