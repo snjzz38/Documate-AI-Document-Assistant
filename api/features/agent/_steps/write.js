@@ -67,6 +67,7 @@ CRITICAL RULES — ALWAYS APPLY:
 - Do NOT mention specific researchers, papers, or organisations by name
 - Do NOT start with any preamble — begin with the actual content immediately
 - Do NOT use direct quotes from sources — paraphrase all source material
+- NEVER use markdown tables (using "|" or dashes) — instead, write the arguments out as clean, plain-text bullet points or normal paragraphs.
 - NEVER start a sentence with "Because" — lead with the subject or claim instead
 - NEVER write a vague sentence that makes an observation without academic grounding or specific detail
 ${imageFiles.length > 0 ? '- Carefully analyze any uploaded images as part of the response.' : ''}

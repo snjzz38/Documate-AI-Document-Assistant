@@ -130,8 +130,9 @@ export function extractTopic(text) {
 export function cleanText(text) {
     if (!text) return '';
     return text
-        .replace(/\*\*+/g, '')       // Strips all bold markdown (**)
-        .replace(/#+\s*/g, '')        // Strips all header hashtag markdown (###, ##)
+        .replace(/\*\*+/g, '')       // Strips bold markdown (**)
+        .replace(/#+\s*/g, '')        // Strips header markdown (###, ##)
+        .replace(/\|/g, '')           // Strips raw table pipes completely (|)
         .replace(/\s+/g, ' ')
         .replace(/ \./g, '.')
         .replace(/ ,/g, ',')
@@ -142,7 +143,14 @@ export function fmtAuthorLastOnly(source) {
     if (source.authors?.length > 0) {
         return source.authors[0].family || 'Unknown';
     }
-    return DoiAPI.cleanAuthorName(source.author) || DoiAPI.cleanSiteName(source.venue || source.title);
+    const rawAuthor = DoiAPI.cleanAuthorName(source.author);
+    if (rawAuthor) {
+        // Strip out secondary co-authors to ensure ONLY the primary author's last name is returned [3]
+        const clean = rawAuthor.replace(/\s+et\s+al\.?$/i, '').split(',')[0].trim();
+        const parts = clean.split(/\s+/);
+        return parts[parts.length - 1]; // Resolves family name
+    }
+    return DoiAPI.cleanSiteName(source.venue || source.title);
 }
 
 export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitSentences) {

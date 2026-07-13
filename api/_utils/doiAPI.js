@@ -244,13 +244,27 @@ export const DoiAPI = {
             if (authors.length === 2) return `${authors[0].family} & ${authors[1].family}`;
             return `${authors[0].family} et al.`;
         }
+        
         const cleanAuthor = this.cleanAuthorName(source.meta?.author || source.author);
         if (cleanAuthor) {
-            // "First Last" -> "Last, Initials" APA normalizer
+            if (cleanAuthor.toLowerCase().includes('et al')) {
+                return cleanAuthor.replace(/\s+et\s+al\.?$/i, ' et al.').replace(/\.+$/, '');
+            }
+            
+            // Standardizes multiple raw author strings (e.g. "Gyngell, Douglas, Savulescu" -> "Gyngell et al.")
+            const separators = [',', ' and ', ' & '];
+            const hasMultiple = separators.some(sep => cleanAuthor.includes(sep));
+            if (hasMultiple) {
+                const firstPart = cleanAuthor.split(/,|\band\b|&/i)[0].trim();
+                const words = firstPart.split(/\s+/).filter(Boolean);
+                const family = words[words.length - 1];
+                return `${family} et al.`;
+            }
+            
+            // Standardizes single "First Last" strings -> "Last"
             if (!cleanAuthor.includes(',')) {
                 const parts = cleanAuthor.split(/\s+/).filter(Boolean);
-                if (parts.length === 2) return `${parts[1]}, ${parts[0].charAt(0).toUpperCase()}.`;
-                if (parts.length > 2) return `${parts[parts.length - 1]} et al.`;
+                if (parts.length === 2) return parts[1];
             }
             return cleanAuthor;
         }
@@ -354,7 +368,7 @@ export const DoiAPI = {
 
         // Normalize First Last -> Last, Initials for scraped fallback sources
         if (rawAuthor && !rawAuthor.includes(',')) {
-            const parts = rawAuthor.split(/\s+/).filter(Boolean);
+            const parts = rawAuthor.replace(/\s+et\s+al\.?$/i, '').split(/\s+/).filter(Boolean);
             if (parts.length === 2) rawAuthor = `${parts[1]}, ${parts[0].charAt(0).toUpperCase()}.`;
         }
 
@@ -366,7 +380,9 @@ export const DoiAPI = {
                 journalSpecs += `, *${volume}*`;
                 if (issue) journalSpecs += `(${issue})`;
             }
-            if (pages) journalSpecs += `, ${pages}`;
+            if (pages) {
+                journalSpecs += `, ${pages}`;
+            }
 
             if (rawAuthor) {
                 const authorPeriod = rawAuthor.endsWith('.') ? '' : '.';
