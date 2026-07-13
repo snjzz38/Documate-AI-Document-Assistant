@@ -67,6 +67,7 @@ CRITICAL RULES — ALWAYS APPLY:
 - Do NOT mention specific researchers, papers, or organisations by name
 - Do NOT start with any preamble — begin with the actual content immediately
 - Do NOT use direct quotes from sources — paraphrase all source material
+- FORMAT TRANSLATION RULE: If the original task asks for a table, organize those arguments as beautifully structured prose paragraphs under clear section headings, or as numbered lists (e.g., "1. First," "2. Second,"), as raw markdown tables (using "|" or dashes) do not copy-paste cleanly into standard document editors like Google Docs.
 - NEVER use markdown tables (using "|" or dashes) — write the arguments out as clean, plain-text bullet points or normal paragraphs.
 - NEVER use asterisks (*) or hyphens (-) for bullet points or lists. If you need to list items, use standard paragraphs (e.g. starting with "First," "Second," "Third,") or standard clean text layouts.
 - NEVER start a sentence with "Because" — lead with the subject or claim instead

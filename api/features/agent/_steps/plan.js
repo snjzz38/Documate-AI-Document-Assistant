@@ -35,6 +35,9 @@ Return a raw JSON object containing:
 1. "topic": A highly optimized, academic 3-6 word search query for paper retrieval. Do not use punctuation.
 2. "plan": A detailed writing brief with "sections" (array of targeted section headers) and "writing_tips" (array of 3 specific guidelines to improve writing quality for this task).
 
+FORMAT TRANSLATION RULE:
+If the original task requests an organizing "table" (e.g., arguments for and against), do NOT plan a markdown table. Instead, translate that requirement into beautifully structured prose paragraphs with clear descriptive subheadings or standard numerical listings, as raw markdown tables do not copy-paste cleanly into editors like Google Docs.
+
 Return ONLY valid JSON:
 {
   "topic": "neurodiversity inclusive education workplaces",
