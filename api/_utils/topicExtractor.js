@@ -1,65 +1,60 @@
-// api/_utils/topicExtractor.js
-//
-// Replaces naive keyword extraction with an LLM call that actually reads
-// the task and identifies the real subject matter — critical for long,
-// structured assignments (policy briefs, multi-section prompts) where
-// keyword-frequency heuristics pick up meta-text ("due date", "learning
-// objectives", "required structure") instead of the actual topic.
-//
-// Uses Groq rather than Gemini: this is a short, low-ambiguity extraction
-// task that doesn't need Gemini's deeper reasoning, and keeps it off the
-// Gemini free-tier quota that the rest of the pipeline depends on.
-import { GroqAPI } from './groqAPI.js';
-import { extractTopic as extractTopicHeuristic } from './textCleanup.js';
+// ==========================================================================
+// FILE PATH: api/_utils/topicExtractor.js
+// ==========================================================================
 
 /**
- * Extracts the real research topic from a task description using a fast
- * Groq call. Falls back to the keyword heuristic if the API call fails
- * for any reason (quota, network, missing key, etc.) so research never
- * silently breaks — it just degrades to the older behavior.
+ * api/_utils/topicExtractor.js
+ * DocuMate Smart Topic Extractor Utility
+ * 
+ * Table of Contents:
+ * 1. Smart Topic Extractor Module
  */
-export async function extractTopicSmart(task, GROQ, budget) {
-    if (!task || task.trim().length < 10) {
-        return extractTopicHeuristic(task || '');
+
+import { GroqAPI } from './groqAPI.js';
+
+// ==========================================================================
+// MODULE 1: Smart Topic Extractor
+// ==========================================================================
+export async function extractTopicSmart(task, groqKey, budget) {
+    if (!task) return 'general research';
+
+    // Self-contained light text cleaner (replaces the deleted textCleanup.js imports)
+    const cleanTask = task
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!groqKey) {
+        // Fallback: extract first 5 meaningful words if Groq is missing
+        const words = cleanTask.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+        return words.slice(0, 5).join(' ') || 'general research';
     }
 
-    if (!GROQ || !budget.spend('topic-extract')) {
-        return extractTopicHeuristic(task);
+    if (budget && typeof budget.spend === 'function') {
+        budget.spend('topic-extraction');
     }
-
-    const prompt = `Read this assignment/task description and identify ONLY the core subject matter to search academic databases for — ignore due dates, formatting instructions, page counts, grading weight, and section structure.
-
-TASK:
-${task.substring(0, 3000)}
-
-Return ONLY a short search phrase (5-10 words) naming the actual topic. No preamble, no explanation, no quotes.
-
-Example: if the task is about a "Policy Brief on Urban Heat Island effect mitigation", return: urban heat island effect mitigation strategies
-
-Topic:`;
 
     try {
-        const result = await GroqAPI.chat(
-            [{ role: 'user', content: prompt }],
-            GROQ,
-            false
-        );
-        const cleaned = result
+        const prompt = `You are an expert research assistant. Extract a single, highly optimized academic search phrase (3-6 words) representing the core topic of this task.
+Do NOT include search operators, do NOT include quotes, and do NOT include any introductory preamble. Just return the raw search phrase.
+
+TASK:
+"${cleanTask.substring(0, 1000)}"
+
+OPTIMIZED SEARCH PHRASE:`;
+
+        const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, false);
+        
+        // Clean up response of any accidental quotes or headers
+        let topic = response
+            .trim()
             .replace(/^["']|["']$/g, '')
-            .replace(/^Topic:\s*/i, '')
-            .trim();
+            .replace(/^(topic|search phrase|query):\s*/i, '')
+            .replace(/\s+/g, ' ');
 
-        // Sanity check: reject if it's empty, too long, or looks like it
-        // echoed instruction-words rather than a real topic.
-        const looksLikeMeta = /\b(assignment|prompt|instructions?|task|here is|complete)\b/i.test(cleaned);
-        if (!cleaned || cleaned.length > 150 || looksLikeMeta) {
-            console.warn('[TopicExtractor] Result looked unreliable, falling back to heuristic:', cleaned);
-            return extractTopicHeuristic(task);
-        }
-
-        return cleaned;
+        return topic || 'general research';
     } catch (e) {
-        console.warn('[TopicExtractor] Groq extraction failed, falling back to heuristic:', e.message);
-        return extractTopicHeuristic(task);
+        console.error('[TopicExtractor] extractTopicSmart failed, using fallback:', e.message);
+        const words = cleanTask.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+        return words.slice(0, 5).join(' ') || 'general research';
     }
 }
