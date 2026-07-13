@@ -237,6 +237,29 @@ export const DoiAPI = {
         return formatted.slice(0, -1).join(', ') + `, ${amp} ${formatted[formatted.length - 1]}`;
     },
 
+    getShortAuthorName(source) {
+        if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
+            const authors = source.meta.authors;
+            if (authors.length === 1) return authors[0].family;
+            if (authors.length === 2) return `${authors[0].family} & ${authors[1].family}`;
+            return `${authors[0].family} et al.`;
+        }
+        const cleanAuthor = this.cleanAuthorName(source.meta?.author || source.author);
+        if (cleanAuthor) return cleanAuthor;
+
+        const site = source.meta?.siteName || source.venue;
+        if (site && site !== 'Unknown' && site.toLowerCase() !== (source.title || '').toLowerCase()) {
+            return this.cleanSiteName(site);
+        }
+
+        // Shorten long titles to a max of 3 key words for clean in-text parentheticals
+        if (source.title) {
+            const words = source.title.trim().split(/\s+/).slice(0, 3).join(' ');
+            return `"${words}..."`;
+        }
+        return 'Unknown';
+    },
+
     toTitleCase(str) {
         if (!str) return '';
         const minorWords = /^(a|an|the|and|but|or|for|nor|on|in|at|by|to|for|of|with|about|as)$/i;
@@ -298,21 +321,7 @@ export const DoiAPI = {
     formatInText(source, style) {
         const s = String(style || 'chicago').toLowerCase();
         const year = this.getYear(source);
-        
-        let authorName = '';
-        if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
-            const firstAuthor = source.meta.authors[0];
-            authorName = firstAuthor.family || this.cleanSiteName(source.meta?.siteName || source.title);
-            
-            if (source.meta.authors.length === 2) {
-                const secondAuthor = source.meta.authors[1];
-                authorName += s.includes('apa') ? ` & ${secondAuthor.family}` : ` and ${secondAuthor.family}`;
-            } else if (source.meta.authors.length > 2) {
-                authorName += ' et al.';
-            }
-        } else {
-            authorName = this.cleanAuthorName(source.meta?.author) || this.cleanSiteName(source.meta?.siteName || source.title);
-        }
+        const authorName = this.getShortAuthorName(source);
         
         if (s.includes('mla')) return `(${authorName})`;
         if (s.includes('apa')) return `(${authorName}, ${year})`;
@@ -322,8 +331,9 @@ export const DoiAPI = {
     formatBib(source, style) {
         const s = String(style || 'chicago').toLowerCase();
         const year = this.getYear(source);
-        const site = this.cleanSiteName(source.meta?.siteName || source.title);
-        const url = source.doi ? `https://doi.org/${source.doi}` : source.link;
+        // Ensure journal name falls back to venue or generic label, NEVER repeating the article title
+        const site = this.cleanSiteName(source.meta?.siteName || (source.venue && source.venue !== source.title ? source.venue : 'Journal Article'));
+        const url = source.doi ? `https://doi.org/${source.doi}` : (source.link || source.url || '');
         const title = source.title || 'Untitled';
         const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -331,14 +341,12 @@ export const DoiAPI = {
         const issue = source.meta?.issue || source.issue || null;
         const pages = source.meta?.pages || source.pages || null;
 
-        let author;
         const hasDoiAuthors = !!(source.meta?.isDOI && source.meta?.authors?.length > 0);
+        const rawAuthor = hasDoiAuthors
+            ? this.formatAPAAuthors(source.meta.authors)
+            : this.cleanAuthorName(source.meta?.author || source.author);
 
         if (s.includes('apa')) {
-            author = hasDoiAuthors
-                ? this.formatAPAAuthors(source.meta.authors)
-                : (this.cleanAuthorName(source.meta?.author) || site);
-                
             const cleanSite = this.toTitleCase(site);
             
             let journalSpecs = '';
@@ -346,19 +354,21 @@ export const DoiAPI = {
                 journalSpecs += `, *${volume}*`;
                 if (issue) journalSpecs += `(${issue})`;
             }
-            if (pages) {
-                journalSpecs += `, ${pages}`;
-            }
+            if (pages) journalSpecs += `, ${pages}`;
 
-            const authorPeriod = author.endsWith('.') ? '' : '.';
-            return `${author}${authorPeriod} (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+            if (rawAuthor) {
+                const authorPeriod = rawAuthor.endsWith('.') ? '' : '.';
+                return `${rawAuthor}${authorPeriod} (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+            } else if (source.meta?.siteName && source.meta.siteName !== 'Unknown') {
+                return `${source.meta.siteName}. (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+            } else {
+                // Title moves to author position without repeating twice in the entry
+                return `${title}. (${year}). *${cleanSite}*${journalSpecs}. ${url}`;
+            }
         }
 
         if (s.includes('mla')) {
-            author = hasDoiAuthors
-                ? this.formatStandardAuthors(source.meta.authors, true)
-                : (this.cleanAuthorName(source.meta?.author) || site);
-
+            const author = rawAuthor || source.meta?.siteName || title;
             let containerSpecs = '';
             if (volume) containerSpecs += `, vol. ${volume}`;
             if (issue) containerSpecs += `, no. ${issue}`;
@@ -368,10 +378,7 @@ export const DoiAPI = {
             return `${author}${authorPeriod} "${title}." *${site}*${containerSpecs}, ${year}, ${url}.`;
         }
 
-        author = hasDoiAuthors
-            ? this.formatStandardAuthors(source.meta.authors, true)
-            : (this.cleanAuthorName(source.meta?.author) || site);
-
+        const author = rawAuthor || source.meta?.siteName || title;
         let chicagoSpecs = '';
         if (volume) {
             chicagoSpecs += ` ${volume}`;
