@@ -78,12 +78,8 @@ export function formatPlanForPrompt(plan) {
 // ==========================================================================
 export function buildEssayHTML(text) {
     if (!text) return '<i>No essay output.</i>';
-    
-    // Strip bold and header markdown syntax prior to rendering HTML
-    const clean = text.replace(/\*\*+/g, '').replace(/#+\s*/g, '');
-    
     return `<div style="font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:2;color:#000;">` +
-        clean.split(/\n\n+/).map(p => {
+        text.split(/\n\n+/).map(p => {
             const cleanP = p.trim().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
             return `<p style="margin:0;text-indent:36px;">${cleanP}</p>`;
         }).join('\n') + `</div>`;
@@ -94,7 +90,7 @@ export function buildBibliographyHTML(sources, style, formatType = 'bibliography
     
     const seen = new Set();
     const unique = sources.filter(s => {
-        const key = s.doi || s.link || s.url;
+        const key = s.doi || s.link;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -134,34 +130,10 @@ export function extractTopic(text) {
 export function cleanText(text) {
     if (!text) return '';
     return text
-        .replace(/\*\*+/g, '')       // Strips all bold markdown (**)
-        .replace(/#+\s*/g, '')        // Strips all header hashtag markdown (###, ##)
         .replace(/\s+/g, ' ')
         .replace(/ \./g, '.')
         .replace(/ ,/g, ',')
         .trim();
-}
-
-export function fmtAuthorLastOnly(source) {
-    if (source.authors?.length > 0) {
-        return source.authors[0].family || 'Unknown';
-    }
-    return DoiAPI.cleanAuthorName(source.author) || DoiAPI.cleanSiteName(source.venue || source.title);
-}
-
-export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitSentences) {
-    const humanSentences = splitterFn(humanText);
-    const citedSentences = splitterFn(citedText);
-    
-    return citedSentences.map((cited, index) => {
-        const human = humanSentences[index];
-        if (!human) return cited;
-        
-        const citations = cited.match(/\[\d+\]|[\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+/g);
-        if (citations) {
-            return human + ' ' + citations.join('');
-        }
-        return human;}).join(' ');
 }
 
 export function fmtAuthorLastOnly(source) {
