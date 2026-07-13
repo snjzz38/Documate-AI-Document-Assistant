@@ -1,9 +1,9 @@
 // ==========================================================================
-// FILE PATH: api/features/agentHelpers.js
+// FILE PATH: api/features/agent/agentHelpers.js
 // ==========================================================================
 
 /**
- * api/features/agentHelpers.js
+ * api/features/agent/agentHelpers.js
  * Consolidated Utility Helpers for the AI Agent Pipeline
  * 
  * Table of Contents:
@@ -15,9 +15,9 @@
  * 6. Quality Assurance & Fixers Module
  */
 
-import { GroqAPI } from '../_utils/groqAPI.js';
-import { GeminiAPI } from '../_utils/geminiAPI.js';
-import { DoiAPI } from '../_utils/doiAPI.js';
+import { GroqAPI } from '../../_utils/groqAPI.js'; // Corrected path to '../../'
+import { GeminiAPI } from '../../_utils/geminiAPI.js'; // Corrected path to '../../'
+import { DoiAPI } from '../../_utils/doiAPI.js'; // Corrected path to '../../'
 
 // ==========================================================================
 // MODULE 1: Request Budget Manager
