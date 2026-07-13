@@ -1,12 +1,33 @@
-// api/features/agent.js
-import { RequestBudget } from '../_utils/budget.js';
-import { mergeHumanizeIntoCited } from '../_utils/citationHelpers.js';
-import { buildBibliographyHTML, buildEssayHTML } from '../_utils/htmlBuilders.js';
-import { checkWithGroq, applyFixes } from '../_utils/qaHelpers.js';
-import { splitSentences } from '../_utils/textCleanup.js';
-import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
-import { planTask } from '../_utils/planner.js';
+// ==========================================================================
+// FILE PATH: api/features/agent.js
+// ==========================================================================
 
+/**
+ * api/features/agent.js
+ * DocuMate Agent Coordinator
+ * 
+ * Table of Contents:
+ * 1. Cosmetic Step Planner Module
+ * 2. Swarm Executor Core Module
+ * 3. Central Router Handler Module
+ */
+
+import { RequestBudget } from '../_utils/budget.js';
+import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
+
+// Centralized agent helpers import (replacing 5 fragmented files)
+import {
+    planTask,
+    buildSourceDigest,
+    mergeHumanizeIntoCited,
+    splitSentences,
+    checkWithGroq,
+    applyFixes,
+    buildBibliographyHTML,
+    buildEssayHTML
+} from '../_utils/agentHelpers.js';
+
+// Step file imports (kept intact for clean execution splitting)
 import { runResearch } from './_steps/research.js';
 import { runWrite } from './_steps/write.js';
 import { runHumanize } from './_steps/humanize.js';
@@ -14,21 +35,25 @@ import { runCite } from './_steps/cite.js';
 import { runQuotes } from './_steps/quotes.js';
 import { runGrade } from './_steps/grade.js';
 
-// ─── Cosmetic step list (shown in the UI before the swarm runs) ─────────────
-// Not the same thing as planTask() below — this just lists which tools will
-// run, for the progress UI. planTask() figures out WHAT to actually write.
+// ==========================================================================
+// MODULE 1: Cosmetic Step Planner
+// ==========================================================================
 function buildStepList(options = {}) {
     const fast = options.fastMode === true;
     const steps = [{ tool: 'RESEARCH', action: 'Find academic sources' }];
+    
     if (options.enableWrite !== false) steps.push({ tool: 'WRITE', action: 'Write response' });
     if (!fast && options.enableHumanize) steps.push({ tool: 'HUMANIZE', action: 'Humanize text' });
     if (options.enableCite) steps.push({ tool: 'CITE', action: `Add ${options.citationType || 'in-text'} citations` });
     if (!fast && options.enableQuotes) steps.push({ tool: 'QUOTES', action: 'Insert quotes with transitions' });
     if (options.enableGrade) steps.push({ tool: 'GRADE', action: 'Grade work' });
+    
     return { steps };
 }
 
-// ─── Full swarm run ───────────────────────────────────────────────────────────
+// ==========================================================================
+// MODULE 2: Swarm Executor Core
+// ==========================================================================
 async function runSwarm(req, res) {
     const { task, context = {}, options = {} } = req.body;
     const GEMINI = process.env.GEMINI_API_KEY;
@@ -50,9 +75,6 @@ async function runSwarm(req, res) {
 
     try {
         // ── PHASE 1: Research + content planning, in parallel (no deps) ──────
-        // planTask() reads the actual task and produces a concrete writing
-        // brief (required sections, specifics to invent, tone, length) —
-        // replaces the old rigid detectTaskFormat()/template-matching system.
         const tResearch = startTimer('research');
         const tPlan = startTimer('plan');
 
@@ -68,8 +90,6 @@ async function runSwarm(req, res) {
 
         const tWrite = startTimer('write');
         const tDigest = startTimer('digest');
-
-        const { buildSourceDigest } = await import('../_utils/citationHelpers.js');
 
         const [writeOutput, digest] = await Promise.all([
             runWrite({ task, plan, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
@@ -187,7 +207,9 @@ async function runSwarm(req, res) {
     }
 }
 
-// ─── Main handler ─────────────────────────────────────────────────────────────
+// ==========================================================================
+// MODULE 3: Central Router Handler
+// ==========================================================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
