@@ -1,9 +1,9 @@
 // ==========================================================================
-// FILE PATH: api/features/agentHelpers.js
+// FILE PATH: api/features/agent/agentHelpers.js
 // ==========================================================================
 
 /**
- * api/features/agentHelpers.js
+ * api/features/agent/agentHelpers.js
  * Consolidated Utility Helpers for the AI Agent Pipeline
  * 
  * Table of Contents:
