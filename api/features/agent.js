@@ -109,53 +109,59 @@ async function runSwarm(req, res) {
         ]);
         console.log(`[Swarm Logger] Phase 2 Complete. Draft generated (${writeOutput.length} chars).`);
 
-        // ── PHASE 3: Humanize + Cite, in parallel (both read writeOutput) ────
-        console.log('[Swarm Logger] Initiating Phase 3: Parallel Style Humanizer & Citation Insertion...');
+        // ── PHASE 2.5: Parallel Style Humanizer & Sibling QA Pass ─────────────────────
+        // We run Humanizer and QA on the plain draft first so citations are NEVER modified by LLM checks [1]
+        console.log('[Swarm Logger] Initiating Phase 2.5: Parallel Humanization & Grammar QA...');
         const tHumanize = startTimer('humanize');
-        const tCite = startTimer('cite');
+        const tQA = startTimer('qa');
 
-        const [humanizeOutput, citeResult] = await Promise.all([
+        const [humanizeOutput, qaChecks] = await Promise.all([
             enableHumanize
                 ? runHumanize(writeOutput, budget).then(out => { tHumanize(); return out; })
                 : Promise.resolve(null),
-            enableCite
-                ? runCite({
-                    task,
-                    previousOutput: writeOutput,
-                    researchSources: sources,
-                    citationStyle: style,
-                    citationType: options.citationType || 'in-text',
-                    enableQuotes,
-                    preWarmedDigest: digest
-                }, GEMINI, GROQ, budget).then(out => { tCite(); return out; })
-                : Promise.resolve(null)
+            (GROQ && writeOutput.length > 1000)
+                ? checkWithGroq(writeOutput, GROQ, budget).then(checks => { tQA(); return checks; })
+                : Promise.resolve([]).then(c => { tQA(); return c; })
         ]);
-        console.log('[Swarm Logger] Phase 3 Complete.');
 
-        // ── Merge humanize + cite output ──────────────────────────────────────
-        let mergedText = writeOutput;
-        let quotesHandledInCite = false;
-        let sourceDigest = digest;
-
-        if (enableCite && citeResult) {
-            mergedText = citeResult.text;
-            quotesHandledInCite = !!citeResult.quotesHandledInCite;
-            sourceDigest = citeResult.sourceDigest || digest;
-            if (enableHumanize && humanizeOutput) {
-                mergedText = mergeHumanizeIntoCited(humanizeOutput, citeResult.text, splitSentences);
-            }
-        } else if (enableHumanize && humanizeOutput) {
-            mergedText = humanizeOutput;
+        // Merge humanize and apply QA corrections onto the clean draft
+        let polishedText = writeOutput;
+        if (enableHumanize && humanizeOutput) {
+            polishedText = humanizeOutput;
+        }
+        if (qaChecks.length > 0) {
+            polishedText = applyFixes(polishedText, qaChecks);
         }
 
-        // ── PHASE 3.5: Quotes (depends on merged text + cite digest) ─────────
-        let finalText = mergedText;
+        // ── PHASE 3: Cite (reads the polished, grammatically correct draft) ────
+        console.log('[Swarm Logger] Initiating Phase 3: Citation Insertion...');
+        const tCite = startTimer('cite');
+
+        const citeResult = enableCite
+            ? await runCite({
+                task,
+                previousOutput: polishedText,
+                researchSources: sources,
+                citationStyle: style,
+                citationType: options.citationType || 'in-text',
+                enableQuotes,
+                preWarmedDigest: digest
+            }, GEMINI, GROQ, budget)
+            : null;
+        tCite();
+
+        let citedText = citeResult ? citeResult.text : polishedText;
+        let quotesHandledInCite = citeResult ? !!citeResult.quotesHandledInCite : false;
+        let sourceDigest = citeResult?.sourceDigest || digest;
+
+        // ── PHASE 3.5: Quotes (depends on cited text + cite digest) ─────────
+        let finalText = citedText;
         if (enableQuotes) {
             console.log('[Swarm Logger] Initiating Phase 3.5: Verbatim Quote Insertion...');
             const tQuotes = startTimer('quotes');
             const quotesResult = await runQuotes({
                 task,
-                previousOutput: mergedText,
+                previousOutput: citedText,
                 researchSources: sources,
                 citationStyle: style,
                 quotesHandledInCite,
@@ -166,18 +172,12 @@ async function runSwarm(req, res) {
             console.log('[Swarm Logger] Quotes Injected.');
         }
 
-        // ── PHASE 4: Final QA + Grade, in parallel ────────────────────────────
-        console.log('[Swarm Logger] Initiating Phase 4: Parallel Quality Assurance & Grading...');
-        const tQA = startTimer('qa');
+        // ── PHASE 4: Academic Grading ─────────────────────────────────────────
+        console.log('[Swarm Logger] Initiating Phase 4: Parallel Grading...');
         const tGrade = startTimer('grade');
 
-        const qaPromise = (!enableQuotes && GROQ && finalText.length > 1000)
-            ? checkWithGroq(finalText, GROQ, budget)
-                .then(checks => { tQA(); return applyFixes(finalText, checks); })
-            : Promise.resolve(finalText).then(t => { tQA(); return t; });
-
-        const gradePromise = options.enableGrade
-            ? runGrade({
+        const gradeOutput = options.enableGrade
+            ? await runGrade({
                 task,
                 rubric: context.rubric,
                 previousOutput: finalText,
@@ -186,10 +186,9 @@ async function runSwarm(req, res) {
                 citationType: options.citationType,
                 enableCite,
                 uploadedFiles: allFiles
-            }, budget).then(out => { tGrade(); return out; })
-            : Promise.resolve(null);
-
-        const [qaFinalText, gradeOutput] = await Promise.all([qaPromise, gradePromise]);
+            }, budget)
+            : null;
+        tGrade();
         console.log('[Swarm Logger] Swarm Execution Complete.');
 
         // ── Bibliography ───────────────────────────────────────────────────────
@@ -197,10 +196,10 @@ async function runSwarm(req, res) {
             ? buildBibliographyHTML(sources, style, options.citationType === 'footnotes' ? 'footnotes' : 'bibliography')
             : { html: '', plain: '' };
 
-        // Bulletproof final markdown cleanup of all #, ###, and ** headers right before returning payload
-        const cleanOutputText = qaFinalText
-            .replace(/\*\*+/g, '')  // strip bold syntax
-            .replace(/#+\s*/g, '')  // strip headers syntax
+        // Bulletproof final plain-text clean sweep
+        const cleanOutputText = finalText
+            .replace(/\*\*+/g, '')  // strip bold
+            .replace(/#+\s*/g, '')  // strip headers
             .trim();
 
         console.log('[Swarm] Budget:', budget.report());
@@ -211,10 +210,9 @@ async function runSwarm(req, res) {
             success: true,
             output: cleanOutputText,
             outputHtml: buildEssayHTML(cleanOutputText),
-            // Prioritize citeResult's matching compiled outputs, falling back safely if citation was disabled
             bibliographyHtml: citeResult?.bibliographyHtml || bib.html,
             bibliographyPlain: citeResult?.bibliographyPlain || bib.plain,
-            sources: citeResult?.citedSources || sources, // Ensure top and bottom boxes are fully synchronized
+            sources: citeResult?.citedSources || sources, // Full synchronization
             grade: gradeOutput,
             plan,
             timings,

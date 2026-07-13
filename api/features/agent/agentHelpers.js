@@ -185,13 +185,18 @@ export async function buildSourceDigest(sources, style, geminiKey, budget) {
 export async function checkWithGroq(text, groqKey, budget) {
     console.log('[Agent Helper] Running logical and formatting QA checks...');
     try {
-        const prompt = `Review this academic essay text for logical inconsistencies, broken citations, or structural formatting gaps.
+        const prompt = `Review this academic essay text for logical inconsistencies, spelling errors, or structural formatting gaps.
 
 TEXT:
 "${text}"
 
 Return a JSON array of fixes:
-{"fixes": [{"issue": "description", "find": "exact bad phrase", "replace": "exact corrected phrase"}]}`;
+{"fixes": [{"issue": "description", "find": "exact bad phrase from the text", "replace": "exact corrected phrase"}]}
+
+CRITICAL RULES:
+1. The "replace" field must contain ONLY the raw, clean, corrected text to replace the "find" field.
+2. NEVER include explanations, comments, parenthetical guidelines, or notes (such as "second reference should be...", "no comma...", "edit as needed") inside the "replace" field.
+3. Every replacement must be a seamless, drop-in substitution for the original text.`;
 
         const response = await GroqAPI.chat([{ role: 'user', content: prompt }], groqKey, true);
         const jsonMatch = response.match(/\{[\s\S]*\}/);

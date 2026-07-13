@@ -26,30 +26,19 @@ export async function runQuotes({
     sourceDigest = null
 }, GEMINI, GROQ, budget) {
     const input = previousOutput || '';
-    const taskFmt = taskFormat || 'general';
 
     if (!input || !researchSources.length) {
         return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
-    // Quotes already merged into CITE — run QA on previous cited text and exit
+    // Quotes already merged into CITE — simply return (no redundant QA calls) [1]
     if (quotesHandledInCite) {
-        let cleaned = input;
-        if (GROQ && input.length > 1000) {
-            const checks = await checkWithGroq(input, GROQ, budget);
-            cleaned = applyFixes(input, checks);
-        }
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
-    // Task didn't ask for quotes — run QA and exit
+    // Task didn't ask for quotes — simply return (no redundant QA calls) [1]
     if (!/quote|evidence|support|direct quote/i.test(task || '')) {
-        let cleaned = input;
-        if (GROQ && input.length > 1000) {
-            const checks = await checkWithGroq(input, GROQ, budget);
-            cleaned = applyFixes(input, checks);
-        }
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
     const digest = sourceDigest || await buildSourceDigest(researchSources, citationStyle, GEMINI, budget);
@@ -64,12 +53,7 @@ export async function runQuotes({
     }
 
     if (!availableQuotes.length) {
-        let cleaned = input;
-        if (GROQ && input.length > 1000) {
-            const checks = await checkWithGroq(input, GROQ, budget);
-            cleaned = applyFixes(input, checks);
-        }
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
     const sentences = splitSentences(input);
@@ -122,11 +106,6 @@ Return ONLY valid JSON:`;
         console.error('[Quotes] JSON parse failed:', e.message);
     }
 
-    let cleanedText = withQuotes;
-    if (GROQ && withQuotes.length > 1000) {
-        const checks = await checkWithGroq(withQuotes, GROQ, budget);
-        cleanedText = applyFixes(withQuotes, checks);
-    }
-
+    const cleanedText = cleanText(withQuotes);
     return { text: cleanedText, outputHtml: buildEssayHTML(cleanedText) };
 }
