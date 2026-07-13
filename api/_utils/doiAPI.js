@@ -245,14 +245,21 @@ export const DoiAPI = {
             return `${authors[0].family} et al.`;
         }
         const cleanAuthor = this.cleanAuthorName(source.meta?.author || source.author);
-        if (cleanAuthor) return cleanAuthor;
+        if (cleanAuthor) {
+            // "First Last" -> "Last, Initials" APA normalizer
+            if (!cleanAuthor.includes(',')) {
+                const parts = cleanAuthor.split(/\s+/).filter(Boolean);
+                if (parts.length === 2) return `${parts[1]}, ${parts[0].charAt(0).toUpperCase()}.`;
+                if (parts.length > 2) return `${parts[parts.length - 1]} et al.`;
+            }
+            return cleanAuthor;
+        }
 
         const site = source.meta?.siteName || source.venue;
         if (site && site !== 'Unknown' && site.toLowerCase() !== (source.title || '').toLowerCase()) {
             return this.cleanSiteName(site);
         }
 
-        // Shorten long titles to a max of 3 key words for clean in-text parentheticals
         if (source.title) {
             const words = source.title.trim().split(/\s+/).slice(0, 3).join(' ');
             return `"${words}..."`;
@@ -331,7 +338,6 @@ export const DoiAPI = {
     formatBib(source, style) {
         const s = String(style || 'chicago').toLowerCase();
         const year = this.getYear(source);
-        // Ensure journal name falls back to venue or generic label, NEVER repeating the article title
         const site = this.cleanSiteName(source.meta?.siteName || (source.venue && source.venue !== source.title ? source.venue : 'Journal Article'));
         const url = source.doi ? `https://doi.org/${source.doi}` : (source.link || source.url || '');
         const title = source.title || 'Untitled';
@@ -342,9 +348,15 @@ export const DoiAPI = {
         const pages = source.meta?.pages || source.pages || null;
 
         const hasDoiAuthors = !!(source.meta?.isDOI && source.meta?.authors?.length > 0);
-        const rawAuthor = hasDoiAuthors
+        let rawAuthor = hasDoiAuthors
             ? this.formatAPAAuthors(source.meta.authors)
             : this.cleanAuthorName(source.meta?.author || source.author);
+
+        // Normalize First Last -> Last, Initials for scraped fallback sources
+        if (rawAuthor && !rawAuthor.includes(',')) {
+            const parts = rawAuthor.split(/\s+/).filter(Boolean);
+            if (parts.length === 2) rawAuthor = `${parts[1]}, ${parts[0].charAt(0).toUpperCase()}.`;
+        }
 
         if (s.includes('apa')) {
             const cleanSite = this.toTitleCase(site);
@@ -362,7 +374,6 @@ export const DoiAPI = {
             } else if (source.meta?.siteName && source.meta.siteName !== 'Unknown') {
                 return `${source.meta.siteName}. (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
             } else {
-                // Title moves to author position without repeating twice in the entry
                 return `${title}. (${year}). *${cleanSite}*${journalSpecs}. ${url}`;
             }
         }

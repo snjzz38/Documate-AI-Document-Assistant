@@ -197,15 +197,21 @@ async function runSwarm(req, res) {
             ? buildBibliographyHTML(sources, style, options.citationType === 'footnotes' ? 'footnotes' : 'bibliography')
             : { html: '', plain: '' };
 
+        // Bulletproof final markdown cleanup of all #, ###, and ** headers right before returning payload
+        const cleanOutputText = qaFinalText
+            .replace(/\*\*+/g, '')  // strip bold syntax
+            .replace(/#+\s*/g, '')  // strip headers syntax
+            .trim();
+
         console.log('[Swarm] Budget:', budget.report());
         console.log('[Swarm] Timings:', timings);
         console.log('[Swarm] Model usage:', getModelUsage());
 
         return res.status(200).json({
             success: true,
-            output: qaFinalText,
-            outputHtml: buildEssayHTML(qaFinalText),
-            // FIXED: Prioritize citeResult's matching compiled outputs, falling back safely if citation was disabled
+            output: cleanOutputText,
+            outputHtml: buildEssayHTML(cleanOutputText),
+            // Prioritize citeResult's matching compiled outputs, falling back safely if citation was disabled
             bibliographyHtml: citeResult?.bibliographyHtml || bib.html,
             bibliographyPlain: citeResult?.bibliographyPlain || bib.plain,
             sources: citeResult?.citedSources || sources, // Ensure top and bottom boxes are fully synchronized

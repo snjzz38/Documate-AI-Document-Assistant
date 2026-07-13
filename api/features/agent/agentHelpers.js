@@ -130,6 +130,8 @@ export function extractTopic(text) {
 export function cleanText(text) {
     if (!text) return '';
     return text
+        .replace(/\*\*+/g, '')       // Strips all bold markdown (**)
+        .replace(/#+\s*/g, '')        // Strips all header hashtag markdown (###, ##)
         .replace(/\s+/g, ' ')
         .replace(/ \./g, '.')
         .replace(/ ,/g, ',')
@@ -155,8 +157,7 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
         if (citations) {
             return human + ' ' + citations.join('');
         }
-        return human;
-    }).join(' ');
+        return human;}).join(' ');
 }
 
 // ==========================================================================

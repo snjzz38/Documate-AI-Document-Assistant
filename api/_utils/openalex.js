@@ -290,26 +290,35 @@ Return ONLY the raw JSON object, no markdown.`;
     },
 
 
-// ════════════════════════════════════════════════════════════════════════
-    // MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
-    // ════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
+// MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
+// ==========================================================================
     _filterAndScore(results, brief = {}) {
         const seenUrls = new Set();
         const seenTitles = new Set();
         const seenDomains = new Set();
         
-        // Defensive check to bypass null parameters
         const safeBrief = brief || {};
         const excludeFields = (safeBrief.exclude_fields || []).map(f => f.toLowerCase());
         const isEducationEssay = (safeBrief.discipline || '').toLowerCase().includes('education') || 
                                  (safeBrief.discipline || '').toLowerCase().includes('pedagogy');
+
+        // STRENGTHENED TOPIC-RELEVANCE FILTER KEYWORDS
+        const relevantKeywords = ['gene', 'edit', 'crispr', 'reproduc', 'embryo', 'baby', 'clon', 'genet', 'biotech', 'designer', 'dna', 'bioethic', 'medical', 'mutagenesis', 'surrogacy'];
 
         return results
             .filter(r => {
                 if (!r.title || !r.link) return false;
                 const lowerUrl = r.link.toLowerCase();
                 const lowerTitle = r.title.toLowerCase();
+                const lowerSnippet = (r.snippet || '').toLowerCase();
+
+                // Instantly block completely irrelevant entries (like ChatGPT / HR) from polluting context [1]
+                const isRelevant = relevantKeywords.some(kw => lowerTitle.includes(kw) || lowerSnippet.includes(kw));
+                if (!isRelevant) {
+                    console.log(`[Search] Excluding irrelevant result: "${r.title}"`);
+                    return false;
+                }
 
                 if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
                 if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
