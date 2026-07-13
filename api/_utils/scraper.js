@@ -25,11 +25,13 @@ export const ScraperAPI = {
         const results = await Promise.all(
             sources.slice(0, 20).map(async (source, index) => {
                 try {
-                    // Extract DOI directly from link/snippet (completely avoids Cloudflare 403 blocks)
-                    const doi = DoiAPI.extractDOI(source.link) || DoiAPI.extractDOI(source.snippet);
+                    const url = source.link || source.url;
+                    
+                    // Extract DOI directly from link/url or snippet (completely avoids Cloudflare 403 blocks)
+                    const doi = url ? (DoiAPI.extractDOI(url) || DoiAPI.extractDOI(source.snippet)) : null;
                     
                     if (doi) {
-                        const doiData = await DoiAPI.resolve(source.link, source.snippet);
+                        const doiData = await DoiAPI.resolve(url, source.snippet);
                         if (doiData) {
                             console.log('[Scraper] Programmatic DOI resolved:', doi);
                             return {
@@ -50,11 +52,11 @@ export const ScraperAPI = {
                     }
                     
                     // Fall back to web HTML scrape only if DOI resolution fails
-                    console.log('[Scraper] HTML Scraping:', source.link);
+                    console.log('[Scraper] HTML Scraping:', url || 'undefined');
                     return await this._scrapeHTML(source, index);
                     
                 } catch (e) {
-                    console.error('[Scraper] Error:', source.link, e.message);
+                    console.error('[Scraper] Error:', source.link || source.url, e.message);
                     return this._fallback(source, index);
                 }
             })
@@ -66,10 +68,16 @@ export const ScraperAPI = {
 // MODULE 2: HTML Scraper & Parser
 // ==========================================================================
     async _scrapeHTML(source, index) {
-        if (source.link.toLowerCase().endsWith('.pdf') || 
-            source.link.includes('/pdf/') ||
-            source.link.includes('pdfs.semanticscholar.org')) {
-            console.log('[Scraper] Skipping PDF:', source.link);
+        const url = source.link || source.url;
+        if (!url) {
+            console.warn('[Scraper] Skipping HTML scrape: No URL provided.');
+            return this._fallback(source, index);
+        }
+
+        if (url.toLowerCase().endsWith('.pdf') || 
+            url.includes('/pdf/') ||
+            url.includes('pdfs.semanticscholar.org')) {
+            console.log('[Scraper] Skipping PDF:', url);
             return this._fallback(source, index);
         }
         
@@ -77,7 +85,7 @@ export const ScraperAPI = {
         const timeout = setTimeout(() => controller.abort(), 6000);
         
         try {
-            const res = await fetch(source.link, {
+            const res = await fetch(url, {
                 signal: controller.signal,
                 headers: {
                     'User-Agent': USER_AGENT,
@@ -90,7 +98,7 @@ export const ScraperAPI = {
             
             const contentType = res.headers.get('content-type') || '';
             if (contentType.includes('pdf') || contentType.includes('octet-stream')) {
-                console.log('[Scraper] Skipping binary content:', source.link);
+                console.log('[Scraper] Skipping binary content:', url);
                 return this._fallback(source, index);
             }
             
@@ -98,7 +106,7 @@ export const ScraperAPI = {
             
             // Binary signatures check
             if (html.startsWith('%PDF') || html.substring(0, 100).includes('\x00')) {
-                console.log('[Scraper] Detected binary content:', source.link);
+                console.log('[Scraper] Detected binary content:', url);
                 return this._fallback(source, index);
             }
             
@@ -129,7 +137,7 @@ export const ScraperAPI = {
                 ...source,
                 id: index + 1,
                 content: this._extractContent(html) || source.snippet || '',
-                meta: this._extractMeta(html, source.link)
+                meta: this._extractMeta(html, url)
             };
         } catch (e) {
             clearTimeout(timeout);
@@ -229,40 +237,15 @@ export const ScraperAPI = {
 // ==========================================================================
 // MODULE 4: Content Extractor & Cleaners
 // ==========================================================================
-    _extractContent(html) {
-        let clean = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-            .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-            .replace(/<header[\s\S]*?<\/header>/gi, '');
-        
-        const articleMatch = clean.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                            clean.match(/<main[^>]*>([\s\S]*?)<\/main>/i) ||
-                            clean.match(/<div[^>]*class="[^"]*(?:content|article|post)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-        
-        if (articleMatch) clean = articleMatch[1];
-        
-        const text = clean
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/\s+/g, ' ')
-            .trim();
-        
-        return text.substring(0, 1500);
-    },
-
     _fallback(source, index) {
         let siteName = 'Unknown';
+        const url = source.link || source.url;
         try {
-            const hostname = new URL(source.link).hostname.replace('www.', '');
-            siteName = hostname.split('.')[0];
-            siteName = siteName.charAt(0).toUpperCase() + siteName.slice(1);
+            if (url) {
+                const hostname = new URL(url).hostname.replace('www.', '');
+                const parts = hostname.split('.');
+                siteName = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+            }
         } catch {}
         
         return {
