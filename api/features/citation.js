@@ -18,13 +18,16 @@
  *    - handler()
  */
 
-import { GoogleSearchAPI } from '../_utils/googleSearch.js';
+
+// ==========================================================================
+// MODULE 1: DEPENDENCIES & CONFIGURATION
+// ==========================================================================
+
+import { OpenalexAPI } from '../_utils/openalex.js'; // Renamed from GoogleSearchAPI
+import { SearxAPI } from '../_utils/searx.js'; // Added SearXNG import for general search
 import { ScraperAPI } from '../_utils/scraper.js';
 import { GroqAPI } from '../_utils/groqAPI.js';
-
-// ════════════════════════════════════════════════════════════════════════════
-// MODULE 1: DEPENDENCIES & CONFIGURATION
-// ════════════════════════════════════════════════════════════════════════════
+import { DoiAPI } from '../_utils/doiAPI.js';
 
 const TODAY = () => new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -100,48 +103,206 @@ function getYear(source) {
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// MODULE 3: CITATION FORMATTING
+// MODULE 3: ACADEMIC CITATION FORMATTING (APA, MLA, CHICAGO)
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Format authors strictly according to APA 7th Edition rules (Initials + Ampersands)
+ */
+function formatAPAAuthors(authors) {
+    if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+    
+    const formatted = authors.map(a => {
+        const family = (a.family || '').trim();
+        const given = (a.given || '').trim();
+        if (!family) return '';
+        
+        // Convert given names to capitalized initials (e.g., "Hanna Bertilsdotter" -> "H. B.")
+        const initials = given
+            ? given.split(/[\s-]+/).map(part => `${part[0].toUpperCase()}.`).join(' ')
+            : '';
+        return initials ? `${family}, ${initials}` : family;
+    }).filter(Boolean);
+
+    if (formatted.length === 0) return null;
+    if (formatted.length === 1) return formatted[0];
+    if (formatted.length === 2) return `${formatted[0]}, & ${formatted[1]}`;
+    
+    // APA 7 supports listing up to 20 authors before using ellipses
+    if (formatted.length <= 20) {
+        return formatted.slice(0, -1).join(', ') + `, & ${formatted[formatted.length - 1]}`;
+    }
+    return formatted.slice(0, 19).join(', ') + ', ... ' + formatted[formatted.length - 1];
+}
+
+/**
+ * Format authors for MLA / Chicago Style (First Author Reversed, rest natural)
+ */
+function formatStandardAuthors(authors, useAnd = true) {
+    if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+    
+    const formatted = authors.map((a, i) => {
+        const family = (a.family || '').trim();
+        const given = (a.given || '').trim();
+        if (!family) return '';
+        
+        if (i === 0) {
+            // First author reversed: "Stenning, Anna"
+            return given ? `${family}, ${given}` : family;
+        } else {
+            // Subsequent authors natural: "Hanna Bertilsdotter Rosqvist"
+            return given ? `${given} ${family}` : family;
+        }
+    }).filter(Boolean);
+
+    const amp = useAnd ? 'and' : '&';
+    if (formatted.length === 0) return null;
+    if (formatted.length === 1) return formatted[0];
+    if (formatted.length === 2) return `${formatted[0]} ${amp} ${formatted[1]}`;
+    return formatted.slice(0, -1).join(', ') + `, ${amp} ${formatted[formatted.length - 1]}`;
+}
+
+/**
+ * Capitalizes a string to Title Case (for APA Journal Titles)
+ */
+function toTitleCase(str) {
+    if (!str) return '';
+    const minorWords = /^(a|an|the|and|but|or|for|nor|on|in|at|by|to|for|of|with|about|as)$/i;
+    return str.split(/\s+/).map((word, index) => {
+        if (index > 0 && minorWords.test(word)) return word.toLowerCase();
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
+}
+
 function formatInText(source, style) {
-    const author = getAuthorName(source);
-    const year = getYear(source);
     const s = String(style || 'chicago').toLowerCase();
-    if (s.includes('mla')) return `(${author})`;
-    if (s.includes('apa')) return `(${author}, ${year})`;
-    return `(${author} ${year})`;
+    const year = getYear(source);
+    
+    let authorName = '';
+    if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
+        const firstAuthor = source.meta.authors[0];
+        authorName = firstAuthor.family || cleanSiteName(source.meta?.siteName || source.title);
+        
+        if (source.meta.authors.length === 2) {
+            const secondAuthor = source.meta.authors[1];
+            authorName += s.includes('apa') ? ` & ${secondAuthor.family}` : ` and ${secondAuthor.family}`;
+        } else if (source.meta.authors.length > 2) {
+            authorName += ' et al.';
+        }
+    } else {
+        authorName = cleanAuthorName(source.meta?.author, source) || cleanSiteName(source.meta?.siteName || source.title);
+    }
+    
+    if (s.includes('mla')) return `(${authorName})`;
+    if (s.includes('apa')) return `(${authorName}, ${year})`;
+    return `(${authorName} ${year})`;
 }
 
 function formatBib(source, style) {
     const s = String(style || 'chicago').toLowerCase();
     const year = getYear(source);
     const site = cleanSiteName(source.meta?.siteName || source.title);
-    const today = TODAY();
-    
-    let author;
-    if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
-        const authors = source.meta.authors;
-        if (authors.length === 1) author = `${authors[0].family}, ${authors[0].given}`;
-        else if (authors.length === 2) author = `${authors[0].family}, ${authors[0].given}, and ${authors[1].given} ${authors[1].family}`;
-        else author = `${authors[0].family}, ${authors[0].given}, et al.`;
-    } else {
-        author = cleanAuthorName(source.meta?.author, source) || site;
-    }
-
     const url = source.doi ? `https://doi.org/${source.doi}` : source.link;
     const title = source.title || 'Untitled';
+    const today = TODAY();
 
-    if (s.includes('apa')) return `${author}. (${year}). ${title}. *${site}*. ${url}`;
-    if (s.includes('mla')) return `${author}. "${title}." *${site}*, ${year}, ${url}.`;
-    return `${author}. "${title}." *${site}*. ${year}. ${url} (Accessed ${today})`;
+    // Pull journal metadata if extracted by DoiAPI
+    const volume = source.meta?.volume || source.volume || null;
+    const issue = source.meta?.issue || source.issue || null;
+    const pages = source.meta?.pages || source.pages || null;
+
+    let author;
+    const hasDoiAuthors = !!(source.meta?.isDOI && source.meta?.authors?.length > 0);
+
+    if (s.includes('apa')) {
+        author = hasDoiAuthors
+            ? formatAPAAuthors(source.meta.authors)
+            : (cleanAuthorName(source.meta?.author, source) || site);
+            
+        const cleanSite = toTitleCase(site);
+        
+        // Build APA 7 Journal specs: Volume(Issue), Pages
+        let journalSpecs = '';
+        if (volume) {
+            journalSpecs += `, *${volume}*`;
+            if (issue) journalSpecs += `(${issue})`;
+        }
+        if (pages) {
+            journalSpecs += `, ${pages}`;
+        }
+
+        return `${author}. (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+    }
+
+    if (s.includes('mla')) {
+        author = hasDoiAuthors
+            ? formatStandardAuthors(source.meta.authors, true)
+            : (cleanAuthorName(source.meta?.author, source) || site);
+
+        // Build MLA container specifications
+        let containerSpecs = '';
+        if (volume) containerSpecs += `, vol. ${volume}`;
+        if (issue) containerSpecs += `, no. ${issue}`;
+        if (pages) containerSpecs += `, pp. ${pages}`;
+
+        return `${author}. "${title}." *${site}*${containerSpecs}, ${year}, ${url}.`;
+    }
+
+    // Chicago Notes-Bibliography fallback
+    author = hasDoiAuthors
+        ? formatStandardAuthors(source.meta.authors, true)
+        : (cleanAuthorName(source.meta?.author, source) || site);
+
+    let chicagoSpecs = '';
+    if (volume) {
+        chicagoSpecs += ` ${volume}`;
+        if (issue) chicagoSpecs += `, no. ${issue}`;
+    }
+    if (pages) {
+        chicagoSpecs += ` (${year}): ${pages}`;
+    } else {
+        chicagoSpecs += ` (${year})`;
+    }
+
+    return `${author}. "${title}." *${site}*${chicagoSpecs}. ${url} (Accessed ${today})`;
 }
 
 
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 4: INSERTION PROCESSING
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 
-function processInsertions(text, insertions, sources, style, outputType) {
+/**
+ * Universal alphabetical sorting helper (Primary Author Family Name -> Site Fallback -> Title)
+ */
+function sortSourcesAlphabetically(srcList) {
+    if (!srcList || !Array.isArray(srcList)) return [];
+    return srcList.sort((a, b) => {
+        let nameA = '';
+        if (a.meta?.isDOI && a.meta?.authors?.length > 0) {
+            nameA = a.meta.authors[0].family;
+        } else {
+            nameA = DoiAPI.cleanAuthorName(a.meta?.author);
+        }
+        if (!nameA) {
+            nameA = DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
+        }
+
+        let nameB = '';
+        if (b.meta?.isDOI && b.meta?.authors?.length > 0) {
+            nameB = b.meta.authors[0].family;
+        } else {
+            nameB = DoiAPI.cleanAuthorName(b.meta?.author);
+        }
+        if (!nameB) {
+            nameB = DoiAPI.cleanSiteName(b.meta?.siteName || b.title);
+        }
+
+        return nameA.toLowerCase().localeCompare(nameB.toLowerCase());
+    });
+}
+
+function processInsertions(text, insertions, sources, style, outputType, isAgent = false) {
     let result = text;
     const used = new Set();
     const footnotes = [];
@@ -154,13 +315,36 @@ function processInsertions(text, insertions, sources, style, outputType) {
         tokens.push({ word: m[0].toLowerCase(), end: m.index + m[0].length });
     }
 
+    const claimedIndices = new Set();
+
     const valid = insertions.map(ins => {
         if (!ins.anchor || !ins.source_id) return null;
         const words = ins.anchor.toLowerCase().match(/[a-z0-9]+/g);
         if (!words || words.length < 2) return null;
         for (let i = 0; i <= tokens.length - words.length; i++) {
-            if (words.every((w, j) => tokens[i + j].word === w)) {
+            if (claimedIndices.has(i)) continue;
+            
+            const isMatch = words.every((w, j) => tokens[i + j].word === w);
+            if (isMatch) {
+                for (let k = 0; k < words.length; k++) claimedIndices.add(i + k);
                 return { sourceId: ins.source_id, pos: tokens[i + words.length - 1].end };
+            }
+        }
+
+        // Fuzzy fallback match (tolerates 1 minor word deviation)
+        if (words.length >= 4) {
+            for (let i = 0; i <= tokens.length - words.length; i++) {
+                if (claimedIndices.has(i)) continue;
+
+                let mismatches = 0;
+                for (let j = 0; j < words.length; j++) {
+                    if (tokens[i + j].word !== words[j]) mismatches++;
+                }
+
+                if (mismatches <= 1) {
+                    for (let k = 0; k < words.length; k++) claimedIndices.add(i + k);
+                    return { sourceId: ins.source_id, pos: tokens[i + words.length - 1].end };
+                }
             }
         }
         return null;
@@ -169,29 +353,44 @@ function processInsertions(text, insertions, sources, style, outputType) {
     const byPos = new Map();
     valid.forEach(v => { if (!byPos.has(v.pos)) byPos.set(v.pos, v.sourceId); });
 
-    const positions = [...byPos.keys()].sort((a, b) => a - b);
+    const sortedPositions = [...byPos.keys()].sort((a, b) => a - b);
     const posData = new Map();
 
-    positions.forEach(pos => {
+    sortedPositions.forEach(pos => {
         const src = sources.find(s => s.id === byPos.get(pos));
         if (!src) return;
         used.add(src.id);
         if (outputType === 'footnotes') {
-            footnotes.push({ num: fnNum, cit: formatBib(src, style) });
+            footnotes.push({ num: fnNum, cit: DoiAPI.formatBib(src, style) });
             posData.set(pos, { type: 'fn', num: fnNum++ });
         } else {
-            posData.set(pos, { type: 'it', cit: formatInText(src, style) });
+            posData.set(pos, { type: 'it', cit: DoiAPI.formatInText(src, style) });
         }
     });
 
     const toSuper = n => n.toString().split('').map(d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]).join('');
-    [...positions].reverse().forEach(pos => {
+    
+    // Process positions in reverse order to maintain accurate character indexing
+    [...sortedPositions].reverse().forEach(pos => {
         const d = posData.get(pos);
         if (!d) return;
+
+        // Academic Punctuation Look-Ahead
+        let adjustedPos = pos;
+        while (adjustedPos < text.length && /^[.,;:!?"']/.test(text[adjustedPos])) {
+            adjustedPos++;
+        }
+
         const insert = d.type === 'fn' ? toSuper(d.num) : ` ${d.cit}`;
-        result = result.slice(0, pos) + insert + result.slice(pos);
+        result = result.slice(0, adjustedPos) + insert + result.slice(adjustedPos);
     });
 
+    // If requested by the Swarm Agent, bypass the appended references footer (kept clean for UI textboxes) [1]
+    if (isAgent) {
+        return result;
+    }
+
+    // Standalone Citation Machine: Generate and append the standard academic footnotes/references footer
     let footer = '\n\n';
     if (outputType === 'footnotes') {
         footer += '### Footnotes\n\n';
@@ -199,30 +398,31 @@ function processInsertions(text, insertions, sources, style, outputType) {
     } else {
         footer += '### References\n\n';
         const usedSources = sources.filter(s => used.has(s.id));
-        usedSources.sort((a, b) => getAuthorName(a).toLowerCase().localeCompare(getAuthorName(b).toLowerCase()));
-        usedSources.forEach(s => { footer += formatBib(s, style) + '\n\n'; });
+        sortSourcesAlphabetically(usedSources);
+        usedSources.forEach(s => { footer += DoiAPI.formatBib(s, style) + '\n\n'; });
     }
 
     const unused = sources.filter(s => !used.has(s.id));
     if (unused.length) {
         footer += '\n### Further Reading\n\n';
-        unused.sort((a, b) => getAuthorName(a).toLowerCase().localeCompare(getAuthorName(b).toLowerCase()));
-        unused.forEach(s => footer += formatBib(s, style) + '\n\n');
+        sortSourcesAlphabetically(unused);
+        unused.forEach(s => footer += DoiAPI.formatBib(s, style) + '\n\n');
     }
 
     footer += `\n---\n*${used.size}/${sources.length} sources cited*`;
     return result + footer;
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 5: PROMPT BUILDING
-// ════════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
 function buildPrompt(text, sources) {
     const srcList = sources.map(s => {
-        const author = getAuthorName(s);
-        const year = getYear(s);
+        const author = (s.meta?.isDOI && s.meta?.authors?.length > 0)
+            ? s.meta.authors[0].family
+            : (DoiAPI.cleanAuthorName(s.meta?.author) || DoiAPI.cleanSiteName(s.meta?.siteName || s.title));
+            
+        const year = DoiAPI.getYear(s);
         return `[${s.id}] ${author} (${year}) - ${s.title.substring(0, 50)}`;
     }).join('\n');
 
@@ -238,16 +438,16 @@ Return JSON only:
 {"insertions":[{"anchor":"3-6 exact words from text","source_id":1}]}
 
 Rules:
-- anchor = exact consecutive words from the text
-- Create 10+ insertions across all paragraphs
-- Distribute sources evenly`;
+1. anchor = exact consecutive words from the text
+2. Create 10+ insertions across all paragraphs
+3. Distribute sources evenly
+4. CITATION PLACEMENT FLOW: Choose anchors that are at the END of sentences or clauses (e.g., right before a period, comma, or coordinating conjunction) to maintain reading flow. Avoid choosing mid-phrase anchors.`;
 }
 
 
-// ════════════════════════════════════════════════════════════════════════════
+// ==========================================================================
 // MODULE 6: MAIN HANDLER
-// ════════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -255,16 +455,15 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     try {
-        const { context, style = 'Chicago', outputType = 'in-text', apiKey, googleKey, preLoadedSources } = req.body;
+        const { context, style = 'Chicago', outputType = 'in-text', apiKey, googleKey, preLoadedSources, isAgent = false } = req.body;
         const GROQ = apiKey || process.env.GROQ_API_KEY;
         const GKEY = googleKey || process.env.GOOGLE_SEARCH_API_KEY;
         const GCX = process.env.SEARCH_ENGINE_ID;
         
-        // ADDED: Extract OpenAlex Key
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE
-        if (preLoadedSources?.length) {
+        // QUOTES MODE — Now strictly gated by outputType === 'quotes'
+        if (outputType === 'quotes' && preLoadedSources?.length) {
             const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
                     try { return (await ScraperAPI.scrape([s]))[0] || s; } 
@@ -285,37 +484,51 @@ export default async function handler(req, res) {
         }
 
         // SEARCH & SCRAPE
-        console.log('[Citation] Starting search...');
-        
-        // ADDED: Pass OPENALEX key to search function
-        const raw = await GoogleSearchAPI.search(context, GKEY, GCX, GROQ, OPENALEX);
-        console.log('[Citation] Search returned:', raw?.length || 0, 'results');
-        
-        if (!raw || raw.length === 0) {
-            return res.status(200).json({ 
-                success: false, 
-                error: 'No search results. The search service may be temporarily unavailable.',
-                sources: [], text: '', citations: [], stats: raw?.stats || null, count: 0
-            });
+        let sources = [];
+        let raw = null;
+
+        // If pre-loaded sources are passed, bypass search and re-use them immediately
+        if (preLoadedSources && Array.isArray(preLoadedSources) && preLoadedSources.length > 0) {
+            console.log('[Citation] Re-using pre-loaded research sources...');
+            sources = preLoadedSources;
+        } else {
+            console.log('[Citation] Starting on-the-fly search...');
+            const [academicResults, generalResults] = await Promise.all([
+                OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
+                SearxAPI.search(context, 8)
+            ]);
+            raw = [...academicResults, ...generalResults];
+            console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
+            
+            if (!raw || raw.length === 0) {
+                return res.status(200).json({ 
+                    success: false, 
+                    error: 'No search results. The search service may be temporarily unavailable.',
+                    sources: [], text: '', citations: [], stats: null, count: 0
+                });
+            }
+            sources = await ScraperAPI.scrape(raw);
+            console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
         }
-        
-        const sources = await ScraperAPI.scrape(raw);
-        console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
 
         // BIBLIOGRAPHY MODE
         if (outputType === 'bibliography') {
             const seen = new Set();
             const uniqueSources = sources.filter(s => {
-                const key = s.doi || s.link;
+                const key = s.doi || s.link || s.url;
                 if (seen.has(key)) return false;
                 seen.add(key);
                 return true;
             });
-            const bibs = uniqueSources.map(s => formatBib(s, style)).join('\n\n');
-            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw.stats, count: uniqueSources.length });
+            
+            // Alphabetize Bibliography Mode sources by author family name
+            sortSourcesAlphabetically(uniqueSources);
+            
+            const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
+            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw?.stats || null, count: uniqueSources.length });
         }
 
-        // CITATION MODE
+        // CITATION MODE — Passes down the isAgent boolean flag cleanly
         const prompt = buildPrompt(context, sources);
         const response = await GroqAPI.chat([{ role: 'user', content: prompt }], GROQ, true);
         
@@ -327,8 +540,34 @@ export default async function handler(req, res) {
             console.error('[Citation] JSON parse error:', e.message);
         }
 
-        const result = processInsertions(context, insertions, sources, style, outputType);
-        return res.status(200).json({ success: true, sources, text: result, citations: sources, stats: raw.stats, count: sources.length });
+        const result = processInsertions(context, insertions, sources, style, outputType, isAgent);
+
+        // Generate matching bibliography HTML/Plain payload for the secondary textbox
+        const seen = new Set();
+        const uniqueSources = sources.filter(s => {
+            const key = s.doi || s.link || s.url;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        sortSourcesAlphabetically(uniqueSources);
+        const plainTexts = uniqueSources.map(s => DoiAPI.formatBib(s, style));
+        const bibPlain = plainTexts.join('\n\n');
+        const bibHtml = `<div class="bibliography-section" style="margin-top:20px;font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;">
+            <h3 style="text-align:center;margin-bottom:20px;">${outputType === 'footnotes' ? 'Footnotes' : 'Bibliography'}</h3>
+            ${plainTexts.map(text => `<p style="margin:0 0 12px 36px;text-indent:-36px;padding-left:36px;">${text}</p>`).join('\n')}
+        </div>`;
+
+        return res.status(200).json({ 
+            success: true, 
+            sources, 
+            text: result, 
+            citations: sources, 
+            bibliographyHtml: bibHtml, 
+            bibliographyPlain: bibPlain,
+            stats: raw?.stats || null, 
+            count: sources.length 
+        });
 
     } catch (error) {
         console.error('[Citation] Error:', error);

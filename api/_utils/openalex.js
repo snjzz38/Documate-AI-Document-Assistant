@@ -1,5 +1,5 @@
 // ==========================================================================
-// FILE PATH: api/_utils/googleSearch.js
+// FILE PATH: api/_utils/openalex.js
 // ==========================================================================
 
 /*
@@ -65,7 +65,7 @@ const MINIMUM_RESULTS = 6;
 // MODULE 2: CORE INTERFACE
 // ════════════════════════════════════════════════════════════════════════════
 
-export const GoogleSearchAPI = {
+export const OpenalexAPI = {
 
     /**
      * Main entry point. Added openAlexKey parameter.
@@ -169,7 +169,14 @@ Return ONLY the raw JSON object, no markdown.`;
             stage.ms = Date.now() - start;
             stage.failures += 1;
             console.error('[Search] _analyzeTopic failed:', e.message);
-            return null;
+            
+            // Return structurally safe fallback brief instead of null to prevent downstream query/exclude crashes
+            return {
+                queries: [this._buildFallbackQuery(text)],
+                exclude_fields: [],
+                discipline: '',
+                must_engage_with: []
+            };
         }
     },
 
@@ -283,24 +290,46 @@ Return ONLY the raw JSON object, no markdown.`;
     },
 
 
-    // ════════════════════════════════════════════════════════════════════════
-    // MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
-    // ════════════════════════════════════════════════════════════════════════
-
+// ==========================================================================
+// MODULE 6: STAGE 4 - SCORING, DEDUPLICATION & PRE-FILTERING
+// ==========================================================================
     _filterAndScore(results, brief = {}) {
         const seenUrls = new Set();
         const seenTitles = new Set();
         const seenDomains = new Set();
         
-        const excludeFields = (brief.exclude_fields || []).map(f => f.toLowerCase());
-        const isEducationEssay = (brief.discipline || '').toLowerCase().includes('education') || 
-                                 (brief.discipline || '').toLowerCase().includes('pedagogy');
+        const safeBrief = brief || {};
+        const excludeFields = (safeBrief.exclude_fields || []).map(f => f.toLowerCase());
+        const isEducationEssay = (safeBrief.discipline || '').toLowerCase().includes('education') || 
+                                 (safeBrief.discipline || '').toLowerCase().includes('pedagogy');
+
+        // DYNAMIC TOPIC-RELEVANCE EXTRACTION: Extracts focus keywords directly from the brief [1]
+        const briefTerms = [
+            ...(safeBrief.must_engage_with || []),
+            ...(safeBrief.queries || []),
+            ...(safeBrief.philosophical_positions || []),
+            safeBrief.discipline || '',
+            safeBrief.core_thesis || ''
+        ].join(' ').toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+
+        // Filter out highly generic, academic, and linguistic stop words
+        const topicKeywords = [...new Set(briefTerms)].filter(word => !GENERIC_WORDS.has(word));
 
         return results
             .filter(r => {
                 if (!r.title || !r.link) return false;
                 const lowerUrl = r.link.toLowerCase();
                 const lowerTitle = r.title.toLowerCase();
+                const lowerSnippet = (r.snippet || '').toLowerCase();
+
+                // STRENGTHENED RELEVANCE CHECK: Ensure the paper matches at least one topic-specific keyword [1]
+                if (topicKeywords.length > 0) {
+                    const isRelevant = topicKeywords.some(kw => lowerTitle.includes(kw) || lowerSnippet.includes(kw));
+                    if (!isRelevant) {
+                        console.log(`[Search] Excluding irrelevant paper from query scope: "${r.title}"`);
+                        return false;
+                    }
+                }
 
                 if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
                 if (lowerUrl.includes('/dictionary/') || lowerUrl.includes('/definition/')) return false;
@@ -361,7 +390,6 @@ Return ONLY the raw JSON object, no markdown.`;
             .sort((a, b) => b._score - a._score)
             .slice(0, 20);
     },
-
 
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING

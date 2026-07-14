@@ -1,17 +1,22 @@
-// api/features/steps/quotes.js
-import { GeminiAPI } from '../../_utils/geminiAPI.js';
-import { splitSentences, cleanText } from '../../_utils/textCleanup.js';
-import { buildSourceDigest } from '../../_utils/citationHelpers.js';
-import { buildEssayHTML } from '../../_utils/htmlBuilders.js';
-import { runFinalQA } from '../../_utils/qaHelpers.js';
+// ==========================================================================
+// FILE PATH: api/features/agent/_steps/quotes.js
+// ==========================================================================
 
 /**
- * Inserts 2–3 direct quotes into already-cited text.
- * If quotesHandledInCite is true (CITE already merged quotes in), this just
- * runs final QA and exits — no extra Gemini call.
- *
- * taskFormat is resolved once upstream (agent.js) via detectTaskFormatSmart.
+ * api/features/agent/_steps/quotes.js
+ * Quote Insertion & Transition Step (Quotes Injector)
+ * 
+ * Table of Contents:
+ * 1. Quote Insertion Step Executor Module
  */
+
+import { GeminiAPI } from '../../../_utils/geminiAPI.js';
+// Fixed: Added cleanText to the imported helper list
+import { splitSentences, buildSourceDigest, buildEssayHTML, checkWithGroq, applyFixes, cleanText } from '../agentHelpers.js';
+
+// ==========================================================================
+// MODULE 1: Quote Insertion Step Executor
+// ==========================================================================
 export async function runQuotes({
     task,
     taskFormat,
@@ -22,29 +27,26 @@ export async function runQuotes({
     sourceDigest = null
 }, GEMINI, GROQ, budget) {
     const input = previousOutput || '';
-    const taskFmt = taskFormat || 'general';
 
     if (!input || !researchSources.length) {
         return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
-    // Quotes already merged into CITE — just run final QA and exit
+    // Quotes already merged into CITE — simply return (no redundant QA calls) [1]
     if (quotesHandledInCite) {
-        const cleaned = await runFinalQA(cleanText(input), taskFmt, GROQ, budget);
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
-    // Task didn't ask for quotes — still run QA
+    // Task didn't ask for quotes — simply return (no redundant QA calls) [1]
     if (!/quote|evidence|support|direct quote/i.test(task || '')) {
-        const cleaned = await runFinalQA(input, taskFmt, GROQ, budget);
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
     const digest = sourceDigest || await buildSourceDigest(researchSources, citationStyle, GEMINI, budget);
 
     const availableQuotes = [];
     for (const [, d] of Object.entries(digest)) {
-        for (const quote of d.quotes) {
+        for (const quote of d.quotes || []) {
             if (quote.length > 40) {
                 availableQuotes.push({ quote, inTextKey: d.inTextKey, mainIdea: d.mainIdea });
             }
@@ -52,8 +54,7 @@ export async function runQuotes({
     }
 
     if (!availableQuotes.length) {
-        const cleaned = await runFinalQA(input, taskFmt, GROQ, budget);
-        return { text: cleaned, outputHtml: buildEssayHTML(cleaned) };
+        return { text: input, outputHtml: buildEssayHTML(input) };
     }
 
     const sentences = splitSentences(input);
@@ -106,8 +107,6 @@ Return ONLY valid JSON:`;
         console.error('[Quotes] JSON parse failed:', e.message);
     }
 
-    withQuotes = cleanText(withQuotes);
-    withQuotes = await runFinalQA(withQuotes, taskFmt, GROQ, budget);
-
-    return { text: withQuotes, outputHtml: buildEssayHTML(withQuotes) };
+    const cleanedText = cleanText(withQuotes);
+    return { text: cleanedText, outputHtml: buildEssayHTML(cleanedText) };
 }

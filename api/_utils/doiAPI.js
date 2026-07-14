@@ -1,10 +1,24 @@
-// api/_utils/doiAPI.js
-// Fetches citation metadata from DOIs using Crossref API (free, no key needed)
+// ==========================================================================
+// FILE PATH: api/_utils/doiAPI.js
+// ==========================================================================
 
+/**
+ * api/_utils/doiAPI.js
+ * DocuMate DOI Resolution & Citation Formatting Utility
+ * 
+ * Table of Contents:
+ * 1. DOI Extraction Module
+ * 2. Crossref Metadata Fetcher Module
+ * 3. Doi.org Content Negotiation Fallback Module
+ * 4. Unified URL Resolver Module
+ * 5. Author Name Formatter Module
+ * 6. Academic Style Generator Module
+ */
+
+// ==========================================================================
+// MODULE 1: DOI Extraction
+// ==========================================================================
 export const DoiAPI = {
-    /**
-     * Extract DOI from URL or text
-     */
     extractDOI(text) {
         if (!text) return null;
         
@@ -12,26 +26,34 @@ export const DoiAPI = {
         const patterns = [
             /doi\.org\/([^\s"'<>]+)/i,
             /doi:\s*([^\s"'<>]+)/i,
-            /(10\.\d{4,}\/[^\s"'<>]+)/i
+            /doi\/([^\s"'<>?#]+)/i,
+            /(10\.\d{4,}\/[^\s"'<>?#]+)/i
         ];
         
         for (const pattern of patterns) {
             const match = text.match(pattern);
             if (match) {
-                // Clean up the DOI
+                // Clean up trailing punctuation, query parameters, and hashes
                 let doi = match[1]
                     .replace(/[.,;)}\]]+$/, '') // Remove trailing punctuation
-                    .replace(/\/full$/, '')     // Remove /full suffix
-                    .replace(/\/abstract$/, ''); // Remove /abstract suffix
+                    .replace(/\?(.*)$/, '')     // Remove query parameters
+                    .replace(/#(.*)$/, '');     // Remove fragment identifiers
+                
+                // Clean publisher-specific path prefixes (e.g. Wiley/Springer "full/10.1111/...", "abs/")
+                doi = doi.replace(/^(abs|full|pdf|epdf|abstract)\//i, '');
+                
+                // Clean standard suffixes (e.g. ".../full", ".../pdf")
+                doi = doi.replace(/\/(full|abstract|pdf)$/i, '');
+
                 return doi;
             }
         }
         return null;
     },
 
-    /**
-     * Fetch metadata from Crossref API
-     */
+// ==========================================================================
+// MODULE 2: Crossref Metadata Fetcher
+// ==========================================================================
     async fetchFromCrossref(doi) {
         if (!doi) return null;
         
@@ -39,7 +61,7 @@ export const DoiAPI = {
             const url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
             
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeout = setTimeout(() => controller.abort(), 6000); // Increased timeout for slower queries
             
             const res = await fetch(url, {
                 signal: controller.signal,
@@ -53,16 +75,13 @@ export const DoiAPI = {
             
             const data = await res.json();
             const work = data.message;
-            
             if (!work) return null;
             
-            // Extract authors
             const authors = (work.author || []).map(a => ({
                 given: a.given || '',
                 family: a.family || ''
             })).filter(a => a.family);
             
-            // Extract year
             let year = 'n.d.';
             if (work.published?.['date-parts']?.[0]?.[0]) {
                 year = String(work.published['date-parts'][0][0]);
@@ -72,44 +91,359 @@ export const DoiAPI = {
                 year = String(work['published-online']['date-parts'][0][0]);
             }
             
-            // Extract journal/publisher
             const journal = work['container-title']?.[0] || 
                            work.publisher || 
                            'Unknown Journal';
+                           
             return {
                 doi: doi,
                 title: work.title?.[0] || 'Untitled',
                 authors: authors,
                 year: year,
-                journal: work['container-title']?.[0] || work.publisher || 'Unknown Journal',
-                volume: work.volume || null,      // ADD
-                issue: work.issue || null,        // ADD
-                pages: work.page || null,         // ADD
+                journal: journal,
+                volume: work.volume || null,
+                issue: work.issue || null,
+                pages: work.page || null,
                 type: work.type || 'article',
                 url: `https://doi.org/${doi}`,
                 abstract: work.abstract?.replace(/<[^>]+>/g, '').substring(0, 500) || null,
                 isDOI: true
             };
         } catch (e) {
-            console.error('[DOI] Crossref fetch failed:', e.message);
+            console.error('[DOI] Crossref lookup bypassed:', e.message);
             return null;
         }
     },
 
-    /**
-     * Try to resolve a URL to DOI metadata
-     */
+// ==========================================================================
+// MODULE 3: Doi.org Content Negotiation Fallback
+// ==========================================================================
+    async fetchFromDoiOrg(doi) {
+        if (!doi) return null;
+        
+        try {
+            const url = `https://doi.org/${encodeURIComponent(doi)}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 6000);
+            
+            // Standard CSL-JSON content negotiation request
+            const res = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'application/vnd.citationstyles.csl+json',
+                    'User-Agent': 'Documate/1.0 (Citation Tool; mailto:contact@example.com)'
+                }
+            });
+            clearTimeout(timeout);
+            
+            if (!res.ok) return null;
+            
+            const work = await res.json();
+            
+            const authors = (work.author || []).map(a => ({
+                given: a.given || '',
+                family: a.family || ''
+            })).filter(a => a.family);
+            
+            let year = 'n.d.';
+            if (work.issued?.['date-parts']?.[0]?.[0]) {
+                year = String(work.issued['date-parts'][0][0]);
+            }
+            
+            const journal = work['container-title'] || work.publisher || 'Unknown Journal';
+            
+            return {
+                doi: doi,
+                title: work.title || 'Untitled',
+                authors: authors,
+                year: year,
+                journal: journal,
+                volume: work.volume || null,
+                issue: work.issue || null,
+                pages: work.page || null,
+                type: work.type || 'article',
+                url: `https://doi.org/${doi}`,
+                abstract: work.abstract || null,
+                isDOI: true
+            };
+        } catch (e) {
+            console.error('[DOI] Doi.org fallback lookup failed:', e.message);
+            return null;
+        }
+    },
+
+// ==========================================================================
+// MODULE 4: Unified URL Resolver
+// ==========================================================================
     async resolve(url, snippet = '') {
-        // Try to extract DOI from URL first
         let doi = this.extractDOI(url);
         
-        // If not in URL, try snippet
         if (!doi && snippet) {
             doi = this.extractDOI(snippet);
         }
         
         if (!doi) return null;
         
-        return await this.fetchFromCrossref(doi);
+        // Attempt Primary (Crossref) -> Fallback (Doi.org content negotiation)
+        return (await this.fetchFromCrossref(doi)) || (await this.fetchFromDoiOrg(doi));
+    },
+
+// ==========================================================================
+// MODULE 5: Author Name Formatter
+// ==========================================================================
+    normalizeAuthorName(name) {
+        if (!name) return '';
+        const trimmed = name.trim();
+        
+        // If the name is completely ALL-CAPS (e.g. "OSMUNDSEN" -> "Osmundsen"), convert to Title Case
+        if (trimmed === trimmed.toUpperCase() && trimmed.length > 1) {
+            return trimmed.split(/[\s-]+/).map(part => {
+                return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+            }).join(' ');
+        }
+        return trimmed;
+    },
+
+    formatAPAAuthors(authors) {
+        if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+        
+        const formatted = authors.map(a => {
+            const family = this.normalizeAuthorName(a.family || '');
+            const given = (a.given || '').trim();
+            if (!family) return '';
+            
+            const initials = given
+                ? given.split(/[\s-]+/).map(part => `${part[0].toUpperCase()}.`).join(' ')
+                : '';
+            return initials ? `${family}, ${initials}` : family;
+        }).filter(Boolean);
+
+        if (formatted.length === 0) return null;
+        if (formatted.length === 1) return formatted[0];
+        if (formatted.length === 2) return `${formatted[0]}, & ${formatted[1]}`;
+        
+        if (formatted.length <= 20) {
+            return formatted.slice(0, -1).join(', ') + `, & ${formatted[formatted.length - 1]}`;
+        }
+        return formatted.slice(0, 19).join(', ') + ', ... ' + formatted[formatted.length - 1];
+    },
+
+    formatStandardAuthors(authors, useAnd = true) {
+        if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
+        
+        const formatted = authors.map((a, i) => {
+            const family = this.normalizeAuthorName(a.family || '');
+            const given = (a.given || '').trim();
+            if (!family) return '';
+            
+            if (i === 0) {
+                return given ? `${family}, ${given}` : family;
+            } else {
+                return given ? `${given} ${family}` : family;
+            }
+        }).filter(Boolean);
+
+        const amp = useAnd ? 'and' : '&';
+        if (formatted.length === 0) return null;
+        if (formatted.length === 1) return formatted[0];
+        if (formatted.length === 2) return `${formatted[0]} ${amp} ${formatted[1]}`;
+        return formatted.slice(0, -1).join(', ') + `, ${amp} ${formatted[formatted.length - 1]}`;
+    },
+
+    getShortAuthorName(source) {
+        if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
+            const authors = source.meta.authors;
+            const primaryFamily = this.normalizeAuthorName(authors[0].family);
+            
+            if (authors.length === 1) return primaryFamily;
+            if (authors.length === 2) {
+                const secondaryFamily = this.normalizeAuthorName(authors[1].family);
+                return `${primaryFamily} & ${secondaryFamily}`;
+            }
+            return `${primaryFamily} et al.`;
+        }
+        
+        const cleanAuthor = this.cleanAuthorName(source.meta?.author || source.author);
+        if (cleanAuthor) {
+            // Re-use same formatting if author string already contains et al.
+            if (cleanAuthor.toLowerCase().includes('et al')) {
+                return this.normalizeAuthorName(cleanAuthor.replace(/\s+et\s+al\.?$/i, ' et al.').replace(/\s*et\s+al\s*$/i, ' et al.').replace(/\.+$/, '')) + '.';
+            }
+            
+            // Standardizes multiple raw author strings (e.g. "OSMUNDSEN, Hunter, Dekker" -> "Osmundsen et al.")
+            const separators = [',', ' and ', ' & '];
+            const hasMultiple = separators.some(sep => cleanAuthor.includes(sep));
+            if (hasMultiple) {
+                const firstPart = cleanAuthor.split(/,|\band\b|&/i)[0].trim();
+                const words = firstPart.split(/\s+/).filter(Boolean);
+                const family = this.normalizeAuthorName(words[words.length - 1]);
+                return `${family} et al.`;
+            }
+            
+            // Standardizes single "First Last" strings -> "Last"
+            if (!cleanAuthor.includes(',')) {
+                const parts = cleanAuthor.split(/\s+/).filter(Boolean);
+                if (parts.length === 2) return this.normalizeAuthorName(parts[1]);
+            }
+            return this.normalizeAuthorName(cleanAuthor);
+        }
+
+        const site = source.meta?.siteName || source.venue;
+        if (site && site !== 'Unknown' && site.toLowerCase() !== (source.title || '').toLowerCase()) {
+            return this.cleanSiteName(site);
+        }
+
+        if (source.title) {
+            const words = source.title.trim().split(/\s+/).slice(0, 3).join(' ');
+            return `"${words}..."`;
+        }
+        return 'Unknown';
+    },
+
+    toTitleCase(str) {
+        if (!str) return '';
+        const minorWords = /^(a|an|the|and|but|or|for|nor|on|in|at|by|to|for|of|with|about|as)$/i;
+        return str.split(/\s+/).map((word, index) => {
+            if (index > 0 && minorWords.test(word)) return word.toLowerCase();
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+    },
+
+    cleanAuthorName(author) {
+        if (!author) return null;
+        const str = String(author).trim();
+        const invalidPatterns = [
+            /^https?:\/\//i, /facebook\.com/i, /twitter\.com/i, /^www\./i,
+            /^default$/i, /^unknown$/i, /^admin$/i, /^editor$/i, /^staff$/i,
+            /^contributor$/i, /^pmc\.?$/i, /^ncbi/i, /^\d+$/, /^[^a-zA-Z]*$/,
+            /→|►|→|View all/i, /^doi$/i, /^n\.?d\.?$/i
+        ];
+        
+        for (const pattern of invalidPatterns) {
+            if (pattern.test(str)) return null;
+        }
+        if (str.length < 3 || str.length > 80) return null;
+        
+        let cleaned = str.replace(/^(By|Written by|Author:|Posted by)\s*/i, '').replace(/\s+/g, ' ').trim();
+        return cleaned || null;
+    },
+
+    cleanSiteName(site) {
+        if (!site) return 'Unknown';
+        let cleaned = String(site).replace(/^www\./, '').replace(/^https?:\/\//, '')
+            .replace(/\.(com|org|edu|net|gov|io|health)$/i, '').replace(/[→\-–|]/g, ' ')
+            .replace(/\s+/g, ' ').trim();
+        
+        if (cleaned.includes(' ') && cleaned.length > 5) {
+            return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+        }
+
+        const parts = cleaned.split(/[.\s]/);
+        const meaningful = parts.find(p => p.length > 2 && !/^(www|http|https|doi)$/i.test(p));
+        return meaningful ? meaningful.charAt(0).toUpperCase() + meaningful.slice(1).toLowerCase() : 'Unknown';
+    },
+
+    getYear(source) {
+        const y = source.meta?.year || source.year;
+        if (y && y !== 'n.d.' && /^\d{4}$/.test(String(y))) return String(y);
+        if (source.meta?.published && source.meta.published !== 'n.d.') {
+            const match = source.meta.published.match(/\b(19|20)\d{2}\b/);
+            if (match) return match[0];
+        }
+        const text = (source.content || '') + (source.snippet || '');
+        const contentMatch = text.match(/\b(202[0-6]|201\d|200\d)\b/);
+        return contentMatch ? contentMatch[0] : 'n.d.';
+    },
+
+// ==========================================================================
+// MODULE 6: Academic Style Generator
+// ==========================================================================
+    formatInText(source, style) {
+        const s = String(style || 'chicago').toLowerCase();
+        const year = this.getYear(source);
+        let authorName = this.getShortAuthorName(source);
+        
+        // Safety check to verify "et al" has its academic trailing period inside the in-text parens [1]
+        if (authorName.toLowerCase().includes('et al') && !authorName.endsWith('.')) {
+            authorName = authorName + '.';
+        }
+
+        if (s.includes('mla')) return `(${authorName})`;
+        if (s.includes('apa')) return `(${authorName}, ${year})`;
+        return `(${authorName} ${year})`;
+    },
+
+    formatBib(source, style) {
+        const s = String(style || 'chicago').toLowerCase();
+        const year = this.getYear(source);
+        const site = this.cleanSiteName(source.meta?.siteName || (source.venue && source.venue !== source.title ? source.venue : 'Journal Article'));
+        const url = source.doi ? `https://doi.org/${source.doi}` : (source.link || source.url || '');
+        const title = source.title || 'Untitled';
+        const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        const volume = source.meta?.volume || source.volume || null;
+        const issue = source.meta?.issue || source.issue || null;
+        const pages = source.meta?.pages || source.pages || null;
+
+        const hasDoiAuthors = !!(source.meta?.isDOI && source.meta?.authors?.length > 0);
+        let rawAuthor = hasDoiAuthors
+            ? this.formatAPAAuthors(source.meta.authors)
+            : this.cleanAuthorName(source.meta?.author || source.author);
+
+        // Normalize First Last -> Last, Initials for scraped fallback sources
+        if (rawAuthor && !rawAuthor.includes(',')) {
+            const parts = rawAuthor.split(/\s+/).filter(Boolean);
+            if (parts.length === 2) {
+                const family = this.normalizeAuthorName(parts[1]);
+                const given = parts[0];
+                rawAuthor = `${family}, ${given.charAt(0).toUpperCase()}.`;
+            }
+        }
+
+        if (s.includes('apa')) {
+            const cleanSite = this.toTitleCase(site);
+            
+            let journalSpecs = '';
+            if (volume) {
+                journalSpecs += `, *${volume}*`;
+                if (issue) journalSpecs += `(${issue})`;
+            }
+            if (pages) journalSpecs += `, ${pages}`;
+
+            if (rawAuthor) {
+                const authorPeriod = rawAuthor.endsWith('.') ? '' : '.';
+                return `${rawAuthor}${authorPeriod} (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+            } else if (source.meta?.siteName && source.meta.siteName !== 'Unknown') {
+                return `${source.meta.siteName}. (${year}). ${title}. *${cleanSite}*${journalSpecs}. ${url}`;
+            } else {
+                return `${title}. (${year}). *${cleanSite}*${journalSpecs}. ${url}`;
+            }
+        }
+
+        if (s.includes('mla')) {
+            const author = rawAuthor || source.meta?.siteName || title;
+            let containerSpecs = '';
+            if (volume) containerSpecs += `, vol. ${volume}`;
+            if (issue) containerSpecs += `, no. ${issue}`;
+            if (pages) containerSpecs += `, pp. ${pages}`;
+
+            const authorPeriod = author.endsWith('.') ? '' : '.';
+            return `${author}${authorPeriod} "${title}." *${site}*${containerSpecs}, ${year}, ${url}.`;
+        }
+
+        const author = rawAuthor || source.meta?.siteName || title;
+        let chicagoSpecs = '';
+        if (volume) {
+            chicagoSpecs += ` ${volume}`;
+            if (issue) chicagoSpecs += `, no. ${issue}`;
+        }
+        if (pages) {
+            chicagoSpecs += ` (${year}): ${pages}`;
+        } else {
+            chicagoSpecs += ` (${year})`;
+        }
+
+        const authorPeriod = author.endsWith('.') ? '' : '.';
+        return `${author}${authorPeriod} "${title}." *${site}*${chicagoSpecs}. ${url} (Accessed ${today})`;
     }
 };
