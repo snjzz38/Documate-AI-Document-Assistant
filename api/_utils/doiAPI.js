@@ -191,11 +191,24 @@ export const DoiAPI = {
 // ==========================================================================
 // MODULE 5: Author Name Formatter
 // ==========================================================================
+    normalizeAuthorName(name) {
+        if (!name) return '';
+        const trimmed = name.trim();
+        
+        // If the name is completely ALL-CAPS (e.g. "OSMUNDSEN" -> "Osmundsen"), convert to Title Case
+        if (trimmed === trimmed.toUpperCase() && trimmed.length > 1) {
+            return trimmed.split(/[\s-]+/).map(part => {
+                return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+            }).join(' ');
+        }
+        return trimmed;
+    },
+
     formatAPAAuthors(authors) {
         if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
         
         const formatted = authors.map(a => {
-            const family = (a.family || '').trim();
+            const family = this.normalizeAuthorName(a.family || '');
             const given = (a.given || '').trim();
             if (!family) return '';
             
@@ -219,7 +232,7 @@ export const DoiAPI = {
         if (!authors || !Array.isArray(authors) || authors.length === 0) return null;
         
         const formatted = authors.map((a, i) => {
-            const family = (a.family || '').trim();
+            const family = this.normalizeAuthorName(a.family || '');
             const given = (a.given || '').trim();
             if (!family) return '';
             
@@ -240,33 +253,39 @@ export const DoiAPI = {
     getShortAuthorName(source) {
         if (source.meta?.isDOI && source.meta?.authors?.length > 0) {
             const authors = source.meta.authors;
-            if (authors.length === 1) return authors[0].family;
-            if (authors.length === 2) return `${authors[0].family} & ${authors[1].family}`;
-            return `${authors[0].family} et al.`;
+            const primaryFamily = this.normalizeAuthorName(authors[0].family);
+            
+            if (authors.length === 1) return primaryFamily;
+            if (authors.length === 2) {
+                const secondaryFamily = this.normalizeAuthorName(authors[1].family);
+                return `${primaryFamily} & ${secondaryFamily}`;
+            }
+            return `${primaryFamily} et al.`;
         }
         
         const cleanAuthor = this.cleanAuthorName(source.meta?.author || source.author);
         if (cleanAuthor) {
+            // Re-use same formatting if author string already contains et al.
             if (cleanAuthor.toLowerCase().includes('et al')) {
-                return cleanAuthor.replace(/\s+et\s+al\.?$/i, ' et al.').replace(/\.+$/, '');
+                return this.normalizeAuthorName(cleanAuthor.replace(/\s+et\s+al\.?$/i, ' et al.').replace(/\s*et\s+al\s*$/i, ' et al.').replace(/\.+$/, '')) + '.';
             }
             
-            // Standardizes multiple raw author strings (e.g. "Gyngell, Douglas, Savulescu" -> "Gyngell et al.")
+            // Standardizes multiple raw author strings (e.g. "OSMUNDSEN, Hunter, Dekker" -> "Osmundsen et al.")
             const separators = [',', ' and ', ' & '];
             const hasMultiple = separators.some(sep => cleanAuthor.includes(sep));
             if (hasMultiple) {
                 const firstPart = cleanAuthor.split(/,|\band\b|&/i)[0].trim();
                 const words = firstPart.split(/\s+/).filter(Boolean);
-                const family = words[words.length - 1];
+                const family = this.normalizeAuthorName(words[words.length - 1]);
                 return `${family} et al.`;
             }
             
             // Standardizes single "First Last" strings -> "Last"
             if (!cleanAuthor.includes(',')) {
                 const parts = cleanAuthor.split(/\s+/).filter(Boolean);
-                if (parts.length === 2) return parts[1];
+                if (parts.length === 2) return this.normalizeAuthorName(parts[1]);
             }
-            return cleanAuthor;
+            return this.normalizeAuthorName(cleanAuthor);
         }
 
         const site = source.meta?.siteName || source.venue;
@@ -342,8 +361,13 @@ export const DoiAPI = {
     formatInText(source, style) {
         const s = String(style || 'chicago').toLowerCase();
         const year = this.getYear(source);
-        const authorName = this.getShortAuthorName(source);
+        let authorName = this.getShortAuthorName(source);
         
+        // Safety check to verify "et al" has its academic trailing period inside the in-text parens [1]
+        if (authorName.toLowerCase().includes('et al') && !authorName.endsWith('.')) {
+            authorName = authorName + '.';
+        }
+
         if (s.includes('mla')) return `(${authorName})`;
         if (s.includes('apa')) return `(${authorName}, ${year})`;
         return `(${authorName} ${year})`;
@@ -368,8 +392,12 @@ export const DoiAPI = {
 
         // Normalize First Last -> Last, Initials for scraped fallback sources
         if (rawAuthor && !rawAuthor.includes(',')) {
-            const parts = rawAuthor.replace(/\s+et\s+al\.?$/i, '').split(/\s+/).filter(Boolean);
-            if (parts.length === 2) rawAuthor = `${parts[1]}, ${parts[0].charAt(0).toUpperCase()}.`;
+            const parts = rawAuthor.split(/\s+/).filter(Boolean);
+            if (parts.length === 2) {
+                const family = this.normalizeAuthorName(parts[1]);
+                const given = parts[0];
+                rawAuthor = `${family}, ${given.charAt(0).toUpperCase()}.`;
+            }
         }
 
         if (s.includes('apa')) {
@@ -380,9 +408,7 @@ export const DoiAPI = {
                 journalSpecs += `, *${volume}*`;
                 if (issue) journalSpecs += `(${issue})`;
             }
-            if (pages) {
-                journalSpecs += `, ${pages}`;
-            }
+            if (pages) journalSpecs += `, ${pages}`;
 
             if (rawAuthor) {
                 const authorPeriod = rawAuthor.endsWith('.') ? '' : '.';
