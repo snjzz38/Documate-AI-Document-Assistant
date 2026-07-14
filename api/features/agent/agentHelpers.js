@@ -52,10 +52,13 @@ export class RequestBudget {
 export async function planTask(task, groqKey, budget) {
     console.log('[Agent Helper] Generating content writing plan...');
     try {
-        const prompt = `You are a curriculum director. Analyze the task and output a structured outline.
+        const prompt = `You are a curriculum director and task planner. Analyze this student task and output a structured outline.
 
 TASK:
 "${task}"
+
+FORMAT TRANSLATION RULE:
+If the task requests a table (e.g. to organize arguments), do NOT plan a markdown table. Instead, translate that requirement into clearly structured prose paragraphs or clean bullet points, as markdown tables (using "|" or dashes) do not copy-paste cleanly into standard document editors like Google Docs.
 
 Return a JSON outline with required sections, tone guidelines, and word count targets.`;
 
