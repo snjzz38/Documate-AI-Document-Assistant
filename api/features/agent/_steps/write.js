@@ -16,7 +16,7 @@ import { extractTopic, cleanText, formatPlanForPrompt, fmtAuthorLastOnly } from 
 // ==========================================================================
 // MODULE 1: Content Writing Executor
 // ==========================================================================
-export async function runWrite({ task, plan, researchSources = [], uploadedFiles = [] }, GEMINI, budget) {
+export async function runWrite({ task, plan, researchSources = [], uploadedFiles = [], sectionOutline, previousContext = '' }, GEMINI, budget) {
     const imageFiles = uploadedFiles.filter(f => f.type?.startsWith('image/'));
     const pdfFiles = uploadedFiles.filter(f => f.type === 'application/pdf');
     const otherFiles = uploadedFiles.filter(f => !f.type?.startsWith('image/') && f.type !== 'application/pdf');
@@ -51,17 +51,28 @@ export async function runWrite({ task, plan, researchSources = [], uploadedFiles
 
     const briefBlock = formatPlanForPrompt(plan);
 
-    const prompt = `Complete the following task accurately.
+    const prompt = `Write a specific section of an academic essay.
 
-TASK:
+MASTER TASK OUTLINE:
 ${task}
 ${pdfContext}${fileContext}
-${researchSources.length > 0 ? `\nRESEARCH SOURCES (use for ideas and content only — do NOT include citations, author names, or references in your output now):\n${sourceInfo}` : ''}
+
+SECTION TO WRITE NOW:
+- Heading: "${sectionOutline?.heading || plan.sections[0]}"
+- Target Word Count: ${sectionOutline?.target_words || 800} words
+
+${previousContext ? `PREVIOUS SECTION TEXT (for transition context - do NOT repeat these points, just use them to write a smooth, continuous transition):
+"${previousContext.substring(previousContext.length - 1200)}"\n` : ''}
+
+RESEARCH SOURCES FOR THIS SECTION (use for ideas and content only — do NOT include citations, author names, or references in your output now):
+${sourceInfo}
 
 ${briefBlock}
 
 CRITICAL RULES — ALWAYS APPLY:
-- Follow the WRITING BRIEF above exactly — it tells you what this deliverable actually needs
+- Write ONLY the content for the section: "${sectionOutline?.heading || plan.sections[0]}"
+- DO NOT write any other sections of the outline.
+- Connect seamlessly with the end of the previous section, making the transition logical and natural.
 - Do NOT include any in-text citations, author names, or source references anywhere in the output
 - Do NOT add a reference list, "Sources:", or bibliography section at the end
 - Do NOT mention specific researchers, papers, or organisations by name
@@ -74,7 +85,7 @@ CRITICAL RULES — ALWAYS APPLY:
 - NEVER write a vague sentence that makes an observation without academic grounding or specific detail
 ${imageFiles.length > 0 ? '- Carefully analyze any uploaded images as part of the response.' : ''}
 
-Complete the task now:`;
+Write this section now:`;
 
     budget.spend('write-gemini');
     const rawText = imageFiles.length > 0

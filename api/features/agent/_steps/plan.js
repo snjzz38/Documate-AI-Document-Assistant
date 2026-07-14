@@ -32,17 +32,39 @@ TASK:
 "${task.substring(0, 2000)}"
 
 Return a raw JSON object containing:
-1. "topic": A highly optimized, academic 3-6 word search query for paper retrieval. Do not use punctuation.
-2. "plan": A detailed writing brief with "sections" (array of targeted section headers) and "writing_tips" (array of 3 specific guidelines to improve writing quality for this task).
+1. "topic": A unified top-level 3-6 word search query for paper retrieval. Do not use punctuation.
+2. "scale_profile": Assess the scope. If the task requests >1500 words or >6 sources, tier is "high_horizon". Else "standard".
+3. "plan": A detailed writing brief with "sections" (array of targeted section headers) and "writing_tips" (array of 3 specific guidelines to improve writing quality for this task).
 
-FORMAT TRANSLATION RULE:
-If the original task requests an organizing "table" (e.g., arguments for and against), do NOT plan a markdown table. Instead, translate that requirement into beautifully structured prose paragraphs with clear descriptive subheadings or standard numerical listings, as raw markdown tables do not copy-paste cleanly into editors like Google Docs.
+CRITICAL FORMAT TRANSLATION RULES:
+- If the original task requests an organizing "table" (e.g., arguments for and against), do NOT plan a markdown table. Instead, translate that requirement into beautifully structured prose paragraphs with clear descriptive subheadings or standard numerical listings, as raw markdown tables do not copy-paste cleanly into editors like Google Docs.
+- USER-STRUCTURE ALIGNMENT: Read the task carefully. If the user specifies an outline structure (e.g. "Introduction", "Arguments For", "Arguments Against", "Decision", "Justification"), you MUST follow their requested structural sections exactly in "sectored_outlines".
+- SOURCE CAP: If the requested sources exceed 20, cap "total_target_sources" at 16 to maintain API safety and context performance.
 
 Return ONLY valid JSON:
 {
   "topic": "neurodiversity inclusive education workplaces",
+  "scale_profile": {
+    "tier": "high_horizon",
+    "total_target_words": 3000,
+    "total_target_sources": 12,
+    "sectored_outlines": [
+      {
+        "id": 1,
+        "heading": "Introduction: The Neurodiversity Paradigm",
+        "target_words": 700,
+        "search_query": "neurodiversity paradigm history and origins"
+      },
+      {
+        "id": 2,
+        "heading": "Arguments for Embracing Cognitive Differences",
+        "target_words": 800,
+        "search_query": "benefits of neurodiversity in classroom and workplace"
+      }
+    ]
+  },
   "plan": {
-    "sections": ["Introduction", "Analysis", "Conclusion"],
+    "sections": ["Introduction: The Neurodiversity Paradigm", "Arguments for Embracing Cognitive Differences"],
     "writing_tips": ["Use active, conversational phrasing.", "Explicitly connect evidence to the thesis.", "Avoid passive relative clauses."]
   }
 }`;
@@ -52,15 +74,36 @@ Return ONLY valid JSON:
         if (!jsonMatch) throw new Error('No JSON outline returned');
 
         const data = JSON.parse(jsonMatch[0]);
+        
+        // Handle standard fallback if model returned incomplete scale profile
+        const scaleProfile = data.scale_profile || {
+            tier: 'standard',
+            total_target_words: 1000,
+            total_target_sources: 4,
+            sectored_outlines: (data.plan?.sections || ["Introduction", "Analysis", "Conclusion"]).map((h, i) => ({
+                id: i + 1,
+                heading: h,
+                target_words: 400,
+                search_query: data.topic || fallbackTopic
+            }))
+        };
+
         return {
             topic: data.topic || fallbackTopic,
-            plan: data.plan || { sections: ["Introduction", "Analysis", "Conclusion"], writing_tips: [] }
+            scale_profile: scaleProfile,
+            plan: data.plan || { sections: ["Introduction", "Analysis", "Conclusion"], writing_tips: ["Maintain objective academic tone."] }
         };
     } catch (e) {
         console.warn('[Plan Step] Planning failed, utilizing fallback outline:', e.message);
         return {
             topic: fallbackTopic,
-            plan: { sections: ["Introduction", "Analysis", "Conclusion"], writing_tips: ["Maintain objective academic tone."] }
+            scale_profile: {
+                tier: 'standard',
+                total_target_words: 1000,
+                total_target_sources: 4,
+                sectored_outlines: [{ id: 1, heading: "Essay Content", target_words: 1000, search_query: fallbackTopic }]
+            },
+            plan: { sections: ["Essay Content"], writing_tips: ["Maintain objective academic tone."] }
         };
     }
 }

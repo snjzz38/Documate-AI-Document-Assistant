@@ -74,98 +74,189 @@ async function runSwarm(req, res) {
     };
 
     try {
-        // ── PHASE 1: Precursor Content & Topic Planning ────────────────────────
-        console.log('[Swarm Logger] Initiating Phase 1: Topic Planning...');
+        // ── PHASE 1: Precursor Content, Topic, and Scale Planning ──────────────
+        console.log('[Swarm Logger] Initiating Phase 1: High-Horizon Planning...');
         const tPlan = startTimer('plan');
-        const { topic, plan } = await runPlan({ task }, GROQ, budget);
+        const { topic, scale_profile, plan } = await runPlan({ task }, GROQ, budget);
         tPlan();
 
-        console.log('[Swarm Logger] Planning Complete.');
-        console.log('[Swarm Logger] Extracted Topic:', topic);
-        console.log('[Swarm Logger] Generated Outline Sections:', plan.sections);
+        const scale = scale_profile || {
+            tier: 'standard',
+            total_target_words: 1000,
+            total_target_sources: 4,
+            sectored_outlines: [{ id: 1, heading: "Essay Content", target_words: 1000, search_query: topic }]
+        };
+
+        console.log(`[Swarm Logger] Planning Complete. Tier: ${scale.tier.toUpperCase()}`);
+        console.log('[Swarm Logger] Outline Sections:', plan.sections);
         console.log('[Swarm Logger] Custom Writing Quality Guidelines:', plan.writing_tips);
 
-        // ── PHASE 1.5: Research, using the pre-planned topic query ─────────────
-        console.log('[Swarm Logger] Initiating Phase 1.5: Academic Research...');
+        // ── PHASE 1.5: Multi-Wave Academic Research ────────────────────────────
+        console.log('[Swarm Logger] Initiating Phase 1.5: Sectored Academic Research...');
         const tResearch = startTimer('research');
-        const { sources } = await runResearch({ topic, citationStyle: style }, GROQ, budget);
+        
+        // If high-horizon, we run targeted research waves using section-specific queries [1]
+        const targetQueries = scale.tier === 'high_horizon'
+            ? scale.sectored_outlines.map(o => o.search_query).filter(Boolean).slice(0, 5) // Cap queries
+            : [topic];
+
+        const researchOutputs = await Promise.all(targetQueries.map(q =>
+            runResearch({ topic: q, citationStyle: style }, GROQ, budget)
+        ));
+
+        // Merge and deduplicate all gathered sources
+        const allSources = [];
+        const seenUrls = new Set();
+        researchOutputs.forEach(out => {
+            (out.sources || []).forEach(src => {
+                const key = src.doi || src.url;
+                if (key && !seenUrls.has(key)) {
+                    seenUrls.add(key);
+                    allSources.push(src);
+                }
+            });
+        });
         tResearch();
-        console.log(`[Swarm Logger] Research Complete. ${sources.length} sources resolved.`);
+        console.log(`[Swarm Logger] Research Complete. ${allSources.length} unique sources resolved.`);
 
-        // ── PHASE 2: Write + digest pre-warm, in parallel ────────────────────
-        console.log('[Swarm Logger] Initiating Phase 2: Parallel Draft Generation & Pre-warm...');
+        // ── PHASE 2: Sequential Chained Writing (Sliding Context Window) ───────
+        console.log('[Swarm Logger] Initiating Phase 2: Sequential Chained Draft Generation...');
         const allFiles = context.uploadedFiles || (context.uploadedFile ? [context.uploadedFile] : []);
-
         const tWrite = startTimer('write');
-        const tDigest = startTimer('digest');
 
-        const [writeOutput, digest] = await Promise.all([
-            runWrite({ task, plan, researchSources: sources, uploadedFiles: allFiles }, GEMINI, budget)
-                .then(out => { tWrite(); return out; }),
-            (sources.length > 0
-                ? buildSourceDigest(sources, style, GEMINI, budget)
-                : Promise.resolve({})
-            ).then(d => { tDigest(); return d; })
-        ]);
-        console.log(`[Swarm Logger] Phase 2 Complete. Draft generated (${writeOutput.length} chars).`);
+        let compiledDraft = '';
+        const waveTexts = []; // Stores the raw drafted text of each section
+        const sourcesPerSection = Math.ceil(allSources.length / scale.sectored_outlines.length);
 
-        // ── PHASE 2.5: Parallel Style Humanizer & Sibling QA Pass ─────────────────────
-        // We run Humanizer and QA on the plain draft first so citations are NEVER modified by LLM checks [1]
+        for (let i = 0; i < scale.sectored_outlines.length; i++) {
+            const sectionOutline = scale.sectored_outlines[i];
+            
+            // Slice a unique source bucket for this section to force source diversity
+            const sectionSources = allSources.slice(i * sourcesPerSection, (i + 1) * sourcesPerSection);
+            
+            // Sliding Window: feed the text of the immediately preceding section as transition context
+            const previousContext = i > 0 ? waveTexts[i - 1] : '';
+
+            console.log(`[Swarm Logger] Drafting Wave ${i + 1}/${scale.sectored_outlines.length}: "${sectionOutline.heading}"...`);
+            
+            const sectionDraft = await runWrite({
+                task,
+                plan: {
+                    sections: [sectionOutline.heading],
+                    tone: plan.tone || 'Academic and objective',
+                    writing_tips: plan.writing_tips || []
+                },
+                researchSources: sectionSources,
+                uploadedFiles: allFiles,
+                sectionOutline: sectionOutline,
+                previousContext: previousContext
+            }, GEMINI, budget);
+
+            waveTexts.push(sectionDraft);
+            compiledDraft += (compiledDraft ? '\n\n' : '') + sectionDraft;
+        }
+        tWrite();
+        console.log(`[Swarm Logger] Phase 2 Complete. Chained draft generated (${compiledDraft.length} chars).`);
+
+        // ── PHASE 2.5: Parallel Style Humanizer & Sibling QA Pass ───────────────
         console.log('[Swarm Logger] Initiating Phase 2.5: Parallel Humanization & Grammar QA...');
         const tHumanize = startTimer('humanize');
         const tQA = startTimer('qa');
 
         const [humanizeOutput, qaChecks] = await Promise.all([
             enableHumanize
-                ? runHumanize(writeOutput, budget).then(out => { tHumanize(); return out; })
+                ? runHumanize(compiledDraft, budget).then(out => { tHumanize(); return out; })
                 : Promise.resolve(null),
-            (GROQ && writeOutput.length > 1000)
-                ? checkWithGroq(writeOutput, GROQ, budget).then(checks => { tQA(); return checks; })
+            (GROQ && compiledDraft.length > 1000)
+                ? checkWithGroq(compiledDraft, GROQ, budget).then(checks => { tQA(); return checks; })
                 : Promise.resolve([]).then(c => { tQA(); return c; })
         ]);
 
-        // Merge humanize and apply QA corrections onto the clean draft
-        let polishedText = writeOutput;
+        let polishedText = compiledDraft;
         if (enableHumanize && humanizeOutput) {
             polishedText = humanizeOutput;
         }
         if (qaChecks.length > 0) {
             polishedText = applyFixes(polishedText, qaChecks);
         }
+        console.log('[Swarm Logger] Phase 2.5 Complete.');
 
-        // ── PHASE 3: Cite (reads the polished, grammatically correct draft) ────
-        console.log('[Swarm Logger] Initiating Phase 3: Citation Insertion...');
+        // ── PHASE 3: Parallel Sectored Citation Ingestion ────────────────────────
+        let finalEssayText = polishedText;
+        let bibliographyHtml = '';
+        let bibliographyPlain = '';
+        let citedSourcesList = [];
         const tCite = startTimer('cite');
 
-        const citeResult = enableCite
-            ? await runCite({
-                task,
-                previousOutput: polishedText,
-                researchSources: sources,
-                citationStyle: style,
-                citationType: options.citationType || 'in-text',
-                enableQuotes,
-                preWarmedDigest: digest
-            }, GEMINI, GROQ, budget)
-            : null;
+        if (enableCite && allSources.length > 0) {
+            console.log('[Swarm Logger] Initiating Phase 3: Parallel Sectored Citation Ingestion...');
+            
+            // To prevent citation clustering, we cite each drafted section separately in parallel
+            const citedSections = await Promise.all(waveTexts.map(async (sectionText, idx) => {
+                const sectionSources = allSources.slice(idx * sourcesPerSection, (idx + 1) * sourcesPerSection);
+                if (sectionSources.length === 0) return { text: sectionText, sources: [] };
+
+                const citeRes = await runCite({
+                    task,
+                    previousOutput: sectionText,
+                    researchSources: sectionSources,
+                    citationStyle: style,
+                    citationType: options.citationType || 'in-text',
+                    enableQuotes,
+                    preWarmedDigest: null
+                }, GEMINI, GROQ, budget);
+
+                return {
+                    text: citeRes.text,
+                    sources: citeRes.citedSources || sectionSources,
+                    bibHtml: citeRes.bibliographyHtml,
+                    bibPlain: citeRes.bibliographyPlain
+                };
+            }));
+
+            // Re-compile cited essay
+            finalEssayText = citedSections.map(s => s.text).join('\n\n');
+
+            // Gather all cited sources
+            const citedSeen = new Set();
+            citedSections.forEach(s => {
+                if (s.sources) {
+                    s.sources.forEach(src => {
+                        const key = src.doi || src.url;
+                        if (key && !citedSeen.has(key)) {
+                            citedSeen.add(key);
+                            citedSourcesList.push(src);
+                        }
+                    });
+                }
+            });
+
+            // Compile a single master bibliography alphabetically [3]
+            const masterBib = buildBibliographyHTML(citedSourcesList, style, options.citationType === 'footnotes' ? 'footnotes' : 'bibliography');
+            bibliographyHtml = masterBib.html;
+            bibliographyPlain = masterBib.plain;
+            console.log(`[Swarm Logger] Citations complete. ${citedSourcesList.length} sources cited.`);
+        } else {
+            console.log('[Swarm Logger] Citation disabled or no sources found, skipping.');
+        }
         tCite();
 
-        let citedText = citeResult ? citeResult.text : polishedText;
-        let quotesHandledInCite = citeResult ? !!citeResult.quotesHandledInCite : false;
-        let sourceDigest = citeResult?.sourceDigest || digest;
-
-        // ── PHASE 3.5: Quotes (depends on cited text + cite digest) ─────────
-        let finalText = citedText;
-        if (enableQuotes) {
+        // ── PHASE 3.5: Quotes (depends on merged text + cite digest) ─────────
+        let finalText = finalEssayText;
+        if (enableQuotes && citedSourcesList.length > 0) {
             console.log('[Swarm Logger] Initiating Phase 3.5: Verbatim Quote Insertion...');
             const tQuotes = startTimer('quotes');
+            
+            // Re-warm digest using the cited sources list
+            const digest = await buildSourceDigest(citedSourcesList, style, GEMINI, budget);
+
             const quotesResult = await runQuotes({
                 task,
-                previousOutput: citedText,
-                researchSources: sources,
+                previousOutput: finalEssayText,
+                researchSources: citedSourcesList,
                 citationStyle: style,
-                quotesHandledInCite,
-                sourceDigest
+                quotesHandledInCite: false,
+                sourceDigest: digest
             }, GEMINI, GROQ, budget);
             finalText = quotesResult.text;
             tQuotes();
@@ -181,7 +272,7 @@ async function runSwarm(req, res) {
                 task,
                 rubric: context.rubric,
                 previousOutput: finalText,
-                researchSources: sources,
+                researchSources: citedSourcesList.length ? citedSourcesList : allSources,
                 citationStyle: style,
                 citationType: options.citationType,
                 enableCite,
@@ -190,11 +281,6 @@ async function runSwarm(req, res) {
             : null;
         tGrade();
         console.log('[Swarm Logger] Swarm Execution Complete.');
-
-        // ── Bibliography ───────────────────────────────────────────────────────
-        const bib = enableCite
-            ? buildBibliographyHTML(sources, style, options.citationType === 'footnotes' ? 'footnotes' : 'bibliography')
-            : { html: '', plain: '' };
 
         // Bulletproof final plain-text clean sweep
         const cleanOutputText = finalText
@@ -210,9 +296,9 @@ async function runSwarm(req, res) {
             success: true,
             output: cleanOutputText,
             outputHtml: buildEssayHTML(cleanOutputText),
-            bibliographyHtml: citeResult?.bibliographyHtml || bib.html,
-            bibliographyPlain: citeResult?.bibliographyPlain || bib.plain,
-            sources: citeResult?.citedSources || sources, // Full synchronization
+            bibliographyHtml: bibliographyHtml,
+            bibliographyPlain: bibliographyPlain,
+            sources: citedSourcesList.length ? citedSourcesList : allSources, // Full synchronization
             grade: gradeOutput,
             plan,
             timings,
