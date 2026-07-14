@@ -303,8 +303,17 @@ Return ONLY the raw JSON object, no markdown.`;
         const isEducationEssay = (safeBrief.discipline || '').toLowerCase().includes('education') || 
                                  (safeBrief.discipline || '').toLowerCase().includes('pedagogy');
 
-        // STRENGTHENED TOPIC-RELEVANCE FILTER KEYWORDS
-        const relevantKeywords = ['gene', 'edit', 'crispr', 'reproduc', 'embryo', 'baby', 'clon', 'genet', 'biotech', 'designer', 'dna', 'bioethic', 'medical', 'mutagenesis', 'surrogacy'];
+        // DYNAMIC TOPIC-RELEVANCE EXTRACTION: Extracts focus keywords directly from the brief [1]
+        const briefTerms = [
+            ...(safeBrief.must_engage_with || []),
+            ...(safeBrief.queries || []),
+            ...(safeBrief.philosophical_positions || []),
+            safeBrief.discipline || '',
+            safeBrief.core_thesis || ''
+        ].join(' ').toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+
+        // Filter out highly generic, academic, and linguistic stop words
+        const topicKeywords = [...new Set(briefTerms)].filter(word => !GENERIC_WORDS.has(word));
 
         return results
             .filter(r => {
@@ -313,11 +322,13 @@ Return ONLY the raw JSON object, no markdown.`;
                 const lowerTitle = r.title.toLowerCase();
                 const lowerSnippet = (r.snippet || '').toLowerCase();
 
-                // Instantly block completely irrelevant entries (like ChatGPT / HR) from polluting context [1]
-                const isRelevant = relevantKeywords.some(kw => lowerTitle.includes(kw) || lowerSnippet.includes(kw));
-                if (!isRelevant) {
-                    console.log(`[Search] Excluding irrelevant result: "${r.title}"`);
-                    return false;
+                // STRENGTHENED RELEVANCE CHECK: Ensure the paper matches at least one topic-specific keyword [1]
+                if (topicKeywords.length > 0) {
+                    const isRelevant = topicKeywords.some(kw => lowerTitle.includes(kw) || lowerSnippet.includes(kw));
+                    if (!isRelevant) {
+                        console.log(`[Search] Excluding irrelevant paper from query scope: "${r.title}"`);
+                        return false;
+                    }
                 }
 
                 if (BANNED_EXTENSIONS.some(ext => lowerUrl.includes(ext))) return false;
@@ -379,7 +390,6 @@ Return ONLY the raw JSON object, no markdown.`;
             .sort((a, b) => b._score - a._score)
             .slice(0, 20);
     },
-
 
     // ════════════════════════════════════════════════════════════════════════
     // MODULE 7: STAGE 5 - AI RELEVANCE FILTERING

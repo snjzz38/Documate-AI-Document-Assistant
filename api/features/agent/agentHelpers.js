@@ -118,7 +118,15 @@ export function buildBibliographyHTML(sources, style, formatType = 'bibliography
 // ==========================================================================
 export function splitSentences(text) {
     if (!text) return [];
-    return text.match(/[^.!?]+[!=?.]+(?=\s|$)/g) || [text];
+    
+    // Temporarily mask common academic abbreviations to prevent splitting citations/lists in half [1]
+    const masked = text
+        .replace(/\b(et\s+al|e\.g|i\.e|vol|no|pp|vs|dr|prof)\./gi, '$1_DOT_');
+        
+    const sentences = masked.match(/[^.!?]+[!=?.]+(?=\s|$)/g) || [masked];
+    
+    // Restore the periods to the split sentences
+    return sentences.map(s => s.replace(/_DOT_/g, '.'));
 }
 
 export function extractTopic(text) {
@@ -133,7 +141,7 @@ export function cleanText(text) {
         .replace(/\*\*+/g, '')       // Strips all bold markdown (**)
         .replace(/#+\s*/g, '')        // Strips all header hashtag markdown (###, ##)
         .replace(/\|/g, '')           // Strips raw table pipes completely (|)
-        .replace(/^\s*[-*•]\s+/gm, '') // Strips asterisks, hyphens, and bullet symbols at the start of lines
+        .replace(/^\s*[-*•]\s+/gm, '') // Strips bullet points at the start of lines
         .replace(/\s+/g, ' ')
         .replace(/ \./g, '.')
         .replace(/ ,/g, ',')
@@ -157,15 +165,19 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
     const humanSentences = splitterFn(humanText);
     const citedSentences = splitterFn(citedText);
     
+    // Realign sentences cleanly without structural off-set corruption [1]
     return citedSentences.map((cited, index) => {
         const human = humanSentences[index];
         if (!human) return cited;
         
-        const citations = cited.match(/\[\d+\]|[\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+/g);
+        // Extract parenthetical citations as well as bracketed/superscript annotations [1]
+        const citations = cited.match(/\s*\([^)]+\d{4}[^)]*\)|\s*\[\d+\]|[\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+/g);
         if (citations) {
-            return human + ' ' + citations.join('');
+            // Append the extracted citation safely to the humanized sentence
+            return human.trim().replace(/\.+$/, '') + ' ' + citations.join('').trim() + '.';
         }
-        return human;}).join(' ');
+        return human;
+    }).join(' ');
 }
 
 // ==========================================================================
