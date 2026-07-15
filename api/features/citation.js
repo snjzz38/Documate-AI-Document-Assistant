@@ -278,7 +278,6 @@ function formatBib(source, style) {
 function sortSourcesAlphabetically(srcList) {
     if (!srcList || !Array.isArray(srcList)) return [];
     return srcList.sort((a, b) => {
-        // Resolve primary sorting name for Source A
         let nameA = '';
         if (a.meta?.isDOI && a.meta?.authors?.length > 0) {
             nameA = a.meta.authors[0].family;
@@ -289,7 +288,6 @@ function sortSourcesAlphabetically(srcList) {
             nameA = DoiAPI.cleanSiteName(a.meta?.siteName || a.title);
         }
 
-        // Resolve primary sorting name for Source B
         let nameB = '';
         if (b.meta?.isDOI && b.meta?.authors?.length > 0) {
             nameB = b.meta.authors[0].family;
@@ -304,7 +302,7 @@ function sortSourcesAlphabetically(srcList) {
     });
 }
 
-function processInsertions(text, insertions, sources, style, outputType) {
+function processInsertions(text, insertions, sources, style, outputType, isAgent = false) {
     let result = text;
     const used = new Set();
     const footnotes = [];
@@ -355,10 +353,10 @@ function processInsertions(text, insertions, sources, style, outputType) {
     const byPos = new Map();
     valid.forEach(v => { if (!byPos.has(v.pos)) byPos.set(v.pos, v.sourceId); });
 
-    const positions = [...byPos.keys()].sort((a, b) => a - b);
+    const sortedPositions = [...byPos.keys()].sort((a, b) => a - b);
     const posData = new Map();
 
-    positions.forEach(pos => {
+    sortedPositions.forEach(pos => {
         const src = sources.find(s => s.id === byPos.get(pos));
         if (!src) return;
         used.add(src.id);
@@ -372,7 +370,8 @@ function processInsertions(text, insertions, sources, style, outputType) {
 
     const toSuper = n => n.toString().split('').map(d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]).join('');
     
-    [...positions].reverse().forEach(pos => {
+    // Process positions in reverse order to maintain accurate character indexing
+    [...sortedPositions].reverse().forEach(pos => {
         const d = posData.get(pos);
         if (!d) return;
 
@@ -386,16 +385,19 @@ function processInsertions(text, insertions, sources, style, outputType) {
         result = result.slice(0, adjustedPos) + insert + result.slice(adjustedPos);
     });
 
+    // If requested by the Swarm Agent, bypass the appended references footer (kept clean for UI textboxes) [1]
+    if (isAgent) {
+        return result;
+    }
+
+    // Standalone Citation Machine: Generate and append the standard academic footnotes/references footer
     let footer = '\n\n';
     if (outputType === 'footnotes') {
         footer += '### Footnotes\n\n';
-        // Note: Footnote lists print in chronological appearance sequence to align with superscript numbers.
         footnotes.forEach(f => footer += `${f.num}. ${f.cit}\n\n`);
     } else {
         footer += '### References\n\n';
         const usedSources = sources.filter(s => used.has(s.id));
-        
-        // Alphabetize the References list cleanly by author family name
         sortSourcesAlphabetically(usedSources);
         usedSources.forEach(s => { footer += DoiAPI.formatBib(s, style) + '\n\n'; });
     }
@@ -403,8 +405,6 @@ function processInsertions(text, insertions, sources, style, outputType) {
     const unused = sources.filter(s => !used.has(s.id));
     if (unused.length) {
         footer += '\n### Further Reading\n\n';
-        
-        // Alphabetize the Further Reading list cleanly by author family name
         sortSourcesAlphabetically(unused);
         unused.forEach(s => footer += DoiAPI.formatBib(s, style) + '\n\n');
     }
@@ -452,15 +452,15 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     try {
-        const { context, style = 'Chicago', outputType = 'in-text', apiKey, googleKey, preLoadedSources } = req.body;
+        const { context, style = 'Chicago', outputType = 'in-text', apiKey, googleKey, preLoadedSources, isAgent = false } = req.body;
         const GROQ = apiKey || process.env.GROQ_API_KEY;
         const GKEY = googleKey || process.env.GOOGLE_SEARCH_API_KEY;
         const GCX = process.env.SEARCH_ENGINE_ID;
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE
-        if (preLoadedSources?.length) {
+        // QUOTES MODE — Now strictly gated by outputType === 'quotes'
+        if (outputType === 'quotes' && preLoadedSources?.length) {
             const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
                     try { return (await ScraperAPI.scrape([s]))[0] || s; } 
@@ -481,33 +481,38 @@ export default async function handler(req, res) {
         }
 
         // SEARCH & SCRAPE
-        console.log('[Citation] Starting search...');
-        
-        // Execute both search pipelines concurrently to balance research without increasing response latency
-        const [academicResults, generalResults] = await Promise.all([
-            OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
-            SearxAPI.search(context, 8) // Fetch up to 8 general web sources
-        ]);
+        let sources = [];
+        let raw = null;
 
-        const raw = [...academicResults, ...generalResults];
-        console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
-        
-        if (!raw || raw.length === 0) {
-            return res.status(200).json({ 
-                success: false, 
-                error: 'No search results. The search service may be temporarily unavailable.',
-                sources: [], text: '', citations: [], stats: null, count: 0
-            });
+        // If pre-loaded sources are passed, bypass search and re-use them immediately
+        if (preLoadedSources && Array.isArray(preLoadedSources) && preLoadedSources.length > 0) {
+            console.log('[Citation] Re-using pre-loaded research sources...');
+            sources = preLoadedSources;
+        } else {
+            console.log('[Citation] Starting on-the-fly search...');
+            const [academicResults, generalResults] = await Promise.all([
+                OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
+                SearxAPI.search(context, 8)
+            ]);
+            raw = [...academicResults, ...generalResults];
+            console.log(`[Citation] Search returned: ${academicResults.length} academic and ${generalResults.length} general results.`);
+            
+            if (!raw || raw.length === 0) {
+                return res.status(200).json({ 
+                    success: false, 
+                    error: 'No search results. The search service may be temporarily unavailable.',
+                    sources: [], text: '', citations: [], stats: null, count: 0
+                });
+            }
+            sources = await ScraperAPI.scrape(raw);
+            console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
         }
-        
-        const sources = await ScraperAPI.scrape(raw);
-        console.log('[Citation] Scraped:', sources?.length || 0, 'sources');
 
         // BIBLIOGRAPHY MODE
         if (outputType === 'bibliography') {
             const seen = new Set();
             const uniqueSources = sources.filter(s => {
-                const key = s.doi || s.link;
+                const key = s.doi || s.link || s.url;
                 if (seen.has(key)) return false;
                 seen.add(key);
                 return true;
@@ -517,10 +522,10 @@ export default async function handler(req, res) {
             sortSourcesAlphabetically(uniqueSources);
             
             const bibs = uniqueSources.map(s => DoiAPI.formatBib(s, style)).join('\n\n');
-            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: null, count: uniqueSources.length });
+            return res.status(200).json({ success: true, sources: uniqueSources, text: bibs, citations: uniqueSources, stats: raw?.stats || null, count: uniqueSources.length });
         }
 
-        // CITATION MODE
+        // CITATION MODE — Passes down the isAgent boolean flag cleanly
         const prompt = buildPrompt(context, sources);
         const response = await GroqAPI.chat([{ role: 'user', content: prompt }], GROQ, true);
         
@@ -532,8 +537,34 @@ export default async function handler(req, res) {
             console.error('[Citation] JSON parse error:', e.message);
         }
 
-        const result = processInsertions(context, insertions, sources, style, outputType);
-        return res.status(200).json({ success: true, sources, text: result, citations: sources, stats: null, count: sources.length });
+        const result = processInsertions(context, insertions, sources, style, outputType, isAgent);
+
+        // Generate matching bibliography HTML/Plain payload for the secondary textbox
+        const seen = new Set();
+        const uniqueSources = sources.filter(s => {
+            const key = s.doi || s.link || s.url;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        sortSourcesAlphabetically(uniqueSources);
+        const plainTexts = uniqueSources.map(s => DoiAPI.formatBib(s, style));
+        const bibPlain = plainTexts.join('\n\n');
+        const bibHtml = `<div class="bibliography-section" style="margin-top:20px;font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;">
+            <h3 style="text-align:center;margin-bottom:20px;">${outputType === 'footnotes' ? 'Footnotes' : 'Bibliography'}</h3>
+            ${plainTexts.map(text => `<p style="margin:0 0 12px 36px;text-indent:-36px;padding-left:36px;">${text}</p>`).join('\n')}
+        </div>`;
+
+        return res.status(200).json({ 
+            success: true, 
+            sources, 
+            text: result, 
+            citations: sources, 
+            bibliographyHtml: bibHtml, 
+            bibliographyPlain: bibPlain,
+            stats: raw?.stats || null, 
+            count: sources.length 
+        });
 
     } catch (error) {
         console.error('[Citation] Error:', error);
