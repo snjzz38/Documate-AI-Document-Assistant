@@ -187,53 +187,60 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
 // MODULE 5: Source Digest Warm-Up
 // ==========================================================================
 export async function buildSourceDigest(sources, style, geminiKey, budget) {
-    console.log('[Agent Helper] Compiling source digest & extracting direct quotes sequentially...');
+    console.log('[Agent Helper] Compiling source digest & extracting direct quotes via unified batch request...');
     if (!sources || !sources.length) return {};
 
     const digest = {};
-    const targetSources = sources.slice(0, 5); // Conserve API budget by targeting top 5 sources
+    const targetSources = sources.slice(0, 5); // Target top 5 sources to conserve context window
 
-    for (let idx = 0; idx < targetSources.length; idx++) {
-        const s = targetSources[idx];
-        const key = idx + 1;
-        
-        // Key fix: If the scraper ran, s.text contains the full 1,500-character webpage body
-        const textToAnalyze = s.text || s.snippet || '';
-        
-        let quotes = [];
-        if (textToAnalyze.length > 100 && geminiKey) {
-            try {
-                budget.spend('extract-quotes-digest');
-                const prompt = `Extract exactly 2-3 short, highly impactful verbatim direct quotes (1-2 sentences each) representing key data, findings, or conclusions from this academic text. Do NOT modify the wording.
-
-TEXT:
-"${textToAnalyze.substring(0, 1500)}"
-
-Return a raw JSON array of strings only: ["quote 1", "quote 2"]`;
-                
-                const res = await GeminiAPI.chat(prompt, geminiKey, 0.2);
-                const jsonMatch = res.match(/\[[\s\S]*\]/);
-                if (jsonMatch) {
-                    quotes = JSON.parse(jsonMatch[0]).filter(q => typeof q === 'string' && q.length > 10);
-                }
-            } catch (e) {
-                console.warn(`[Agent Helper] Quote extraction failed for source ${key}:`, e.message);
-            }
-        }
-
-        digest[key] = {
+    // Initialize baseline digest properties
+    targetSources.forEach((s, idx) => {
+        digest[idx + 1] = {
             title: s.title,
             link: s.link || s.url,
             citation: DoiAPI.formatInText(s, style),
             inTextKey: DoiAPI.getShortAuthorName(s),
             mainIdea: s.title,
-            quotes: quotes
+            quotes: [] // Default empty
         };
+    });
 
-        // Defensive delay to prevent Gemini API rate-limiting / concurrency caps (HTTP 429) [1.2.6]
-        if (idx < targetSources.length - 1) {
-            await new Promise(r => setTimeout(r, 400));
+    if (!geminiKey) return digest;
+
+    // Compile all target sources into a single batch payload to run in EXACTLY 1 API call
+    const sourceSummaries = targetSources.map((s, idx) => {
+        const textToAnalyze = s.text || s.snippet || '';
+        return `[Source ID: ${idx + 1}] Title: "${s.title}"\nContent Preview:\n"${textToAnalyze.substring(0, 1500)}"`;
+    }).join('\n\n---\n\n');
+
+    const prompt = `You are an academic research assistant. Extract exactly 2-3 short, highly impactful verbatim direct quotes (1-2 sentences each) representing key findings or data from each of the following sources. Do NOT modify the wording of the quotes.
+
+SOURCES:
+${sourceSummaries}
+
+Return a raw JSON object only mapping Source IDs (strings) to their array of extracted quotes:
+{
+  "1": ["quote A", "quote B"],
+  "2": ["quote C", "quote D"]
+}`;
+
+    try {
+        budget.spend('extract-quotes-batch-digest');
+        const res = await GeminiAPI.chat(prompt, geminiKey, 0.2);
+        const jsonMatch = res.match(/\{[\s\S]*\}/);
+        
+        if (jsonMatch) {
+            const parsedQuotes = JSON.parse(jsonMatch[0]);
+            Object.entries(parsedQuotes).forEach(([idStr, quoteList]) => {
+                const idx = parseInt(idStr);
+                if (digest[idx] && Array.isArray(quoteList)) {
+                    // Filter out non-string artifacts
+                    digest[idx].quotes = quoteList.filter(q => typeof q === 'string' && q.length > 10);
+                }
+            });
         }
+    } catch (e) {
+        console.warn('[Agent Helper] Unified batch quote extraction failed, proceeding with empty fallbacks:', e.message);
     }
 
     return digest;

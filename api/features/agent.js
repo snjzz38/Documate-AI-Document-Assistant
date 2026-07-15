@@ -84,12 +84,20 @@ async function runSwarm(req, res) {
         const { topic, scale_profile, plan } = await runPlan({ task }, GROQ, budget);
         tPlan();
 
-        const scale = scale_profile || {
-            tier: 'standard',
-            total_target_words: 1000,
-            total_target_sources: 4,
-            sectored_outlines: [{ id: 1, heading: "Essay Content", target_words: 1000, search_query: topic }]
-        };
+        // STRICT CONTEXT VALIDATOR: Guarantee scale.sectored_outlines is a valid array regardless of LLM structural variance [1]
+        const scale = scale_profile && Array.isArray(scale_profile.sectored_outlines)
+            ? scale_profile
+            : {
+                tier: 'standard',
+                total_target_words: 1000,
+                total_target_sources: 4,
+                sectored_outlines: (plan?.sections || ["Introduction", "Analysis", "Conclusion"]).map((h, i) => ({
+                    id: i + 1,
+                    heading: h,
+                    target_words: 400,
+                    search_query: topic
+                }))
+            };
 
         console.log(`[Swarm Logger] Planning Complete. Tier: ${scale.tier.toUpperCase()}`);
         console.log('[Swarm Logger] Outline Sections:', plan.sections);
@@ -120,7 +128,7 @@ async function runSwarm(req, res) {
             });
         });
 
-        // CRITICAL UPLOAD DEPTH FIX: Scrape the top 8 sources to extract their full text (essential for quotes & writing depth) [1]
+        // Scrape the top 8 sources to extract their full text (essential for quotes & writing depth) [1]
         console.log('[Swarm Logger] Scraping top 8 sources for full text extraction...');
         const topSources = allSources.slice(0, 8);
         const scrapedSources = await ScraperAPI.scrape(topSources);
