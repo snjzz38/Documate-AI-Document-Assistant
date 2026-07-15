@@ -71,14 +71,14 @@ export const ScraperAPI = {
         const url = source.link || source.url;
         if (!url) {
             console.warn('[Scraper] Skipping HTML scrape: No URL provided.');
-            return this._fallback(source, index);
+            return ScraperAPI._fallback(source, index);
         }
 
         if (url.toLowerCase().endsWith('.pdf') || 
             url.includes('/pdf/') ||
             url.includes('pdfs.semanticscholar.org')) {
             console.log('[Scraper] Skipping PDF:', url);
-            return this._fallback(source, index);
+            return ScraperAPI._fallback(source, index);
         }
         
         const controller = new AbortController();
@@ -99,7 +99,7 @@ export const ScraperAPI = {
             const contentType = res.headers.get('content-type') || '';
             if (contentType.includes('pdf') || contentType.includes('octet-stream')) {
                 console.log('[Scraper] Skipping binary content:', url);
-                return this._fallback(source, index);
+                return ScraperAPI._fallback(source, index);
             }
             
             const html = await res.text();
@@ -107,11 +107,11 @@ export const ScraperAPI = {
             // Binary signatures check
             if (html.startsWith('%PDF') || html.substring(0, 100).includes('\x00')) {
                 console.log('[Scraper] Detected binary content:', url);
-                return this._fallback(source, index);
+                return ScraperAPI._fallback(source, index);
             }
             
-            // Scan HTML context for hidden DOIs
-            const doiInHtml = this._extractDoiFromHtml(html);
+            // Scan HTML context for hidden DOIs (Static namespace bindings)
+            const doiInHtml = ScraperAPI._extractDoiFromHtml(html);
             if (doiInHtml) {
                 const doiData = await DoiAPI.resolve(doiInHtml);
                 if (doiData) {
@@ -120,7 +120,7 @@ export const ScraperAPI = {
                         ...source,
                         id: index + 1,
                         title: doiData.title,
-                        content: doiData.abstract || this._extractContent(html) || source.snippet || '',
+                        content: doiData.abstract || ScraperAPI._extractContent(html) || source.snippet || '',
                         doi: doiData.doi,
                         meta: {
                             authors: doiData.authors,
@@ -136,8 +136,8 @@ export const ScraperAPI = {
             return {
                 ...source,
                 id: index + 1,
-                content: this._extractContent(html) || source.snippet || '',
-                meta: this._extractMeta(html, url)
+                content: ScraperAPI._extractContent(html) || source.snippet || '',
+                meta: ScraperAPI._extractMeta(html, url)
             };
         } catch (e) {
             clearTimeout(timeout);

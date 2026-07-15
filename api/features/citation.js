@@ -462,15 +462,15 @@ export default async function handler(req, res) {
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE — Now strictly gated by outputType === 'quotes' with dynamic search fallback [1]
+        // QUOTES MODE — Strictly gated by outputType === 'quotes' with automatic search fallback [1]
         if (outputType === 'quotes') {
             let targetSources = [];
             
             if (preLoadedSources && Array.isArray(preLoadedSources) && preLoadedSources.length > 0) {
                 targetSources = preLoadedSources;
             } else {
-                // If no preloaded sources are passed, perform a live targeted search based on the user's argument context [1]
-                console.log('[Citation] No pre-loaded sources for quotes. Executing search...');
+                // Fetch relevant academic & general web sources based on the user's argument [1]
+                console.log('[Citation] Bypassing pre-loaded sources: executing high-alignment search...');
                 const [academicResults, generalResults] = await Promise.all([
                     OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
                     SearxAPI.search(context, 5)
@@ -480,6 +480,7 @@ export default async function handler(req, res) {
             }
 
             const sourcesWithContent = await Promise.all(targetSources.map(async (s) => {
+                const url = s.link || s.url;
                 if (!s.content || s.content.length < 200) {
                     try { return (await ScraperAPI.scrape([s]))[0] || s; } 
                     catch { return s; }
@@ -492,7 +493,7 @@ export default async function handler(req, res) {
                 return `[${i + 1}] ${s.title}\nURL: ${s.link || s.url}\nCONTENT:\n${content}`;
             }).join('\n\n---\n\n');
 
-            // Upgraded prompt to extract quotes strictly matching and supporting the user's argument [1]
+            // Formulate high-relevance prompt to align extracted quotes with the user's thesis [1]
             const prompt = `You are an academic researcher. Extract exactly 1-2 powerful, direct verbatim quotes from each source's CONTENT that directly align with and support the user's core argument or topic.
 
 USER'S CONTEXT / ARGUMENT:
