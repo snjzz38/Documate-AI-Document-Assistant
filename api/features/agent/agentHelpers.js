@@ -187,14 +187,17 @@ export function mergeHumanizeIntoCited(humanText, citedText, splitterFn = splitS
 // MODULE 5: Source Digest Warm-Up
 // ==========================================================================
 export async function buildSourceDigest(sources, style, geminiKey, budget) {
-    console.log('[Agent Helper] Compiling source digest & extracting direct quotes...');
+    console.log('[Agent Helper] Compiling source digest & extracting direct quotes sequentially...');
     if (!sources || !sources.length) return {};
 
     const digest = {};
     const targetSources = sources.slice(0, 5); // Conserve API budget by targeting top 5 sources
 
-    await Promise.all(targetSources.map(async (s, idx) => {
+    for (let idx = 0; idx < targetSources.length; idx++) {
+        const s = targetSources[idx];
         const key = idx + 1;
+        
+        // Key fix: If the scraper ran, s.text contains the full 1,500-character webpage body
         const textToAnalyze = s.text || s.snippet || '';
         
         let quotes = [];
@@ -226,7 +229,12 @@ Return a raw JSON array of strings only: ["quote 1", "quote 2"]`;
             mainIdea: s.title,
             quotes: quotes
         };
-    }));
+
+        // Defensive delay to prevent Gemini API rate-limiting / concurrency caps (HTTP 429) [1.2.6]
+        if (idx < targetSources.length - 1) {
+            await new Promise(r => setTimeout(r, 400));
+        }
+    }
 
     return digest;
 }

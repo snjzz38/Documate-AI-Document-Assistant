@@ -74,8 +74,8 @@ async function runSwarm(req, res) {
     };
 
     try {
-        // ── PHASE 1: Precursor Content, Topic, and Scale Planning ──────────────
-        console.log('[Swarm Logger] Initiating Phase 1: High-Horizon Planning...');
+        // ── PHASE 1: Precursor Content & Topic Planning ────────────────────────
+        console.log('[Swarm Logger] Initiating Phase 1: Topic Planning...');
         const tPlan = startTimer('plan');
         const { topic, scale_profile, plan } = await runPlan({ task }, GROQ, budget);
         tPlan();
@@ -91,13 +91,12 @@ async function runSwarm(req, res) {
         console.log('[Swarm Logger] Outline Sections:', plan.sections);
         console.log('[Swarm Logger] Custom Writing Quality Guidelines:', plan.writing_tips);
 
-        // ── PHASE 1.5: Multi-Wave Academic Research ────────────────────────────
+        // ── PHASE 1.5: Research & Scrape (Concurrently) ────────────────────────
         console.log('[Swarm Logger] Initiating Phase 1.5: Sectored Academic Research...');
         const tResearch = startTimer('research');
         
-        // If high-horizon, we run targeted research waves using section-specific queries [1]
         const targetQueries = scale.tier === 'high_horizon'
-            ? scale.sectored_outlines.map(o => o.search_query).filter(Boolean).slice(0, 5) // Cap queries
+            ? scale.sectored_outlines.map(o => o.search_query).filter(Boolean).slice(0, 5)
             : [topic];
 
         const researchOutputs = await Promise.all(targetQueries.map(q =>
@@ -116,8 +115,17 @@ async function runSwarm(req, res) {
                 }
             });
         });
+
+        // CRITICAL UPLOAD DEPTH FIX: Scrape the top 8 sources to extract their full text (essential for quotes & writing depth) [1]
+        console.log('[Swarm Logger] Scraping top 8 sources for full text extraction...');
+        const topSources = allSources.slice(0, 8);
+        const scrapedSources = await ScraperAPI.scrape(topSources);
+        
+        // Combine scraped sources with the remaining unscraped fallback sources
+        const activeSources = [...scrapedSources, ...allSources.slice(8)];
+
         tResearch();
-        console.log(`[Swarm Logger] Research Complete. ${allSources.length} unique sources resolved.`);
+        console.log(`[Swarm Logger] Research & Scraping Complete. ${activeSources.length} sources resolved.`);
 
         // ── PHASE 2: Sequential Chained Writing (Sliding Context Window) ───────
         console.log('[Swarm Logger] Initiating Phase 2: Sequential Chained Draft Generation...');
@@ -126,13 +134,13 @@ async function runSwarm(req, res) {
 
         let compiledDraft = '';
         const waveTexts = []; // Stores the raw drafted text of each section
-        const sourcesPerSection = Math.ceil(allSources.length / scale.sectored_outlines.length);
+        const sourcesPerSection = Math.ceil(activeSources.length / scale.sectored_outlines.length);
 
         for (let i = 0; i < scale.sectored_outlines.length; i++) {
             const sectionOutline = scale.sectored_outlines[i];
             
             // Slice a unique source bucket for this section to force source diversity
-            const sectionSources = allSources.slice(i * sourcesPerSection, (i + 1) * sourcesPerSection);
+            const sectionSources = activeSources.slice(i * sourcesPerSection, (i + 1) * sourcesPerSection);
             
             // Sliding Window: feed the text of the immediately preceding section as transition context
             const previousContext = i > 0 ? waveTexts[i - 1] : '';
@@ -188,12 +196,12 @@ async function runSwarm(req, res) {
         let citedSourcesList = [];
         const tCite = startTimer('cite');
 
-        if (enableCite && allSources.length > 0) {
+        if (enableCite && activeSources.length > 0) {
             console.log('[Swarm Logger] Initiating Phase 3: Parallel Sectored Citation Ingestion...');
             
             // To prevent citation clustering, we cite each drafted section separately in parallel
             const citedSections = await Promise.all(waveTexts.map(async (sectionText, idx) => {
-                const sectionSources = allSources.slice(idx * sourcesPerSection, (idx + 1) * sourcesPerSection);
+                const sectionSources = activeSources.slice(idx * sourcesPerSection, (idx + 1) * sourcesPerSection);
                 if (sectionSources.length === 0) return { text: sectionText, sources: [] };
 
                 const citeRes = await runCite({
@@ -272,7 +280,7 @@ async function runSwarm(req, res) {
                 task,
                 rubric: context.rubric,
                 previousOutput: finalText,
-                researchSources: citedSourcesList.length ? citedSourcesList : allSources,
+                researchSources: citedSourcesList.length ? citedSourcesList : activeSources,
                 citationStyle: style,
                 citationType: options.citationType,
                 enableCite,
@@ -298,7 +306,7 @@ async function runSwarm(req, res) {
             outputHtml: buildEssayHTML(cleanOutputText),
             bibliographyHtml: bibliographyHtml,
             bibliographyPlain: bibliographyPlain,
-            sources: citedSourcesList.length ? citedSourcesList : allSources, // Full synchronization
+            sources: citedSourcesList.length ? citedSourcesList : activeSources, // Full synchronization
             grade: gradeOutput,
             plan,
             timings,
