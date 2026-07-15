@@ -7,14 +7,18 @@
  * DocuMate Agent Coordinator Endpoint
  * 
  * Table of Contents:
- * 1. Cosmetic Step Planner Module
+ * 1. Dependencies & Step Imports
  * 2. Swarm Executor Core Module
  * 3. Central Router Handler Module
  */
 
+// ==========================================================================
+// MODULE 1: DEPENDENCIES & STEP IMPORTS
+// ==========================================================================
 import { resetModelUsage, getModelUsage } from '../_utils/geminiAPI.js';
+import { ScraperAPI } from '../_utils/scraper.js'; // Added import to resolve ScraperAPI reference error [1]
 
-// Centralized agent helpers imports (routed into the ignored agentHelpers.js sibling)
+// Centralized agent helpers sibling imports (resolves Vercel Require Stack crash)
 import {
     RequestBudget,
     buildSourceDigest,
@@ -27,7 +31,7 @@ import {
 } from './agent/agentHelpers.js';
 
 // Step file imports (local to steps/ directory under features/)
-import { runPlan } from './agent/_steps/plan.js'; // Added precursor plan import
+import { runPlan } from './agent/_steps/plan.js';
 import { runResearch } from './agent/_steps/research.js';
 import { runWrite } from './agent/_steps/write.js';
 import { runHumanize } from './agent/_steps/humanize.js';

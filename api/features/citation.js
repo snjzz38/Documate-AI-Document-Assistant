@@ -462,9 +462,24 @@ export default async function handler(req, res) {
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // QUOTES MODE — Now strictly gated by outputType === 'quotes'
-        if (outputType === 'quotes' && preLoadedSources?.length) {
-            const sourcesWithContent = await Promise.all(preLoadedSources.map(async (s) => {
+        // QUOTES MODE — Now strictly gated by outputType === 'quotes' with dynamic search fallback [1]
+        if (outputType === 'quotes') {
+            let targetSources = [];
+            
+            if (preLoadedSources && Array.isArray(preLoadedSources) && preLoadedSources.length > 0) {
+                targetSources = preLoadedSources;
+            } else {
+                // If no preloaded sources are passed, perform a live targeted search based on the user's argument context [1]
+                console.log('[Citation] No pre-loaded sources for quotes. Executing search...');
+                const [academicResults, generalResults] = await Promise.all([
+                    OpenalexAPI.search(context, GKEY, GCX, GROQ, OPENALEX),
+                    SearxAPI.search(context, 5)
+                ]);
+                const raw = [...academicResults, ...generalResults];
+                targetSources = await ScraperAPI.scrape(raw);
+            }
+
+            const sourcesWithContent = await Promise.all(targetSources.map(async (s) => {
                 if (!s.content || s.content.length < 200) {
                     try { return (await ScraperAPI.scrape([s]))[0] || s; } 
                     catch { return s; }
@@ -474,16 +489,34 @@ export default async function handler(req, res) {
 
             const srcList = sourcesWithContent.map((s, i) => {
                 const content = (s.content || s.snippet || '').substring(0, 1500);
-                return `[${i + 1}] ${s.title}\nURL: ${s.link}\nCONTENT:\n${content}`;
+                return `[${i + 1}] ${s.title}\nURL: ${s.link || s.url}\nCONTENT:\n${content}`;
             }).join('\n\n---\n\n');
 
-            const prompt = `Extract 1-3 verbatim quotes from EACH source.\n\nSOURCES:\n${srcList}\n\nRULES:\n1. Quotes must be EXACT text from CONTENT - word for word\n2. Each quote: 1-4 sentences\n3. Use FULL URL provided\n4. Skip sources with no usable content\n\nFORMAT:\n**[1] Title** - URL\n> "Exact quote..."`;
+            // Upgraded prompt to extract quotes strictly matching and supporting the user's argument [1]
+            const prompt = `You are an academic researcher. Extract exactly 1-2 powerful, direct verbatim quotes from each source's CONTENT that directly align with and support the user's core argument or topic.
+
+USER'S CONTEXT / ARGUMENT:
+"${context || 'general research'}"
+
+SOURCES:
+${srcList}
+
+RULES:
+1. Quotes must be EXACT text from CONTENT - word for word
+2. Select quotes that are highly relevant to and support the USER'S CONTEXT above
+3. Each quote must be 1-4 sentences
+4. Use full URLs provided
+5. Skip sources with no usable content
+
+FORMAT:
+**[1] Title** - URL
+> "Exact quote..."`;
 
             let result = await GroqAPI.chat([{ role: 'user', content: prompt }], GROQ, false);
             return res.status(200).json({ success: true, text: result, citations: sourcesWithContent, stats: null, count: sourcesWithContent.length });
         }
 
-        // SEARCH & SCRAPE
+        // SEARCH & SCRAPE (default Citation mode)
         let sources = [];
         let raw = null;
 
