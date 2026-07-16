@@ -1,4 +1,17 @@
-// api/_utils/groqAPI.js
+// ==========================================================================
+// FILE PATH: api/_utils/groqAPI.js
+// ==========================================================================
+
+/**
+ * api/_utils/groqAPI.js
+ * DocuMate Groq API Model Rotation & Router Utility
+ * 
+ * Table of Contents:
+ * 1. Model Health Ranking Module
+ * 2. Model Usage Tracker Module
+ * 3. Chat Request Router Module
+ */
+
 const GROQ_MODELS = [
     "llama-3.1-8b-instant",
     "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -8,27 +21,22 @@ const GROQ_MODELS = [
     "moonshotai/kimi-k2-instruct-0905"
 ];
 
-/**
- * Shared, persistent model health ranking — same rationale as geminiAPI.js:
- * each call takes a local snapshot of the current ranking so concurrent
- * calls (e.g. under Promise.all) don't read/mutate the same array out from
- * under each other mid-flight. Failures still demote a model for future
- * calls, just not for calls already in progress.
- */
+// ==========================================================================
+// MODULE 1: Model Health Ranking
+// ==========================================================================
 let modelRanking = [...GROQ_MODELS];
-
-function snapshotRanking() {
-    return [...modelRanking];
-}
 
 function demoteModel(model) {
     const idx = modelRanking.indexOf(model);
     if (idx !== -1) {
         modelRanking.splice(idx, 1);
-        modelRanking.push(model);
+        modelRanking.push(model); // Moves the failing/rate-limited model to the end of the priority queue
     }
 }
 
+// ==========================================================================
+// MODULE 2: Model Usage Tracker
+// ==========================================================================
 let modelUsage = {};
 
 export function resetGroqModelUsage() {
@@ -46,15 +54,20 @@ function recordUsage(model, status) {
     modelUsage[model][status]++;
 }
 
+// ==========================================================================
+// MODULE 3: Chat Request Router
+// ==========================================================================
 export const GroqAPI = {
     async chat(messages, apiKey, jsonMode = false) {
         if (!apiKey) throw new Error("Missing Groq API Key");
 
-        const attemptOrder = snapshotRanking();
         let lastError = null;
 
-        for (const model of attemptOrder) {
+        // Loop up to the number of models available, but read from the global ranking dynamically on each retry
+        for (let attempt = 0; attempt < GROQ_MODELS.length; attempt++) {
+            const model = modelRanking[0]; // Always target the current globally active top-ranked model [1]
             const attemptStart = Date.now();
+            
             try {
                 const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                     method: "POST",
@@ -75,8 +88,7 @@ export const GroqAPI = {
                 if (!res.ok) {
                     const errorMsg = data.error?.message || `Status ${res.status}`;
 
-                    // If JSON mode fails (400), retry immediately with text mode —
-                    // same model, not counted as a rotation failure.
+                    // If JSON mode fails (400), retry immediately with text mode (same model)
                     if (res.status === 400 && jsonMode) {
                         return this.chat(messages, apiKey, false);
                     }
@@ -101,6 +113,8 @@ export const GroqAPI = {
                 recordUsage(model, 'failed');
                 console.log(`[GroqAPI] model=${model} elapsed=${elapsed}ms status=failed error=${e.message}`);
                 lastError = e;
+                
+                // Demote the model globally so other in-flight retries instantly pivot away from it [1]
                 demoteModel(model);
             }
         }
