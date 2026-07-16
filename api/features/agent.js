@@ -59,9 +59,12 @@ function buildStepList(options = {}) {
 // MODULE 2: Swarm Executor Core
 // ==========================================================================
 async function runSwarm(req, res) {
-    const { task, context = {}, options = {} } = req.body;
-    const GEMINI = process.env.GEMINI_API_KEY;
-    const GROQ = process.env.GROQ_API_KEY;
+    // Extract custom apiKey (Gemini) and groqKey from request body
+    const { task, context = {}, options = {}, apiKey, groqKey } = req.body;
+    
+    // Dynamic override fallback logic [1]
+    const GEMINI = apiKey || process.env.GEMINI_API_KEY;
+    const GROQ = groqKey || process.env.GROQ_API_KEY;
 
     resetModelUsage();
     const budget = new RequestBudget();
@@ -70,7 +73,7 @@ async function runSwarm(req, res) {
     const enableHumanize = !fast && options.enableHumanize;
     const enableCite = options.enableCite !== false;
     const enableQuotes = !fast && options.enableQuotes;
-
+    
     const timings = {};
     const startTimer = label => {
         const start = Date.now();
