@@ -102,32 +102,32 @@ function mechanicalCommaBreaker(text) {
 // MODULE 3: PROMPT ENGINEERING & EXAMPLES
 // ==========================================================================
 function buildFullTextPrompt(text) {
-    return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Rewrite the following text so it sounds completely natural, organic, and human-written, bypassing all robotic tells [1].
+    return `You are an elite, highly critical academic researcher writing for a prestigious peer-reviewed journal. 
+Rewrite the following text so it reads with absolute, organic human flow and completely shatters all robotic structural symmetries [1].
 
-TURNITIN-EVADING WRITING EXAMPLES:
+TURNITIN-EVADING REWRITING EXAMPLES:
 
-Example 1 (Avoiding predictable transitions & passive voice) [3]:
-- Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
-- Human Academic: "Yet algorithms do not work in a vacuum; they feed directly on human psychology. By serving up a continuous stream of confirmation-bias-friendly content, these platforms lock users into highly insulated ideological silos."
+Example 1 (Avoiding predictable demonstratives & relative clauses) [3]:
+- Robotic AI: "This transformation is characterized by a deepening affective hostility between opposing groups, which threatens the foundational norms of democratic deliberation."
+- Human Academic: "What we are actually seeing is much more corrosive than mere disagreement; it is a visceral, group-based hostility that actively hollows out the common ground required for any democratic debate to function."
 
-Example 2 (Shattering clinical sentence length and structural symmetry) [3]:
-- Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
-- Human Academic: "The results are socially corrosive. When filter bubbles lock out dissenting perspectives, the shared evidentiary basis required for democratic debate simply dissolves under the weight of partisan polarization."
+Example 2 (Shattering parallel clause structures & introducing asymmetry) [3]:
+- Robotic AI: "Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric."
+- Human Academic: "We used to think of political polarization as something that happened only under the dome of parliament. Today, it has leaked directly into our group chats, neighborhoods, and family dinners."
 
-Example 3 (Injecting logical flow & active structures) [3]:
-- Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
-- Human Academic: "This is where policy must step in. Interventions like the EU's Digital Services Act offer a realistic framework to curb this programmatic outrage, shifting corporate incentives away from engagement metrics and back toward public accountability."
+Example 3 (Repositioning citation placeholders dynamically) [3]:
+- Robotic AI: "By tailoring content to individual preferences, these platforms frequently isolate users within ideological echo chambers. [CITE_0]"
+- Human Academic: "This isolation is by design. As platforms optimize solely for user retention, [CITE_0] their algorithms inevitably lock citizens inside highly tailored, self-reinforcing echo chambers."
 
 DRAFT TO REWRITE:
 "${text}"
 
 HUMANIZATION RULES — STRICTLY APPLY:
-1. SYNTACTIC VARIATION WITHOUT FRAGMENTATION: Vary your sentence lengths naturally, but ensure every sentence is a fully developed, coherent academic thought. Absolutely avoid choppy, artificial, or extremely short sentences (minimum 10-12 words per sentence). Do not write blunt 3-word or 4-word sentences, as they disrupt reading flow and mimic robotic automated structures.
-2. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry, administrative passive constructions.
-3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "More-over", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
-4. NATURAL SCHOLARLY CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) sparingly where they improve reading flow, but maintain a prestigious, professional register.
-5. IMMUTABLE PLACEHOLDERS: Absolutely do NOT delete, alter, or translate any bracketed placeholders like "[CITE_0]" or "[CITE_1]". Treat them as normal nouns/words, and leave them exactly in their relative positions inside the rewritten sentences.
+1. LINGUISTIC SHATTER PASS: Completely restructure the sentences. Do not just swap words for synonyms. Reposition clauses, break up clinical symmetries, and write as if explaining these arguments dynamically in a live debate.
+2. NO CHOPPY SENTENCES: Ensure every sentence is a fully developed, coherent academic thought. Avoid choppy or blunt sentences (minimum 10-12 words per sentence). Do not write 3-word or 4-word sentences, as they disrupt reading flow.
+3. FORBIDDEN STARTING PATTERNS: Absolutely do NOT start consecutive sentences with predictable demonstratives (e.g., "This issue...", "These platforms...", "This transformation...", "This interference..."). Instead, vary your opening hooks ("Crucially, the problem...", "What happens in practice...", "Under this model...").
+4. ACTIVE DIRECT REGISTER: Always prioritize active subject-verb-object structures. Forbid dry, administrative passive loops.
+5. IMMUTABLE PLACEHOLDERS: Do NOT delete, alter, or translate any bracketed placeholders like "[CITE_0]" or "[CITE_1]". Treat them as normal nouns/words, and leave them in their relative positions inside your new, humanized sentences.
 6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
@@ -202,6 +202,14 @@ function cleanTextMechanics(text) {
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+
+    // CRITICAL SPACING & PUNCTUATION TIGHTENER FOR ACADEMIC CITATIONS [1]
+    // Pulls terminal punctuation tight to the closing parenthesis of citations (fixes " (Grumbach, 2018) .")
+    result = result.replace(/\s*\)\s*([.,;:!?])/g, ')$1');
+    // Pulls commas tight to citations in mid-clause positions (fixes " (Borgesius et al. 2018) ,")
+    result = result.replace(/\s*\)\s*,/g, '),');
+    // Normalizes spaces before citations
+    result = result.replace(/\s+\(\s*/g, ' (');
 
     // Spacing
     result = result.replace(/,([a-zA-Z])/g, ', $1');
