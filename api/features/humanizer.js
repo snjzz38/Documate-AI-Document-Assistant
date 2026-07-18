@@ -125,9 +125,10 @@ DRAFT TO REWRITE:
 HUMANIZATION RULES — STRICTLY APPLY:
 1. SYNTACTIC VARIATION WITHOUT FRAGMENTATION: Vary your sentence lengths naturally, but ensure every sentence is a fully developed, coherent academic thought. Absolutely avoid choppy, artificial, or extremely short sentences (minimum 10-12 words per sentence). Do not write blunt 3-word or 4-word sentences, as they disrupt reading flow and mimic robotic automated structures.
 2. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry, administrative passive constructions.
-3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
+3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "More-over", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
 4. NATURAL SCHOLARLY CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) sparingly where they improve reading flow, but maintain a prestigious, professional register.
-5. Do NOT include any citations, references, or metadata in your output. Output ONLY the rewritten text itself.`;
+5. IMMUTABLE PLACEHOLDERS: Absolutely do NOT delete, alter, or translate any bracketed placeholders like "[CITE_0]" or "[CITE_1]". Treat them as normal nouns/words, and leave them exactly in their relative positions inside the rewritten sentences.
+6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
 // ==========================================================================
@@ -244,18 +245,36 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        let processed = applyWordSwaps(text);
+        // Step 1: Programmatically isolate and mask all parenthetical citations (retains them 100% intact) [1]
+        const citationsMap = [];
+        let processed = text.replace(/\s*\([^)]+\)/g, (match) => {
+            const placeholder = `[CITE_${citationsMap.length}]`;
+            citationsMap.push({ placeholder, original: match.trim() });
+            return ` ${placeholder} `;
+        });
+        logs.push(`Isolated and masked ${citationsMap.length} parenthetical citations.`);
+
+        // Step 2: Initial word swaps on the masked input
+        processed = applyWordSwaps(processed);
 
         const temperature = 0.72 + Math.random() * 0.25;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Executing streamlined, single-pass humanization
+        // Step 3: Executing streamlined, single-pass humanization
         logs.push('Executing single-pass humanization...');
         let result = await runStyleHumanizer(processed, GEMINI_KEY, temperature);
 
+        // Step 4: Programmatically restore the exact original citations back into their placeholders [1]
+        citationsMap.forEach(item => {
+            result = result.split(item.placeholder).join(' ' + item.original + ' ');
+        });
+        logs.push('Restored all parenthetical citations.');
+
+        // Step 5: Clean mechanics and spacing around the restored citations [1]
         result = postProcess(result);
         logs.push('Applied master post-processing');
 
+        // Calculate final stats and usage
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
