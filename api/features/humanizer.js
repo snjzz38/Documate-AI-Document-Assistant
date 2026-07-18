@@ -102,32 +102,25 @@ function mechanicalCommaBreaker(text) {
 // MODULE 3: PROMPT ENGINEERING & EXAMPLES
 // ==========================================================================
 function buildFullTextPrompt(text) {
-    return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Your goal is to execute a RADICAL, Turnitin-evading structural humanization while maintaining a prestigious, graduate-level academic register [1, 3].
+    return `You are an elite academic writer drafting a paper for a peer-reviewed journal. 
+Your goal is to execute a RADICAL, Turnitin-evading structural humanization. 
+Do not write with high-level, clinically complex "AI synonyms." Use standard, highly fluent, and simplified English vocabulary [1, 3].
 
-PRESTIGIOUS, HIGH-PERPLEXITY ACADEMIC EVASION EXAMPLES:
-
-Example 1 (Varying sentence length and avoiding clinical AI structures):
-- Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
-- Human Academic: "Yet algorithms do not work in a vacuum; they feed directly on our underlying human psychology. By serving up a continuous, highly curated stream of confirmation-bias-friendly content, these platforms quietly lock users into insulated ideological silos."
-
-Example 2 (Shattering structural symmetry & forcing extreme burstiness):
-- Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
-- Human Academic: "The results are socially corrosive. When echo chambers systematically lock out dissenting perspectives, the shared baseline of facts required for democratic debate simply dissolves, leaving citizens stranded in separate, self-validating realities."
-
-Example 3 (Injecting logical flow, active structures, and low-probability transitions):
-- Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
-- Human Academic: "This is where policy must intervene. Structural frameworks like the European Union's Digital Services Act offer a realistic mechanism to regulate this algorithmic amplification, shifting the platform's core incentives away from outrage-driven metrics and back toward public accountability."
+GOLDEN STANDARD REORGANIZATION EXAMPLE (Turnitin Bypass Score: 0%) [3]:
+- Original AI Draft: 
+  "The contemporary democratic landscape is defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]. This shift is characterized by a visceral, affective hostility between opposing groups, which threatens the foundational norms of democratic deliberation and consensus-building [CITE_2]."
+- Professional Humanizer Rewrite:
+  "The modern world presents a paradox, as the digital age, expected to bring information to everyone, has actually fragmented society’s discourse. Political polarization, once confined to parliaments, has invaded the streets of democracies. Societies are no longer united by shared values, with social media fueling unhealthy and unproductive divisions of the public into separate ideological camps [CITE_2]. Such a rift is dangerous to the extent that democratic decision-making processes and their outcomes may be compromised. To speak of social media’s impact on politics is to speak of its direct influence on citizens [CITE_0]. Users of such platforms are not empowered to shape opinions freely because political decisions are subject to the platforms’ rules. In other words, social media companies exercise a certain level of control over their clients’ choices, which should concern everyone [CITE_1]."
 
 DRAFT TO REWRITE:
 "${text}"
 
 HUMANIZATION RULES — STRONGLY ENFORCED FOR AI DETECTOR EVASION:
-1. EXTREME BURSTINESS VARIANCE: Real human scholars write with highly unpredictable, varied sentence lengths. You must forcefully mix extremely long, complex, multi-clause academic sentences (40+ words, containing qualifiers or sub-clauses) directly adjacent to short, definitive, punchy academic assertions (8-12 words). Never allow multiple consecutive sentences to have similar word counts.
-2. DIGNIFIED, HIGH-PERPLEXITY ACADEMIC REGISTER: Maintain an advanced, highly professional, and prestigious academic tone throughout. Strictly forbid all casual slang, colloquialisms, and informal phrasing. At the same time, avoid predictable AI vocabulary clichés (such as "ostensibly dismantled", "profound fracturing", "critical academic scrutiny"). Replace them with active, sophisticated, low-probability academic phrasing.
+1. THE SCHOLARLY SIMPLICITY REGISTER: Keep your vocabulary standard, clear, and highly fluent. Absolutely forbid over-inflated, grandiloquent AI synonyms (do NOT use words like "precipitated", "encroaching", "dismantled", "autonomy", "electorate", "parameters", "scaffolding", "visceral", "affective", "conduits", "scutiny", "hermetic"). Instead, use clear, elegant, and common words (like "everyone", "people", "rules", "choices", "decisions", "impact", "power", "discourse") [3].
+2. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite is a failure. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
 3. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
-4. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially", "Indeed").
-5. ABSOLUTE BAN ON COLONS (EXCEPT FOR LISTS): Do not use colons as stylistic clause joiners or punctuation markers. Break those thoughts into separate sentences or use semicolons instead.
+4. RHETORICAL TRANSITIONS: Write naturally as if explaining a concept during a lecture. Use fluid rhetorical transitions (such as "To speak of X is to speak of Y", "In other words", "In fact", "What this means is", "But the problem stems from") [3].
+5. ABSOLUTE BAN ON COLONS: Do not use colons as stylistic clause joiners or punctuation markers. Break those thoughts into separate sentences or use semicolons instead.
 6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
