@@ -103,32 +103,31 @@ function mechanicalCommaBreaker(text) {
 // ==========================================================================
 function buildFullTextPrompt(text) {
     return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Your goal is to execute a RADICAL, Turnitin-evading structural humanization while maintaining a prestigious, graduate-level academic register. 
-Do not use casual slang, colloquial idioms, or informal language. Rebuild the narrative from scratch using sophisticated, fluid prose [1, 3].
+Your goal is to execute a RADICAL, Turnitin-evading structural humanization while maintaining a prestigious, graduate-level academic register [1, 3].
 
-PRESTIGIOUS ACADEMIC EVASION EXAMPLES:
+PRESTIGIOUS, HIGH-PERPLEXITY ACADEMIC EVASION EXAMPLES:
 
-Example 1 (Avoiding predictable transitions & active academic flow) [3]:
+Example 1 (Varying sentence length and avoiding clinical AI structures):
 - Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
-- Human Academic: "Yet algorithms do not operate as passive conduits; their entire architecture is engineered to monetize attention. By prioritizing engagement metrics over public accountability—a structural choice dictated by the attention economy—these algorithms actively insulate users within self-validating ideological chambers."
+- Human Academic: "Yet algorithms do not work in a vacuum; they feed directly on our underlying human psychology. By serving up a continuous, highly curated stream of confirmation-bias-friendly content, these platforms quietly lock users into insulated ideological silos."
 
-Example 2 (Shattering structural symmetry with analytical qualifiers) [3]:
+Example 2 (Shattering structural symmetry & forcing extreme burstiness):
 - Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
-- Human Academic: "The social consequences are profoundly corrosive. When algorithmic echo chambers systematically lock out dissenting perspectives, the shared baseline of facts required for democratic deliberation simply dissolves, leaving little room for consensus."
+- Human Academic: "The results are socially corrosive. When echo chambers systematically lock out dissenting perspectives, the shared baseline of facts required for democratic debate simply dissolves, leaving citizens stranded in separate, self-validating realities."
 
-Example 3 (Injecting logical flow & prestigious active structures) [3]:
+Example 3 (Injecting logical flow, active structures, and low-probability transitions):
 - Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
 - Human Academic: "This is where policy must intervene. Structural frameworks like the European Union's Digital Services Act offer a realistic mechanism to regulate this algorithmic amplification, shifting the platform's core incentives away from outrage-driven metrics and back toward public accountability."
 
 DRAFT TO REWRITE:
 "${text}"
 
-HUMANIZATION RULES — STRONGLY ENFORCED FOR ACADEMIC REGISTRY EVASION:
-1. DIGNIFIED ACADEMIC REGISTER: Maintain an advanced, highly professional, and prestigious academic tone throughout. Strictly forbid all casual slang, colloquialisms, and informal phrasing (never use words like "curdled", "annoying", "banked on", "morphed", "hand over keys", or conversational filler).
-2. SYNTACTIC COMPLEXITY & QUALIFIERS: Real scholars write with high structural variation. Use asymmetrical clauses, em-dashes (—) for parenthetical interruptions, or mid-sentence qualifiers to break up the text. Avoid both clinical symmetry and simplistic choppy sentences.
-3. ACTIVE INTELLECTUAL AGENCY: Blend in first-person active agency ("We", "I", "Our") where appropriate to frame your analytical perspective (e.g., "We are no longer just dealing with...", "If we look closely at how..."). This completely breaks the sterile third-person "AI footprint."
-4. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
-5. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially", "Indeed").
+HUMANIZATION RULES — STRONGLY ENFORCED FOR AI DETECTOR EVASION:
+1. EXTREME BURSTINESS VARIANCE: Real human scholars write with highly unpredictable, varied sentence lengths. You must forcefully mix extremely long, complex, multi-clause academic sentences (40+ words, containing qualifiers or sub-clauses) directly adjacent to short, definitive, punchy academic assertions (8-12 words). Never allow multiple consecutive sentences to have similar word counts.
+2. DIGNIFIED, HIGH-PERPLEXITY ACADEMIC REGISTER: Maintain an advanced, highly professional, and prestigious academic tone throughout. Strictly forbid all casual slang, colloquialisms, and informal phrasing. At the same time, avoid predictable AI vocabulary clichés (such as "ostensibly dismantled", "profound fracturing", "critical academic scrutiny"). Replace them with active, sophisticated, low-probability academic phrasing.
+3. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
+4. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially", "Indeed").
+5. ABSOLUTE BAN ON COLONS (EXCEPT FOR LISTS): Do not use colons as stylistic clause joiners or punctuation markers. Break those thoughts into separate sentences or use semicolons instead.
 6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
@@ -203,6 +202,9 @@ function cleanTextMechanics(text) {
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
+
+    // NON-LISTING COLON PURGER: Replaces stylistic colons with sentence breaks and capitalizes the next word [1]
+    result = result.replace(/(?<!https|http|doi):\s+([a-z])/g, (match, letter) => `. ${letter.toUpperCase()}`);
 
     // Spacing
     result = result.replace(/,([a-zA-Z])/g, ', $1');
