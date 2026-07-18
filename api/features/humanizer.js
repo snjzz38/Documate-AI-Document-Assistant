@@ -109,24 +109,24 @@ TURNITIN-EVADING WRITING EXAMPLES:
 
 Example 1 (Avoiding predictable transitions & passive voice) [3]:
 - Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
-- Human Academic: "But algorithms do not work in a vacuum; they feed on human psychology. By serving up an endless stream of confirmation-bias-friendly content, these platforms lock users into highly insulated ideological silos."
+- Human Academic: "Yet algorithms do not work in a vacuum; they feed directly on human psychology. By serving up a continuous stream of confirmation-bias-friendly content, these platforms lock users into highly insulated ideological silos."
 
-Example 2 (Shattering sentence length and structural symmetry) [3]:
+Example 2 (Shattering clinical sentence length and structural symmetry) [3]:
 - Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
-- Human Academic: "The results are socially corrosive. When filter bubbles lock out dissenting perspectives, the shared evidentiary basis required for democratic debate simply dissolves."
+- Human Academic: "The results are socially corrosive. When filter bubbles lock out dissenting perspectives, the shared evidentiary basis required for democratic debate simply dissolves under the weight of partisan polarization."
 
 Example 3 (Injecting logical flow & active structures) [3]:
 - Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
-- Human Academic: "This is where policy must step in. Interventions like the EU's Digital Services Act offer a real framework to curb this programmatic outrage, shifting incentives away from engagement metrics and back toward public accountability."
+- Human Academic: "This is where policy must step in. Interventions like the EU's Digital Services Act offer a realistic framework to curb this programmatic outrage, shifting corporate incentives away from engagement metrics and back toward public accountability."
 
 DRAFT TO REWRITE:
 "${text}"
 
 HUMANIZATION RULES — STRICTLY APPLY:
-1. PERPLEXITY & BURSTINESS: Extremely vary your sentence lengths. Follow a long, complex, multi-clause sentence with an extremely short, punchy sentence (e.g., 4-8 words).
-2. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry passive constructions.
-3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this").
-4. NATURAL CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) where they improve reading flow.
+1. SYNTACTIC VARIATION WITHOUT FRAGMENTATION: Vary your sentence lengths naturally, but ensure every sentence is a fully developed, coherent academic thought. Absolutely avoid choppy, artificial, or extremely short sentences (minimum 10-12 words per sentence). Do not write blunt 3-word or 4-word sentences, as they disrupt reading flow and mimic robotic automated structures.
+2. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry, administrative passive constructions.
+3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
+4. NATURAL SCHOLARLY CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) sparingly where they improve reading flow, but maintain a prestigious, professional register.
 5. Do NOT include any citations, references, or metadata in your output. Output ONLY the rewritten text itself.`;
 }
 
@@ -158,16 +158,25 @@ function cleanTextMechanics(text) {
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // Case-preserving contraction engine
+    // Case-preserving contraction engine (applied sparingly to protect academic tone)
     const contractions = [
-        [/\bIs\s+not\b/g, "Isn't"], [/\bis\s+not\b/g, "isn't"],
         [/\bDo\s+not\b/g, "Don't"], [/\bdo\s+not\b/g, "don't"],
         [/\bCannot\b/g, "Can't"], [/\bcannot\b/g, "can't"],
-        [/\bWill\s+not\b/g, "Won't"], [/\bwill\s+not\b/g, "won't"],
         [/\bIt\s+is\b/g, "It's"], [/\bit\s+is\b/g, "it's"],
         [/\bWe\s+are\b/g, "We're"], [/\bwe\s+are\b/g, "we're"]
     ];
     contractions.forEach(([re, replace]) => { result = result.replace(re, replace); });
+
+    // DETERMINISTIC SCHOLARLY TRANSITION DISRUPTOR (Keeps tone prestigious, avoiding casual slang) [3]
+    result = result.replace(/\bHowever,\s+/gi, 'Yet, ');
+    result = result.replace(/\bTherefore,\s+/gi, 'Thus, ');
+    result = result.replace(/\bFurthermore,\s+/gi, 'Indeed, ');
+    result = result.replace(/\bAdditionally,\s+/gi, 'Crucially, ');
+    result = result.replace(/\bSpecifically,\s+/gi, 'To be exact, ');
+    result = result.replace(/\bIn\s+fact,\s+/gi, 'Actually, ');
+    result = result.replace(/\bUltimately,\s+/gi, 'In practice, ');
+    result = result.replace(/\bConsequently,\s+/gi, 'As a result, ');
+    result = result.replace(/\bMoreover,\s+/gi, 'Plus, ');
 
     // Sterile Vocabulary Swaps
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
