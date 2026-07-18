@@ -103,28 +103,23 @@ function mechanicalCommaBreaker(text) {
 // ==========================================================================
 function buildFullTextPrompt(text) {
     return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Deconstruct the anatomy of this draft, structurally reorganize its flow, and rewrite it so it sounds completely natural, organic, and human-written [1].
+Your goal is to execute a RADICAL structural humanization. Do not simply swap words for synonyms. 
+Deconstruct the raw logical facts of this draft, throw away the original sentence structures, and rebuild the entire narrative from scratch [1, 3].
 
-TURNITIN-EVADING REORGANIZATION EXAMPLES:
+AGGRESSIVE, RADICAL TURNITIN-EVADING EXAMPLES:
 
-Example 1 (Avoiding predictable transitions & passive voice) [3]:
-- Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure [CITE_0], thereby reinforcing pre-existing partisan biases."
-- Human Academic: "Yet algorithms do not work in a vacuum; they feed directly on human psychology. By serving up a continuous stream of confirmation-bias-friendly content, these platforms lock users into highly insulated ideological silos [CITE_0]."
-
-Example 2 (Shattering structural symmetry & inverting sentence order) [3]:
-- Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse [CITE_0]. Consequently, the shared evidentiary basis required for democratic debate simply dissolves [CITE_1]."
-- Human Academic: "The shared baseline of facts required for public debate simply dissolves when platforms isolate users [CITE_1]. This is because filter bubbles systematically lock out any dissenting perspectives, forcing citizens into separate, self-validating realities [CITE_0]."
-
-Example 3 (Injecting logical flow & active structures) [3]:
-- Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act [CITE_0] serves as a vital linchpin to mitigate polarization."
-- Human Academic: "This is where policy must step in. Interventions like the EU's Digital Services Act offer a realistic framework to curb this programmatic outrage [CITE_0], shifting corporate incentives away from engagement metrics and back toward public accountability."
+Example (Shattering, inverting, and fully restructuring your exact political polarization topic) [3]:
+- Original AI Draft: 
+  "Introduction: The contemporary democratic landscape is increasingly defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]."
+- Radical Human Academic Rewrite:
+  "Civic life is fracturing under our feet. For decades, we operated under the comfortable assumption that digital connectivity would naturally democratize information and breed a more enlightened electorate. Yet the opposite has happened. Our newly minted digital abundance has served primarily to split societies into highly tribal, bickering encampments [CITE_0]. This is not some abstract legislative friction restricted to the halls of parliament; partisan animosity has seeped directly into our daily routines, neighborhood groups, and family dinners, corroding the basic consensus required to govern [CITE_1]."
 
 DRAFT TO REWRITE:
 "${text}"
 
-HUMANIZATION RULES — STRICTLY APPLY:
-1. ANATOMY & STRUCTURAL REORGANIZATION: Deconstruct the logical anatomy of the provided draft (the claims, evidence, transitions, and examples). You are explicitly authorized and encouraged to reorganize the order of the arguments, invert paragraphs, or reshuffle sentence sequences to create a completely fresh, human-like flow.
-2. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
+HUMANIZATION RULES — STRONGLY ENFORCED:
+1. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite is a failure. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
+2. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
 3. SYNTACTIC VARIATION WITHOUT FRAGMENTATION: Vary your sentence lengths naturally, but ensure every sentence is a fully developed, coherent academic thought. Absolutely avoid choppy, artificial, or extremely short sentences (minimum 10-12 words per sentence). Do not write blunt 3-word or 4-word sentences, as they disrupt reading flow and mimic robotic automated structures.
 4. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry, administrative passive constructions.
 5. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
