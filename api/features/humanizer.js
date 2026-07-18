@@ -103,27 +103,27 @@ function mechanicalCommaBreaker(text) {
 // ==========================================================================
 function buildFullTextPrompt(text) {
     return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Your goal is to execute a RADICAL structural humanization. Do not simply swap words for synonyms. 
-Deconstruct the raw logical facts of this draft, throw away the original sentence structures, and rebuild the entire narrative from scratch [1, 3].
+Your goal is to execute a RADICAL, Turnitin-evading structural humanization. 
+Do not write clinically "perfect" prose. Inject linguistic friction, active agency, and natural structural irregularities [1].
 
-AGGRESSIVE, RADICAL TURNITIN-EVADING EXAMPLES:
+TURNITIN-EVADING REORGANIZATION EXAMPLES:
 
-Example (Shattering, inverting, and fully restructuring your exact political polarization topic) [3]:
+Example (Shattering, restructuring, and injecting human linguistic friction) [3]:
 - Original AI Draft: 
   "Introduction: The contemporary democratic landscape is increasingly defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]."
-- Radical Human Academic Rewrite:
-  "Civic life is fracturing under our feet. For decades, we operated under the comfortable assumption that digital connectivity would naturally democratize information and breed a more enlightened electorate. Yet the opposite has happened. Our newly minted digital abundance has served primarily to split societies into highly tribal, bickering encampments [CITE_0]. This is not some abstract legislative friction restricted to the halls of parliament; partisan animosity has seeped directly into our daily routines, neighborhood groups, and family dinners, corroding the basic consensus required to govern [CITE_1]."
+- Radical Human Academic Rewrite (With Evasion Friction):
+  "Civic life is fracturing under our feet. For decades, we operated under this comfortable assumption that digital connectivity would naturally democratize information and breed a more enlightened electorate. Yet the opposite has happened. Our newly minted digital abundance has served primarily to split us into highly tribal, bickering encampments [CITE_0]. This isn’t some abstract legislative friction restricted to the halls of parliament—partisan animosity has seeped directly into our daily routines, neighborhood groups, and family dinners, quietly chipping away at our basic ability to govern [CITE_1]."
 
 DRAFT TO REWRITE:
 "${text}"
 
-HUMANIZATION RULES — STRONGLY ENFORCED:
-1. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite is a failure. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
-2. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
-3. SYNTACTIC VARIATION WITHOUT FRAGMENTATION: Vary your sentence lengths naturally, but ensure every sentence is a fully developed, coherent academic thought. Absolutely avoid choppy, artificial, or extremely short sentences (minimum 10-12 words per sentence). Do not write blunt 3-word or 4-word sentences, as they disrupt reading flow and mimic robotic automated structures.
-4. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry, administrative passive constructions.
-5. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
-6. NATURAL SCHOLARLY CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) sparingly where they improve reading flow, but maintain a prestigious, professional register.
+HUMANIZATION RULES — STRONGLY ENFORCED FOR AI DETECTOR EVASION:
+1. LINGUISTIC FRICTION & ASYMMETRY: Avoid perfectly balanced, clinical clauses. Introduce human-like structural irregularities: use dashes (—) for parenthetical interruptions, ask rhetorical questions, or use asymmetrical sentence flows. Real humans do not write with machine-like syntactic symmetry.
+2. ACTIVE INTELLECTUAL AGENCY: Blend in first-person active agency ("We", "I", "Our") where appropriate to frame your perspective (e.g., "We are no longer just dealing with...", "If we look closely at how..."). This completely breaks the sterile third-person "AI footprint."
+3. PERPLEXITY INVERSION (BLUNT WORD CHOICE): Avoid academic clichés and overly complex clinical phrasing. Replace high-probability word maps (e.g. "effectively encroaching upon", "possess the capacity to interfere", "facilitate unprecedented levels") with blunt, high-perplexity human phrasing ("quietly chipping away at", "get to decide what we see", "makes genuine compromise almost impossible").
+4. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite has failed. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
+5. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
+6. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
 7. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
