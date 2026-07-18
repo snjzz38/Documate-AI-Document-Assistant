@@ -103,28 +103,33 @@ function mechanicalCommaBreaker(text) {
 // ==========================================================================
 function buildFullTextPrompt(text) {
     return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
-Your goal is to execute a RADICAL, Turnitin-evading structural humanization. 
-Do not write clinically "perfect" prose. Inject linguistic friction, active agency, and natural structural irregularities [1].
+Your goal is to execute a RADICAL, Turnitin-evading structural humanization while maintaining a prestigious, graduate-level academic register. 
+Do not use casual slang, colloquial idioms, or informal language. Rebuild the narrative from scratch using sophisticated, fluid prose [1, 3].
 
-TURNITIN-EVADING REORGANIZATION EXAMPLES:
+PRESTIGIOUS ACADEMIC EVASION EXAMPLES:
 
-Example (Shattering, restructuring, and injecting human linguistic friction) [3]:
-- Original AI Draft: 
-  "Introduction: The contemporary democratic landscape is increasingly defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]."
-- Radical Human Academic Rewrite (With Evasion Friction):
-  "Civic life is fracturing under our feet. For decades, we operated under this comfortable assumption that digital connectivity would naturally democratize information and breed a more enlightened electorate. Yet the opposite has happened. Our newly minted digital abundance has served primarily to split us into highly tribal, bickering encampments [CITE_0]. This isn’t some abstract legislative friction restricted to the halls of parliament—partisan animosity has seeped directly into our daily routines, neighborhood groups, and family dinners, quietly chipping away at our basic ability to govern [CITE_1]."
+Example 1 (Avoiding predictable transitions & active academic flow) [3]:
+- Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
+- Human Academic: "Yet algorithms do not operate as passive conduits; their entire architecture is engineered to monetize attention. By prioritizing engagement metrics over public accountability—a structural choice dictated by the attention economy—these algorithms actively insulate users within self-validating ideological chambers."
+
+Example 2 (Shattering structural symmetry with analytical qualifiers) [3]:
+- Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
+- Human Academic: "The social consequences are profoundly corrosive. When algorithmic echo chambers systematically lock out dissenting perspectives, the shared baseline of facts required for democratic deliberation simply dissolves, leaving little room for consensus."
+
+Example 3 (Injecting logical flow & prestigious active structures) [3]:
+- Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
+- Human Academic: "This is where policy must intervene. Structural frameworks like the European Union's Digital Services Act offer a realistic mechanism to regulate this algorithmic amplification, shifting the platform's core incentives away from outrage-driven metrics and back toward public accountability."
 
 DRAFT TO REWRITE:
 "${text}"
 
-HUMANIZATION RULES — STRONGLY ENFORCED FOR AI DETECTOR EVASION:
-1. LINGUISTIC FRICTION & ASYMMETRY: Avoid perfectly balanced, clinical clauses. Introduce human-like structural irregularities: use dashes (—) for parenthetical interruptions, ask rhetorical questions, or use asymmetrical sentence flows. Real humans do not write with machine-like syntactic symmetry.
-2. ACTIVE INTELLECTUAL AGENCY: Blend in first-person active agency ("We", "I", "Our") where appropriate to frame your perspective (e.g., "We are no longer just dealing with...", "If we look closely at how..."). This completely breaks the sterile third-person "AI footprint."
-3. PERPLEXITY INVERSION (BLUNT WORD CHOICE): Avoid academic clichés and overly complex clinical phrasing. Replace high-probability word maps (e.g. "effectively encroaching upon", "possess the capacity to interfere", "facilitate unprecedented levels") with blunt, high-perplexity human phrasing ("quietly chipping away at", "get to decide what we see", "makes genuine compromise almost impossible").
-4. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite has failed. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
-5. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
-6. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially").
-7. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
+HUMANIZATION RULES — STRONGLY ENFORCED FOR ACADEMIC REGISTRY EVASION:
+1. DIGNIFIED ACADEMIC REGISTER: Maintain an advanced, highly professional, and prestigious academic tone throughout. Strictly forbid all casual slang, colloquialisms, and informal phrasing (never use words like "curdled", "annoying", "banked on", "morphed", "hand over keys", or conversational filler).
+2. SYNTACTIC COMPLEXITY & QUALIFIERS: Real scholars write with high structural variation. Use asymmetrical clauses, em-dashes (—) for parenthetical interruptions, or mid-sentence qualifiers to break up the text. Avoid both clinical symmetry and simplistic choppy sentences.
+3. ACTIVE INTELLECTUAL AGENCY: Blend in first-person active agency ("We", "I", "Our") where appropriate to frame your analytical perspective (e.g., "We are no longer just dealing with...", "If we look closely at how..."). This completely breaks the sterile third-person "AI footprint."
+4. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
+5. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this", "Crucially", "Indeed").
+6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
 // ==========================================================================
@@ -173,7 +178,7 @@ function cleanTextMechanics(text) {
     result = result.replace(/\bIn\s+fact,\s+/gi, 'Actually, ');
     result = result.replace(/\bUltimately,\s+/gi, 'In practice, ');
     result = result.replace(/\bConsequently,\s+/gi, 'As a result, ');
-    result = result.replace(/\bMoreover,\s+/gi, 'Plus, ');
+    result = result.replace(/\bMoreover,\s+/gi, 'Indeed, ');
 
     // Sterile Vocabulary Swaps
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
@@ -199,14 +204,6 @@ function cleanTextMechanics(text) {
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
 
-    // CRITICAL SPACING & PUNCTUATION TIGHTENER FOR ACADEMIC CITATIONS [1]
-    // Pulls terminal punctuation tight to the closing parenthesis of citations (fixes " (Grumbach, 2018) .")
-    result = result.replace(/\s*\)\s*([.,;:!?])/g, ')$1');
-    // Pulls commas tight to citations in mid-clause positions (fixes " (Borgesius et al. 2018) ,")
-    result = result.replace(/\s*\)\s*,/g, '),');
-    // Normalizes spaces before citations
-    result = result.replace(/\s+\(\s*/g, ' (');
-
     // Spacing
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
@@ -219,7 +216,6 @@ function cleanTextMechanics(text) {
 }
 
 function postProcess(text) {
-    // Clean up quote/apostrophe styles and proceed directly to syntax cleanup (skipping the ungrammatical splitters) [1]
     const result = text.replace(/[''`´]/g, "'").replace(/[""„]/g, '"');
     return cleanTextMechanics(result);
 }
