@@ -214,8 +214,8 @@ function cleanTextMechanics(text) {
 }
 
 function postProcess(text) {
-    let result = text.replace(/[''`´]/g, "'").replace(/[""„]/g, '"');
-    result = injectBurstiness(result);
+    // Clean up quote/apostrophe styles and proceed directly to syntax cleanup (skipping the ungrammatical splitters) [1]
+    const result = text.replace(/[''`´]/g, "'").replace(/[""„]/g, '"');
     return cleanTextMechanics(result);
 }
 
