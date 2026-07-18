@@ -1,56 +1,26 @@
 // ==========================================================================
-// FILE: api/features/humanizer.js
-// DESCRIPTION: 
-// An API route that humanizes AI-generated text using Gemini. It processes 
-// text in chunks to maintain flow and reduce API calls, enforces natural 
-// phrasing via strict prompt engineering, and applies safe post-processing.
+// FILE PATH: api/features/humanizer.js
 // ==========================================================================
 
-/* 
-// ==========================================================================
-// TABLE OF CONTENTS
-// ==========================================================================
-1. CONFIGURATION & CONSTANTS
-   - AI_VOCAB_SWAPS: Dictionary of formal/AI words to natural words.
-   
-2. TEXT UTILITIES MODULE
-   - splitIntoChunks(): Safely splits text into sentence groups (Fallback).
-   - groqLogicalChunk(): Uses Groq to group sentences into logical paragraphs.
-   - filterPlansForChunk(): Matches sentence plans with the correct chunk.
-   - applyWordSwaps(): Case-preserving replacement of banned words.
-   - parseGroqJson(): Safely parses JSON strings from Groq.
-   - applyJsonReplacements(): Safely applies JSON before/after maps to text.
-   - injectBurstiness(): Mechanically splits long sentences to increase burstiness.
-   - mechanicalCommaBreaker(): Breaks repetitive relative clause commas.
-   
-3. PROMPT ENGINEERING MODULE
-   - buildAnalysisPrompt(): Plans structural variations for formulaic thoughts.
-   - buildChunkPrompt(): Directs specific syntactical modifications.
-   
-4. LLM SERVICE MODULE
-   - parseGeminiJson(): Safely parses JSON output from Gemini.
-   - analyzeText(): Runs the analytical pre-pass for structuring.
-   - humanizeChunk(): Runs the actual rewriting pass on a chunk.
-   
-5. REGEX POST-PROCESSING MODULE
-   - cleanTextMechanics(): Post-pass cleanup of punctuation and spacing.
-   - postProcess(): Parent post-processing pipeline executor.
-   
-6. API HANDLER
-   - handler(): Main entry point orchestrating the modules.
-// ==========================================================================
-*/
+/**
+ * api/features/humanizer.js
+ * DocuMate High-Horizon Style Humanizer
+ * 
+ * Table of Contents:
+ * 1. Configuration & Constants
+ * 2. Text Utilities Module
+ * 3. Prompt Engineering & Turnitin-Defying Examples Module
+ * 4. LLM Service Module
+ * 5. Regex Post-Processing Module
+ * 6. API Handler Module
+ */
 
-// ==========================================================================
-// IMPORTS (Always at the top)
-// ==========================================================================
 import { GeminiAPI, getModelUsage as getGeminiUsage, resetModelUsage as resetGeminiUsage } from '../_utils/geminiAPI.js';
 import { GroqAPI, getGroqModelUsage, resetGroqModelUsage } from '../_utils/groqAPI.js';
 
 // ==========================================================================
-// 1. CONFIGURATION & CONSTANTS
+// MODULE 1: CONFIGURATION & CONSTANTS
 // ==========================================================================
-
 const AI_VOCAB_SWAPS = {
     "utilize": "use", "utilizes": "uses", "utilizing": "using", "utilized": "used",
     "leverage": "use", "leverages": "uses", "leveraging": "using", "leveraged": "used",
@@ -66,105 +36,14 @@ const AI_VOCAB_SWAPS = {
     "thus": "so", "hence": "so", "whereby": "where",
     "crucial": "important", "essential": "needed", "significant": "major",
     "substantial": "large", "numerous": "many", "prudent": "wise",
-    "objective discovery": "discovery", "objective discoveries": "discoveries",
-    "pre-existing truths": "existing facts", "pre-existing": "existing",
-    "predictability and effectiveness": "accuracy",
-    "abstract tools": "mental tools",
-    "social organization": "organizing society",
-    "constant interaction": "interaction",
-    "entirely separate existence": "independent reality",
-    "extensive set": "large number",
-    "supports the view": "argues",
-    "holds that": "claims",
-    "in turn": "",
-    
-    // Generic Academic Tells (Universal)
-    "unsustainable endeavor": "losing battle",
-    "primary hurdle": "biggest roadblock",
-    "severe limitations": "tight limits",
-    "critical target": "main focus",
-    "essential role": "big role",
-    "entirely impractical": "impossible",
-    "concrete reality": "reality",
-    "tangible reality": "reality",
-    "significant implications": "huge consequences",
-    "vital linchpin": "linchpin",
-    "vital supply stations": "supply stops",
-    "treasure trove": "jackpot",
-    "crucial aspect": "key detail",
-    "formidable obstacle": "big problem",
-    "significant shift": "huge change",
-    "extended periods": "a long time",
-    "profound shift": "massive change",
-    "unlocked new possibilities": "opened new doors",
-    "pressing concern": "big issue",
-    "careful consideration": "attention",
-    "detrimental impact": "bad effect",
-    "upon employing": "by using",
-    "sustenance": "support",
-    "endeavors": "plans"
+    "unlocked new possibilities": "opened doors", "detrimental impact": "bad effect",
+    "pressing concern": "big issue", "careful consideration": "attention",
+    "sustain": "support", "endeavors": "plans"
 };
 
 // ==========================================================================
-// 2. TEXT UTILITIES MODULE
+// MODULE 2: TEXT UTILITIES
 // ==========================================================================
-
-/**
- * Splits text into chunks of sentences without breaking on common abbreviations.
- * (Fallback if Groq is unavailable)
- */
-function splitIntoChunks(text, sentencesPerChunk = 4) {
-    const sentenceRegex = /[^.!?]+[.!?]+(?=\s|$|\n)/g;
-    const sentences = text.match(sentenceRegex) || [text];
-    
-    const chunks = [];
-    for (let i = 0; i < sentences.length; i += sentencesPerChunk) {
-        chunks.push(sentences.slice(i, i + sentencesPerChunk).join(' ').trim());
-    }
-    return chunks.filter(c => c.length > 0);
-}
-
-/**
- * Uses Groq to group sentences into logical, topically coherent paragraphs.
- */
-async function groqLogicalChunk(text, groqKey) {
-    const prompt = `You are an expert editor. Analyze the following text and group the sentences into 2-4 logical paragraphs based on their topics. Do NOT change the wording of the sentences at all. Only group them. Return a JSON object with a key "chunks" containing an array of strings, where each string is a logical paragraph.
-
-TEXT TO ANALYZE:
- ${text}
-
-JSON OUTPUT:`;
-
-    const messages = [{ role: 'user', content: prompt }];
-    try {
-        const content = await GroqAPI.chat(messages, groqKey, true);
-        const parsed = parseGroqJson(content);
-        if (parsed.chunks && Array.isArray(parsed.chunks) && parsed.chunks.length > 0) {
-            return parsed.chunks;
-        }
-        return splitIntoChunks(text); // Fallback
-    } catch (error) {
-        console.error('Groq Logical Chunking Failed:', error);
-        return splitIntoChunks(text); // Fallback
-    }
-}
-
-/**
- * Filters the master list of restructuring plans to only include plans matching 
- * sentences present within the specific text chunk.
- */
-function filterPlansForChunk(chunk, plans) {
-    if (!plans || !Array.isArray(plans)) return [];
-    return plans.filter(plan => {
-        if (!plan || typeof plan.original !== 'string') return false;
-        const cleanOriginal = plan.original.trim().toLowerCase();
-        return chunk.toLowerCase().includes(cleanOriginal);
-    });
-}
-
-/**
- * Replaces banned AI words while preserving the original capitalization.
- */
 function applyWordSwaps(text) {
     let result = text;
     for (const [bad, good] of Object.entries(AI_VOCAB_SWAPS)) {
@@ -179,60 +58,19 @@ function applyWordSwaps(text) {
     return result;
 }
 
-/**
- * Safely parses a string into a JSON object.
- */
-function parseGroqJson(content) {
-    try {
-        const cleanJson = content.replace(/^```json\s*|\s*```$/g, '').trim();
-        return JSON.parse(cleanJson);
-    } catch (error) {
-        console.error('Failed to parse Groq JSON:', error, '\nRaw:', content);
-        return {};
-    }
-}
-
-/**
- * Applies a JSON map of { "before": "after" } to a text string.
- */
-function applyJsonReplacements(text, jsonMap) {
-    let result = text;
-    if (!jsonMap || typeof jsonMap !== 'object') return result;
-
-    for (const [before, after] of Object.entries(jsonMap)) {
-        if (!before || typeof before !== 'string') continue;
-        
-        let afterStr = after;
-        if (typeof after === 'object' && after !== null) {
-            afterStr = Object.values(after).find(v => typeof v === 'string') || '';
-        }
-        
-        if (typeof afterStr !== 'string' || afterStr.length === 0) continue;
-        if (afterStr.includes('{') || afterStr.includes('}')) continue;
-
-        const escaped = before.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(escaped, 'i');
-        result = result.replace(regex, afterStr);
-    }
-    return result;
-}
-
-/**
- * Mechanically splits long sentences to increase burstiness while protecting flow.
- */
 function injectBurstiness(text) {
-    let sentences = text.match(/[^.!?]+[.!?]+/g) || [];
-    let result = [];
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+    const result = [];
 
     for (let i = 0; i < sentences.length; i++) {
-        let s = sentences[i].trim();
-        let words = s.split(/\s+/);
+        const s = sentences[i].trim();
+        const words = s.split(/\s+/);
 
-        // Raised threshold to 32 words to avoid breaking structurally intact thoughts
-        if (words.length > 32 && Math.random() > 0.4) {
-            let splitIdx = words.findIndex((w, idx) => 
-                idx > 12 && 
-                idx < (words.length - 12) && 
+        // Mechanically disrupt repetitive sentence lengths (>30 words)
+        if (words.length > 30 && Math.random() > 0.4) {
+            const splitIdx = words.findIndex((w, idx) => 
+                idx > 10 && 
+                idx < (words.length - 10) && 
                 (w.toLowerCase() === 'and' || w.toLowerCase() === 'but' || w.toLowerCase() === 'while')
             );
             
@@ -253,166 +91,85 @@ function injectBurstiness(text) {
     return result.join(' ');
 }
 
-/**
- * Mechanically breaks AI comma chains and ", and" loops to increase burstiness.
- */
 function mechanicalCommaBreaker(text) {
     let result = text;
-    // Break ", and [Capital Letter]" into two sentences
     result = result.replace(/,\s+and\s+([A-Z][a-z])/g, '. $1');
-    // Break ", but [Capital Letter]" into two sentences
     result = result.replace(/,\s+but\s+([A-Z][a-z])/g, '. But $1');
     return result;
 }
 
 // ==========================================================================
-// 3. PROMPT ENGINEERING MODULE
+// MODULE 3: PROMPT ENGINEERING & EXAMPLES
 // ==========================================================================
+function buildFullTextPrompt(text) {
+    return `You are an elite, highly literate academic writer drafting a paper for a peer-reviewed journal. 
+Rewrite the following text so it sounds completely natural, organic, and human-written, bypassing all robotic tells [1].
 
-/**
- * Step 1: Analyzes the text and plans structural variations.
- */
-function buildAnalysisPrompt(text) {
-    return `You are a writing assistant. Review this draft and find 5 sentences that sound stiff or repetitive. 
-Provide a quick suggestion on how to rewrite each one to flow more naturally. 
+TURNITIN-EVADING WRITING EXAMPLES:
 
-Return a JSON object with a key "plans" containing an array of objects, each with "original" and "plan".
+Example 1 (Avoiding predictable transitions & passive voice) [3]:
+- Robotic AI: "Additionally, it is crucial to examine how algorithmic content curation facilitates selective exposure, thereby reinforcing pre-existing partisan biases."
+- Human Academic: "But algorithms do not work in a vacuum; they feed on human psychology. By serving up an endless stream of confirmation-bias-friendly content, these platforms lock users into highly insulated ideological silos."
 
-TEXT TO ANALYZE:
- ${text}
+Example 2 (Shattering sentence length and structural symmetry) [3]:
+- Robotic AI: "Furthermore, the rise of filter bubbles on social media platforms imposes severe limitations on democratic discourse. Consequently, citizens are unable to find common ground."
+- Human Academic: "The results are socially corrosive. When filter bubbles lock out dissenting perspectives, the shared evidentiary basis required for democratic debate simply dissolves."
 
-JSON OUTPUT:`;
-}
+Example 3 (Injecting logical flow & active structures) [3]:
+- Robotic AI: "Ultimately, utilizing regulatory frameworks such as the EU Digital Services Act serves as a vital linchpin to mitigate polarization."
+- Human Academic: "This is where policy must step in. Interventions like the EU's Digital Services Act offer a real framework to curb this programmatic outrage, shifting incentives away from engagement metrics and back toward public accountability."
 
-/**
- * Step 2: Benign, highly creative rewrite prompt. It avoids all "AI detector" or formatting trigger words, 
- * giving Gemini total linguistic freedom to shatter the original sentence structure.
- */
-function buildFullTextPrompt(text, plans) {
-    let planBlock = "";
-    if (plans && plans.length > 0) {
-        planBlock = `\nREWRITE SUGGESTIONS:\n${JSON.stringify(plans, null, 2)}\n`;
-    }
-    
-    return `You are a warm, casual, and highly knowledgeable writer explaining an interesting topic to a friend over coffee.
-
-Describe the following technical ideas in your own, completely fresh words. 
-
-Original draft to rewrite:
+DRAFT TO REWRITE:
 "${text}"
 
-Your goal is to completely rewrite this draft:
-1. Break the academic structure completely: change the sentence structures, mix up the paragraph order, and use direct, conversational expressions.
-2. Keep all of the technical facts, terms, and core meaning, but explain them using active, everyday phrasing and plenty of natural contractions (it's, won't, don't, we're).
-3. Do not copy the original sentences. Shatter the syntax and build it back up organically.
-4. Output ONLY your casual explanation. Do not add intro greetings, summary bullets, or meta-commentary.`;
+HUMANIZATION RULES — STRICTLY APPLY:
+1. PERPLEXITY & BURSTINESS: Extremely vary your sentence lengths. Follow a long, complex, multi-clause sentence with an extremely short, punchy sentence (e.g., 4-8 words).
+2. DIRECT ACTIVE VOICE: Always prioritize active subject-verb-object structures. Avoid dry passive constructions.
+3. FORBIDDEN TRANSITIONS: Absolutely forbid predictable AI transition cliches ("Furthermore", "Moreover", "Additionally", "Consequently", "Ultimately", "In conclusion"). Use human transitional phrases instead ("But", "Yet", "This is why", "To understand this").
+4. NATURAL CONTRACTIONS: Integrate natural, formal-adjacent contractions (it's, won't, don't, we're) where they improve reading flow.
+5. Do NOT include any citations, references, or metadata in your output. Output ONLY the rewritten text itself.`;
 }
 
 // ==========================================================================
-// 4. LLM SERVICE MODULE
+// MODULE 4: LLM SERVICE MODULE
 // ==========================================================================
-
-/**
- * Parses JSON from Gemini (which doesn't support native JSON mode).
- */
-function parseGeminiJson(raw) {
-    try {
-        const cleanJson = raw.replace(/^```json\s*|\s*```$/g, '').trim();
-        return JSON.parse(cleanJson);
-    } catch (e) {
-        return { plans: [] };
-    }
-}
-
-/**
- * Step 1: Calls Gemini to analyze the text and create restructuring plans.
- */
-async function analyzeText(text, apiKey) {
-    const prompt = buildAnalysisPrompt(text);
-    const raw = await GeminiAPI.chat(prompt, apiKey, 0.5); // Low temp for analytical reasoning
-    const parsed = parseGeminiJson(raw);
-    return parsed.plans || [];
-}
-
-/**
- * Step 2: Calls Gemini to humanize a specific chunk of text using the plans.
- */
-async function humanizeChunk(chunk, plans, apiKey, temperature) {
-    const prompt = buildChunkPrompt(chunk, plans);
+async function runStyleHumanizer(text, apiKey, temperature) {
+    const prompt = buildFullTextPrompt(text);
     const raw = await GeminiAPI.chat(prompt, apiKey, temperature);
     return raw.trim().replace(/^["']|["']$/g, '');
 }
 
 // ==========================================================================
-// 5. REGEX POST-PROCESSING MODULE
+// MODULE 5: REGEX POST-PROCESSING
 // ==========================================================================
-
 const AI_STERILE_SWAPS = {
-    "regarding": "about",
-    "represents": "is",
-    "serving as": "acting as",
-    "functioning as": "acting as",
-    "facilitated by": "helped by",
-    "striking resemblance": "close resemblance",
-    "product of human ingenuity": "human creation",
-    "rigorous investigation": "detailed study",
-    "serves as a bridge": "acts as a link",
-    "global challenges": "major problems",
-    "game changer": "major shift",
-    "feasibility of": "possibility of",
-    "eliminating the need for": "cutting out",
-    "imposes severe limitations on": "places tight limits on"
+    "regarding": "about", "represents": "is", "serving as": "acting as",
+    "functioning as": "acting as", "facilitated by": "helped by",
+    "rigorous investigation": "detailed study", "serves as a bridge": "links",
+    "global challenges": "major problems", "feasibility of": "possibility of",
+    "eliminating the need for": "cutting out"
 };
 
-/**
- * Master regex function to programmatically disrupt AI tells and inject human typing signatures.
- */
 function cleanTextMechanics(text) {
     let result = text;
 
-    // 1. ABSOLUTE BAN ON EM DASHES, EN DASHES, AND DOUBLE HYPHENS
+    // Programmatically disrupt EM dashes and semicolons to vary structural profiles
     result = result.replace(/[\u2014\u2013]|\s*--+\s*/g, ', ');
     result = result.replace(/;/g, '.'); 
     result = result.replace(/,\s*,/g, ',');
 
-    // 2. DETERMINISTIC TRANSITION DISRUPTOR (Programmatically breaks transition probability maps)
-    result = result.replace(/\bHowever,\s+/gi, 'Mind you, ');
-    result = result.replace(/\bTherefore,\s+/gi, 'So, ');
-    result = result.replace(/\bFurthermore,\s+/gi, 'Plus, ');
-    result = result.replace(/\bAdditionally,\s+/gi, 'On top of that, ');
-    result = result.replace(/\bSpecifically,\s+/gi, 'To be exact, ');
-    result = result.replace(/\bIn\s+fact,\s+/gi, 'Actually, ');
-    result = result.replace(/\bUltimately,\s+/gi, 'At the end of the day, ');
-    result = result.replace(/\bConsequently,\s+/gi, 'As a result, ');
-    result = result.replace(/\bMoreover,\s+/gi, 'Plus, ');
+    // Case-preserving contraction engine
+    const contractions = [
+        [/\bIs\s+not\b/g, "Isn't"], [/\bis\s+not\b/g, "isn't"],
+        [/\bDo\s+not\b/g, "Don't"], [/\bdo\s+not\b/g, "don't"],
+        [/\bCannot\b/g, "Can't"], [/\bcannot\b/g, "can't"],
+        [/\bWill\s+not\b/g, "Won't"], [/\bwill\s+not\b/g, "won't"],
+        [/\bIt\s+is\b/g, "It's"], [/\bit\s+is\b/g, "it's"],
+        [/\bWe\s+are\b/g, "We're"], [/\bwe\s+are\b/g, "we're"]
+    ];
+    contractions.forEach(([re, replace]) => { result = result.replace(re, replace); });
 
-    // 3. CASE-PRESERVING MECHANICAL CONTRACTION ENGINE
-    result = result.replace(/\bIs\s+not\b/g, "Isn't");
-    result = result.replace(/\bis\s+not\b/g, "isn't");
-    result = result.replace(/\bDo\s+not\b/g, "Don't");
-    result = result.replace(/\bdo\s+not\b/g, "don't");
-    result = result.replace(/\bDoes\s+not\b/g, "Doesn't");
-    result = result.replace(/\bdoes\s+not\b/g, "doesn't");
-    result = result.replace(/\bCannot\b/g, "Can't");
-    result = result.replace(/\bcannot\b/g, "can't");
-    result = result.replace(/\bWill\s+not\b/g, "Won't");
-    result = result.replace(/\bwill\s+not\b/g, "won't");
-    result = result.replace(/\bThere\s+is\b/g, "There's");
-    result = result.replace(/\bthere\s+is\b/g, "there's");
-    result = result.replace(/\bIt\s+is\b/g, "It's");
-    result = result.replace(/\bit\s+is\b/g, "it's");
-    result = result.replace(/\bWe\s+are\b/g, "We're");
-    result = result.replace(/\bwe\s+are\b/g, "we're");
-    result = result.replace(/\bThey\s+are\b/g, "They're");
-    result = result.replace(/\bthey\s+are\b/g, "they're");
-    result = result.replace(/\bYou\s+are\b/g, "You're");
-    result = result.replace(/\byou\s+are\b/g, "you're");
-    result = result.replace(/\bShould\s+not\b/g, "Shouldn't");
-    result = result.replace(/\bshould\s+not\b/g, "shouldn't");
-    result = result.replace(/\bWould\s+not\b/g, "Wouldn't");
-    result = result.replace(/\bwould\s+not\b/g, "wouldn't");
-
-    // 4. STERILE VOCABULARY SWAPS
+    // Sterile Vocabulary Swaps
     for (const [bad, good] of Object.entries(AI_STERILE_SWAPS)) {
         const regex = new RegExp(`\\b${bad}\\b`, 'gi');
         result = result.replace(regex, (match) => {
@@ -423,112 +180,39 @@ function cleanTextMechanics(text) {
         });
     }
 
-    // 5. MECHANICAL AI LOOP BREAKING
     result = mechanicalCommaBreaker(result);
 
-    // 6. FIX ARTIFACTS
+    // Clean up artifacts
     result = result.replace(/\.{2,}/g, '.'); 
     result = result.replace(/,{2,}/g, ','); 
     result = result.replace(/\.\s*,/g, '.');   
-    result = result.replace(/,\s*\./g, '.');   
-    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); // Double words
-    result = result.replace(/\b(Also|Furthermore|Moving|Additionally|Plus|Mind\s+you),\s+([\w\s]+?)\s+\1\b/gi, '$2'); 
+    result = result.replace(/\b(\w+)\s+\1\b/gi, '$1'); 
 
-    // Eliminate empty, robotic transition clichés (Universal topic-agnostic)
-    result = result.replace(/\b(It\s+changes\s+everything|This\s+changes\s+everything|It\s+is\s+a\s+massive\s+leap\s+forward)\.?\s*/gi, ' ');
-    result = result.replace(/\b(It\s+limits\s+how\s+far\s+we\s+can\s+go|It\s+limits\s+everything\s+we\s+can\s+do|It's\s+the\s+only\s+way\s+forward)\.?\s*/gi, ' ');
-    result = result.replace(/\b(Logistics\s+are\s+tough|Logistics\s+are\s+brutal)\.?\s*/gi, ' ');
-
-    // Clean up generic academic/explanatory structures
-    result = result.replace(/\bpressing\s+concern\s+that\s+warrants\s+careful\s+consideration\b/gi, 'big issue that needs attention');
-    result = result.replace(/\bpressing\s+concern\b/gi, 'big issue');
-    result = result.replace(/\bcareful\s+consideration\b/gi, 'careful thought');
-    result = result.replace(/\bdetrimental\s+impact\b/gi, 'bad effect');
-    result = result.replace(/\bin\s+this\s+regard\b/gi, 'here');
-    result = result.replace(/\bupon\s+employing\b/gi, 'by using');
-    result = result.replace(/\bparadigm\s+shift\b/gi, 'major shift');
-    result = result.replace(/\bfar-reaching\s+implications\b/gi, 'huge consequences');
-    result = result.replace(/\bturning\s+point\b/gi, 'shift');
-    result = result.replace(/\bessential\s+building\s+blocks\b/gi, 'raw materials');
-
-    // Clean up academic adverbs & adjectives
-    result = result.replace(/\bfundamentally\s+(\w+)\b/gi, 'completely $1');
-    result = result.replace(/\bbrimming\s+with\b/gi, 'full of');
-    result = result.replace(/\bbrims\s+with\b/gi, 'is full of');
-    result = result.replace(/\bshackled\s+to\b/gi, 'tied to');
-
-    // 7. OXFORD COMMA CONSISTENCY DISRUPTOR (Deterministic Randomization)
-    // Programmatically breaks perfect AI formatting by keeping some Oxford commas and stripping others randomly
-    result = result.replace(/,\s+(and|but|or)\s+/gi, (match) => {
-        return Math.random() > 0.5 ? ` ${match.trim().split(/\s+/)[1]} ` : match;
-    });
-
-    // Fix accidental capitalization artifacts mid-sentence (e.g. ", And " -> ", and ")
-    result = result.replace(/,\s+And\b/g, ', and');
-    result = result.replace(/,\s+But\b/g, ', but');
-    result = result.replace(/,\s+Or\b/g, ', or');
-
-    // 8. CRITICAL PARTICIPLE CLAUSE BREAKS & CONVERSIONS
-    result = result.replace(/,\s+fundamentally\s+altering\s+/gi, ' and changing ');
-    result = result.replace(/,\s+altering\s+/gi, ' and changing ');
-    result = result.replace(/,\s+underscoring\s+/gi, ' and underscores ');
-    result = result.replace(/,\s+highlighting\s+/gi, ' and highlights ');
-    result = result.replace(/,\s+enabling\s+/gi, ' and enables ');
-    result = result.replace(/,\s+facilitating\s+/gi, ' and helps ');
-    result = result.replace(/,\s+making\s+/gi, ' and makes ');
-    result = result.replace(/,\s+paving\s+/gi, ' and paves ');
-    result = result.replace(/,\s+demonstrating\s+/gi, ' and shows ');
-    result = result.replace(/,\s+proving\s+/gi, ' and proves ');
-    
-    // Convert common AI relative clause loops (", thereby [verb]ing" -> " and [verb]ing")
-    result = result.replace(/,\s+thereby\s+([a-z]+)ing/gi, ' and $1ing');
-    result = result.replace(/,\s+thereby\s+/gi, ' and ');
-    result = result.replace(/,\s+ensuring\s+/gi, ' and ensuring ');
-    result = result.replace(/,\s+paving\s+the\s+way\s+for/gi, ' and opening doors for');
-    
-    // Clean up perfect participle leftovers (e.g. "Having transcended" -> "After transcending")
-    result = result.replace(/\bHaving\s+transcended\s+/gi, 'Once we move past ');
-    result = result.replace(/\bhaving\s+transcended\s+/gi, 'once we move past ');
-    
-    // 9. GRAMMAR FIXES (a vs an)
+    // Grammar checks (a vs an)
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
     result = result.replace(/\ban (useful|uniform|union|university|user|ubiquitous|unicorn)/gi, 'a $1');
 
-    // 10. SPACING & CAPITALIZATION NOISE ENGINE (Deterministic Spacing)
+    // Spacing
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\s{2,}/g, ' ');
     
-    // Capitalize only after genuine sentence-ending punctuation (safeguarding mid-sentence words)
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
-
-    // Injects double-spaces after periods programmatically (30% chance) to break machine Single-Spacing profiles
-    result = result.replace(/\.\s+/g, () => Math.random() > 0.7 ? '.  ' : '. ');
 
     return result.trim();
 }
 
 function postProcess(text) {
-    let result = text;
-    result = result.replace(/[''`´]/g, "'");
-    result = result.replace(/[""„]/g, '"');
-    
-    // Mechanically split excessively long sentences to vary structure length safely
+    let result = text.replace(/[''`´]/g, "'").replace(/[""„]/g, '"');
     result = injectBurstiness(result);
-    
     return cleanTextMechanics(result);
 }
 
-
 // ==========================================================================
-// 6. API HANDLER
+// MODULE 6: API HANDLER
 // ==========================================================================
-
-/**
- * Main API Route Handler
- */
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -543,7 +227,7 @@ export default async function handler(req, res) {
     resetGroqModelUsage();
 
     try {
-        const { text, apiKey, groqApiKey } = req.body;
+        const { text, apiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
 
         if (!text) throw new Error("No text provided.");
@@ -551,35 +235,18 @@ export default async function handler(req, res) {
 
         logs.push(`Input: ${text.length} chars`);
 
-        // Step 1: Initial word swaps on the full input
         let processed = applyWordSwaps(text);
-        logs.push('Applied banned word replacements');
 
-        // Step 2: Gemini Analysis Pass (Identify robotic sentences)
-        let plans = [];
-        try {
-            logs.push('Starting Gemini text analysis...');
-            plans = await analyzeText(processed, GEMINI_KEY);
-            logs.push(`Generated ${plans.length} restructuring plans.`);
-        } catch (err) {
-            logs.push(`Analysis failed (${err.message}), proceeding without plans.`);
-        }
-
-        const temperature = 0.7 + Math.random() * 0.3;
+        const temperature = 0.72 + Math.random() * 0.25;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Single-Pass Structural Reconstruction
-        // Bypassing chunking completely to allow Gemini to restructure paragraph and outline sequence
-        logs.push('Executing single-pass humanization to decouple logical outline...');
-        const prompt = buildFullTextPrompt(processed, plans);
-        const rawResult = await GeminiAPI.chat(prompt, GEMINI_KEY, temperature);
-        let result = rawResult.trim().replace(/^["']|["']$/g, '');
+        // Executing streamlined, single-pass humanization
+        logs.push('Executing single-pass humanization...');
+        let result = await runStyleHumanizer(processed, GEMINI_KEY, temperature);
 
-        // Step 4: Apply Post-Processing Swaps and Syntax Corrections
         result = postProcess(result);
-        logs.push('Applied master regex post-processing');
+        logs.push('Applied master post-processing');
 
-        // Calculate final stats and usage
         const totalTimeMs = Date.now() - startTime;
         logs.push(`Final: ${result.length} chars`);
 
@@ -601,11 +268,7 @@ export default async function handler(req, res) {
                 totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
                 modelsUsed: formatUsage(geminiUsage)
             },
-            groq: {
-                totalCalls: 0,
-                modelsUsed: [],
-                fixesApplied: { restructures: 0 }
-            }
+            groq: { totalCalls: 0, modelsUsed: [] }
         };
 
         return res.status(200).json({ 
@@ -618,7 +281,6 @@ export default async function handler(req, res) {
     } catch (error) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`ERROR: ${error.message}`);
-        
         const geminiUsage = getGeminiUsage() || {};
         const formatUsage = (usage) => Object.entries(usage).map(([model, stats]) => `${model} (${stats.success} ok, ${stats.failed} fail)`);
         
@@ -632,10 +294,7 @@ export default async function handler(req, res) {
                     totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
                     modelsUsed: formatUsage(geminiUsage)
                 },
-                groq: {
-                    totalCalls: 0,
-                    modelsUsed: []
-                }
+                groq: { totalCalls: 0, modelsUsed: [] }
             }
         });
     }
