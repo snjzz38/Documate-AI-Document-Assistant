@@ -463,7 +463,7 @@ export default async function handler(req, res) {
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
         // DYNAMIC QUOTES ROUTER — Multi-purpose gate compatible with both manual Sidebar and Swarm Agent contexts [1]
-        const isQuotesMode = outputType === 'quotes' || (preLoadedSources?.length && !['in-text', 'footnotes', 'bibliography'].includes(outputType));
+        const isQuotesMode = preLoadedSources?.length && !isAgent;
 
         if (isQuotesMode) {
             let targetSources = [];
@@ -495,21 +495,17 @@ export default async function handler(req, res) {
                 return `[${i + 1}] ${s.title}\nURL: ${s.link || s.url}\nCONTENT:\n${content}`;
             }).join('\n\n---\n\n');
 
-            // Formulate high-relevance prompt to extract quotes aligning with and supporting the user's argument [1]
-            const prompt = `You are an academic researcher. Extract exactly 1-2 powerful, direct verbatim quotes from each source's CONTENT that directly align with and support the user's core argument or topic.
-
-USER'S CONTEXT / ARGUMENT:
-"${context || 'general research'}"
+            // RESTORED: Lightweight, highly reliable Quotes Prompt (completely avoids context window bloat) [1]
+            const prompt = `Extract 1-3 verbatim quotes from EACH source.
 
 SOURCES:
 ${srcList}
 
 RULES:
 1. Quotes must be EXACT text from CONTENT - word for word
-2. Select quotes that are highly relevant to and support the USER'S CONTEXT above
-3. Each quote must be 1-4 sentences
-4. Use full URLs provided
-5. STRICT RELEVANCE GATE: You must evaluate if the source's core subject directly matches the user's specific argument or research focus. If a source is about an unrelated topic (such as global biodiversity reports, marine biology, prison life, or academic harassment), you MUST silently skip it. Do NOT write explanations, excuses, or notes about skipped sources.
+2. Each quote: 1-4 sentences
+3. Use FULL URL provided
+4. Skip sources with no usable content
 
 FORMAT:
 **[1] Title** - URL
