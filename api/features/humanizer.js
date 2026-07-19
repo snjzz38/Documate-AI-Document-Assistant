@@ -231,6 +231,7 @@ export default async function handler(req, res) {
     try {
         const { text, apiKey } = req.body;
         const GEMINI_KEY = apiKey || process.env.GEMINI_API_KEY;
+        const GROQ_KEY = process.env.GROQ_API_KEY;
 
         if (!text) throw new Error("No text provided.");
         if (!GEMINI_KEY) throw new Error("No Gemini API key provided.");
@@ -252,17 +253,36 @@ export default async function handler(req, res) {
         const temperature = 0.72 + Math.random() * 0.25;
         logs.push(`Temperature: ${temperature.toFixed(2)}`);
 
-        // Step 3: Executing streamlined, single-pass humanization
-        logs.push('Executing single-pass humanization...');
+        // Step 3: Primary Humanization Pass (Gemini)
+        logs.push('Executing primary humanization pass...');
         let result = await runStyleHumanizer(processed, GEMINI_KEY, temperature);
 
-        // Step 4: Programmatically restore the exact original citations back into their placeholders [1]
+        // Step 4: Secondary Dual-Model Cross-Scrambler Pass (Groq / Llama-4) [1.2.1]
+        // Runs Gemini's output through a different model family to completely shatter standard commercial AI tells [1.1.9, 1.2.1]
+        if (GROQ_KEY) {
+            logs.push('Executing secondary dual-model cross-scrambler pass via Groq...');
+            const scramblerPrompt = `You are a human academic editor. Rewrite the following text to completely disrupt any robotic or AI writing signatures.
+
+TEXT TO EDIT:
+"${result}"
+
+RULES:
+1. Write in a highly natural, organic, and slightly imperfect academic voice.
+2. Completely break up any perfectly symmetrical clauses.
+3. Use direct, active, and conversational explanations.
+4. Absolutely do NOT alter, translate, or delete any bracketed placeholders like "[CITE_0]" or "[CITE_1]". Keep them exactly where they are in their sentences.
+5. Output ONLY the rewritten text itself. No intros or explanations.`;
+
+            result = await GroqAPI.chat([{ role: 'user', content: scramblerPrompt }], GROQ_KEY, false);
+        }
+
+        // Step 5: Programmatically restore the exact original citations back into their placeholders [1]
         citationsMap.forEach(item => {
             result = result.split(item.placeholder).join(' ' + item.original + ' ');
         });
         logs.push('Restored all parenthetical citations.');
 
-        // Step 5: Clean mechanics and spacing around the restored citations [1]
+        // Step 6: Clean mechanics, punctuation spacing, and non-listing colons around the restored citations [1]
         result = postProcess(result);
         logs.push('Applied master post-processing');
 
@@ -288,7 +308,7 @@ export default async function handler(req, res) {
                 totalCalls: Object.values(geminiUsage).reduce((acc, m) => acc + m.success + m.failed, 0),
                 modelsUsed: formatUsage(geminiUsage)
             },
-            groq: { totalCalls: 0, modelsUsed: [] }
+            groq: { totalCalls: GROQ_KEY ? 1 : 0, modelsUsed: [] }
         };
 
         return res.status(200).json({ 

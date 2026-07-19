@@ -462,8 +462,8 @@ export default async function handler(req, res) {
         
         const OPENALEX = process.env.OPENALEX_API_KEY;
 
-        // DYNAMIC QUOTES ROUTER — Triggers if pre-loaded sources are present, UNLESS it's an Agent Citation step [1]
-        const isQuotesMode = preLoadedSources?.length && !isAgent;
+        // DYNAMIC QUOTES ROUTER — Multi-purpose gate compatible with both manual Sidebar and Swarm Agent contexts [1]
+        const isQuotesMode = outputType === 'quotes' || (preLoadedSources?.length && !['in-text', 'footnotes', 'bibliography'].includes(outputType));
 
         if (isQuotesMode) {
             let targetSources = [];
@@ -509,7 +509,7 @@ RULES:
 2. Select quotes that are highly relevant to and support the USER'S CONTEXT above
 3. Each quote must be 1-4 sentences
 4. Use full URLs provided
-5. Skip sources with no usable content
+5. STRICT RELEVANCE GATE: You must evaluate if the source's core subject directly matches the user's specific argument or research focus. If a source is about an unrelated topic (such as global biodiversity reports, marine biology, prison life, or academic harassment), you MUST silently skip it. Do NOT write explanations, excuses, or notes about skipped sources.
 
 FORMAT:
 **[1] Title** - URL
