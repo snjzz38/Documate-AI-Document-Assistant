@@ -104,12 +104,12 @@ function mechanicalCommaBreaker(text) {
 function buildFullTextPrompt(text) {
     return `You are an elite academic writer drafting a paper for a peer-reviewed journal. 
 Your goal is to execute a RADICAL, Turnitin-evading structural humanization. 
-Do not write clinically complex "AI synonyms," and do NOT write in an elementary or simplified grade-school style. Use standard, highly fluent, and mature academic English [1, 3].
+Do not write with high-level, clinically complex "AI synonyms," and do NOT write in an elementary grade-school style. Use standard, highly fluent, and mature academic English [1, 3].
 
 GOLDEN STANDARD REORGANIZATION EXAMPLE (Turnitin Bypass Score: 0%) [3]:
 - Original AI Draft: 
-  "The contemporary democratic landscape is defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]. This shift is characterized by a visceral, affective hostility between opposing groups, which threatens the foundational norms of democratic deliberation and consensus-building [CITE_2]."
-- Professional Humanizer Rewrite:
+  "The contemporary democratic landscape is defined by a profound paradox: while digital technologies have drastically reduced the barriers to information access and public discourse, [CITE_0] they have simultaneously facilitated unprecedented levels of societal fragmentation. Political polarization, once largely confined to institutional legislative bodies, has permeated the daily social fabric of established democracies [CITE_1]."
+- Professional Humanizer Rewrite (Your target structure and tone):
   "The modern world presents a paradox, as the digital age, expected to bring information to everyone, has actually fragmented society’s discourse. Political polarization, once confined to parliaments, has invaded the streets of democracies. Societies are no longer united by shared values, with social media fueling unhealthy and unproductive divisions of the public into separate ideological camps [CITE_2]. Such a rift is dangerous to the extent that democratic decision-making processes and their outcomes may be compromised. To speak of social media’s impact on politics is to speak of its direct influence on citizens [CITE_0]. Users of such platforms are not empowered to shape opinions freely because political decisions are subject to the platforms’ rules. In other words, social media companies exercise a certain level of control over their clients’ choices, which should concern everyone [CITE_1]."
 
 DRAFT TO REWRITE:
@@ -117,11 +117,12 @@ DRAFT TO REWRITE:
 
 HUMANIZATION RULES — STRONGLY ENFORCED FOR AI DETECTOR EVASION:
 1. THE FLUENT SCHOLARLY REGISTER: Write in a highly mature, intellectual, and analytical essayist tone. Avoid both over-inflated AI-buzzwords (do NOT use words like "precipitated", "encroaching", "dismantled", "scaffolding", "periphery", "conduits") AND over-simplified grade-school phrasings (do NOT write "split into pieces", "stay inside buildings", "just for fun", "rules of the game"). Use standard, precise academic words (like "polarization", "discourse", "autonomy", "consensus", "deliberation", "algorithms", "fragmentation") [3].
-2. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite is a failure. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
-3. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
-4. RHETORICAL TRANSITIONS: Write naturally as if explaining a concept during a lecture. Use fluid rhetorical transitions (such as "To speak of X is to speak of Y", "In other words", "In fact", "What this means is", "But the problem stems from") [3].
-5. ABSOLUTE BAN ON COLONS: Do not use colons as stylistic clause joiners or punctuation markers. Break those thoughts into separate sentences or use semicolons instead.
-6. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
+2. SYNTACTIC ASYMMETRY & ABSOLUTE CLAUSES: Avoid perfectly balanced, clinical clauses. Use asymmetric clauses and absolute phrases to mimic natural human speech (e.g., "...with social media fueling divisions...", "...making compromise difficult").
+3. RHETORICAL BRIDGES & TRANSITIONS: Use natural, conversational-academic transitions (such as "To speak of X is to speak of Y", "In other words", "In fact", "What this means is", "But the problem stems from") [3].
+4. SHATTER THE ORIGINAL TEMPLATE: If your output has the same sentence count, sentence flow, or structural sequence as the original draft, your rewrite is a failure. You must completely reorganize the structure, invert the logical flow, combine separate ideas, and write an entirely new narrative from scratch.
+5. CITATION BINDING INTEGRITY: Ensure that every bracketed "[CITE_X]" token remains firmly embedded in its original corresponding sentence/claim. As you radically reorganize and move sentences to different positions, those "[CITE_X]" tokens must travel with their respective claims so they remain semantically relevant.
+6. ABSOLUTE BAN ON COLONS: Do not use colons as stylistic clause joiners or punctuation markers. Break those thoughts into separate sentences or use semicolons instead.
+7. Do NOT include any references or reference lists in your output. Output ONLY the rewritten text itself.`;
 }
 
 // ==========================================================================
