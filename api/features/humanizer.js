@@ -121,15 +121,18 @@ function segmentText(text, targetSentenceCount = 10) {
 }
 
 /**
- * Replaces exact sentences inside a text block using the generated JSON map.
+ * Replaces exact sentences inside a text block, ignoring minor whitespace or spacing variations.
  */
 function applySentenceReplacements(text, replacementMap) {
     let result = text;
     for (const [original, replacement] of Object.entries(replacementMap)) {
         if (!original || !replacement || original.trim() === replacement.trim()) continue;
         
-        // Escape characters for exact literal matches
-        const escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        // 1. Escape regex characters
+        let escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        // 2. Convert all literal spaces into a whitespace-insensitive check (\s+)
+        escapedOriginal = escapedOriginal.replace(/\s+/g, '\\s+');
+        
         const regex = new RegExp(escapedOriginal, 'g');
         result = result.replace(regex, replacement);
     }
@@ -137,18 +140,21 @@ function applySentenceReplacements(text, replacementMap) {
 }
 
 /**
- * Replaces specific words or phrases matching boundaries, preserving capitalization.
+ * Replaces specific words or phrases, ignoring minor spacing/line breaks inside phrases.
  */
 function applyLexicalReplacements(text, replacementMap) {
     let result = text;
     for (const [original, replacement] of Object.entries(replacementMap)) {
         if (!original || !replacement || original.trim() === replacement.trim()) continue;
 
-        const escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        let escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        escapedOriginal = escapedOriginal.replace(/\s+/g, '\\s+');
+        
         const isWord = /^\w/.test(original) && /\w$/.test(original);
         const regex = isWord ? new RegExp(`\\b${escapedOriginal}\\b`, 'gi') : new RegExp(escapedOriginal, 'gi');
 
         result = result.replace(regex, (match) => {
+            // Maintain capitalization of first letter if applicable
             if (match[0] === match[0].toUpperCase()) {
                 return replacement.charAt(0).toUpperCase() + replacement.slice(1);
             }
