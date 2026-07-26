@@ -84,7 +84,7 @@ const TRANSITION_POOLS = {
 };
 
 // ==========================================================================
-// MODULE 2: TEXT UTILITIES & SEGMENTATION
+// MODULE 2: TEXT UTILITIES & SEGMENTATION (UPGRADED)
 // ==========================================================================
 
 /**
@@ -107,15 +107,25 @@ function parseJSONResponse(text) {
 }
 
 /**
- * Splits text into segments containing up to targetSentenceCount sentences.
+ * Smarter balanced segmenter to ensure we do not leave orphaned single sentences
+ * in a tail section, which leads to repetitive AI summaries.
  */
-function segmentText(text, targetSentenceCount = 10) {
-    // Splits on sentence-ending punctuation followed by whitespace, maintaining the punctuation
+function segmentText(text, targetSentenceCount = 8) {
     const sentences = text.match(/[^.!?]+[.!?]+(?:["'”’]?\s*|$)/g) || [text];
-    const sections = [];
+    const totalSentences = sentences.length;
     
-    for (let i = 0; i < sentences.length; i += targetSentenceCount) {
-        sections.push(sentences.slice(i, i + targetSentenceCount).join(' ').trim());
+    // If the text is short enough, process it as a single coherent section
+    if (totalSentences <= targetSentenceCount + 2) {
+        return [text.trim()];
+    }
+    
+    // Balanced chunk distribution
+    const numChunks = Math.ceil(totalSentences / targetSentenceCount);
+    const sentencesPerChunk = Math.ceil(totalSentences / numChunks);
+    
+    const sections = [];
+    for (let i = 0; i < totalSentences; i += sentencesPerChunk) {
+        sections.push(sentences.slice(i, i + sentencesPerChunk).join(' ').trim());
     }
     return sections;
 }
@@ -128,9 +138,7 @@ function applySentenceReplacements(text, replacementMap) {
     for (const [original, replacement] of Object.entries(replacementMap)) {
         if (!original || !replacement || original.trim() === replacement.trim()) continue;
         
-        // 1. Escape regex characters
         let escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        // 2. Convert all literal spaces into a whitespace-insensitive check (\s+)
         escapedOriginal = escapedOriginal.replace(/\s+/g, '\\s+');
         
         const regex = new RegExp(escapedOriginal, 'g');
@@ -140,7 +148,7 @@ function applySentenceReplacements(text, replacementMap) {
 }
 
 /**
- * Replaces specific words or phrases, ignoring minor spacing/line breaks inside phrases.
+ * Replaces specific words or short phrases, ignoring minor spacing variations.
  */
 function applyLexicalReplacements(text, replacementMap) {
     let result = text;
@@ -154,7 +162,6 @@ function applyLexicalReplacements(text, replacementMap) {
         const regex = isWord ? new RegExp(`\\b${escapedOriginal}\\b`, 'gi') : new RegExp(escapedOriginal, 'gi');
 
         result = result.replace(regex, (match) => {
-            // Maintain capitalization of first letter if applicable
             if (match[0] === match[0].toUpperCase()) {
                 return replacement.charAt(0).toUpperCase() + replacement.slice(1);
             }
@@ -252,12 +259,11 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
 }
 
 // ==========================================================================
-// MODULE 4: PIPELINE CONTEXT TRANSFORMATIONS (Gemini / Groq)
+// MODULE 4: PIPELINE CONTEXT TRANSFORMATIONS (UPGRADED)
 // ==========================================================================
 
 /**
  * Step 2.1: Sentence structural restructuring.
- * Returns both the generated prompts/outputs and the structured mapping.
  */
 async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
@@ -272,10 +278,10 @@ ${contextStr}CURRENT SECTION TO REWRITE:
 "${currentSection}"
 
 INSTRUCTIONS:
-1. Identify 40% to 50% of the sentences in the CURRENT SECTION that sound structurally robotic or formulaic.
-2. Completely restructure them. Flip Subject-Verb-Object (SVO) structures, transform passive to active, change participial phrases, or break winding sentences down.
+1. Identify 40% to 50% of the sentences in the CURRENT SECTION that sound structurally robotic, formulaic, or overly structured.
+2. Completely restructure them. Flip Subject-Verb-Object (SVO) structures, transform passive to active, or break winding sentences down.
 3. Ensure the sentence flows seamlessly with the PREVIOUS SECTION (if provided).
-4. All CITATION placeholders (like [CITE_0]) must remain in the exact sentences they originated in.
+4. CITATION REQUIREMENT: If the original sentence contains a citation token like [CITE_x], you MUST place that EXACT [CITE_x] token inside your restructured sentence, positioned naturally before the final period (e.g., "...with social media driving division [CITE_0]."). Do not append it outside the sentence or drop it.
 5. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark) so they can be parsed correctly.
 
 Respond with ONLY a valid raw JSON object. Do not include markdown or conversational introductions. Match this format exactly:
@@ -300,13 +306,13 @@ Respond with ONLY a valid raw JSON object. Do not include markdown or conversati
 
 /**
  * Step 2.2: Lexical substitutions.
- * Returns both the generated prompts/outputs and the structured mapping.
+ * Strictly configured to avoid overwriting structural passes or isolating citations.
  */
 async function getLexicalSubstitutions(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
     const guidelines = FORMALITY_GUIDELINES[formality];
 
-    const prompt = `You are a copyeditor replacing robotic words or phrases with natural equivalents.
+    const prompt = `You are a copyeditor replacing robotic words or short phrases with natural equivalents.
 Goal of Text: ${coreIdea}
 Formality Level: ${formality} (${guidelines.tone})
 Style Directive: ${sectionStyle.directive}
@@ -316,15 +322,14 @@ ${contextStr}CURRENT SECTION TO EDIT:
 
 INSTRUCTIONS:
 1. Locate stiff, overly formal words or repetitive writing patterns common in AI text.
-2. Replace them with fitting alternatives based on the "${formality}" style:
-   - Instead of AI words like "facilitate", "utilize", "tapestry", "foster", "testament", "optimize", "delve" or "leverage", choose fitting but less cliché alternatives (e.g., "use", "make", "rich system", "proof", "explore").
-   - Instead of "delving into a topic", use natural variants like "let's examine this" or "looking closer at this".
-3. Use uncommon, precise, and contextually matching words for professional/academic formality, and simpler, friendly choices for basic/semi-academic settings.
-4. Output ONLY a valid JSON object mapping the exact string to be replaced to its replacement. Do not include codeblocks.
+2. Replace them with fitting alternatives based on the "${formality}" style.
+3. STRICT WORD-LEVEL REQUIREMENT: You must ONLY match and replace INDIVIDUAL WORDS or SHORT PHRASES (maximum 3 words). Do NOT match or replace full clauses, complete sentences, or segments containing punctuation or citation tokens like [CITE_x]. 
+4. Do not overwrite the sentence structures built in the previous pass. Only map small terms (e.g., "facilitate" -> "drive", "utilize" -> "employ", "delving into" -> "exploring", "testament" -> "proof").
+5. Output ONLY a valid JSON object mapping the exact word/phrase to its replacement.
 
 Format:
 {
-  "robotic Word Or Phrase": "natural replacement"
+  "robotic word": "natural word"
 }`;
 
     vercelLog('lexical_substitutions_prompt', prompt);
@@ -343,7 +348,7 @@ Format:
 }
 
 // ==========================================================================
-// MODULE 5: STOCHASTIC POST-PROCESSING & CLEANUP
+// MODULE 5: STOCHASTIC POST-PROCESSING & CLEANUP (UPGRADED)
 // ==========================================================================
 
 function applyStochasticTransitions(text, replacementProbability = 0.25) {
@@ -356,9 +361,7 @@ function applyStochasticTransitions(text, replacementProbability = 0.25) {
             if (Math.random() > replacementProbability) return match;
             
             const replacement = pool[Math.floor(Math.random() * pool.length)];
-            if (replacement === null) {
-                return ''; // Omit transition
-            }
+            if (replacement === null) return '';
             
             if (match[0] === match[0].toUpperCase()) {
                 return replacement.charAt(0).toUpperCase() + replacement.slice(1);
@@ -400,18 +403,34 @@ function applySurfaceVariation(text) {
     return result;
 }
 
+/**
+ * Upgraded recovery engine to systematically clean up formatting errors,
+ * trailing commas/periods, and orphaned syntax chunks near citations.
+ */
 function conservativeCleanup(text) {
     let result = text;
     
+    // 1. Fix punctuation immediately preceding parenthetical citations (e.g., "fracturing., (Zuiderveen)" -> "fracturing, (Zuiderveen)")
+    result = result.replace(/\.,\s*\(/g, ', (');
+    result = result.replace(/,\.\s*\(/g, ', (');
+    result = result.replace(/\s*,\s*,\s*\(/g, ', (');
+    
+    // 2. Fix citations trailing outside sentence periods (e.g., "debate. (Aytac, 2022) and consensus." -> "debate (Aytac, 2022) and consensus.")
+    result = result.replace(/\b([a-zA-Z]+)\s*\.\s*\(\s*([^)]+)\s*\)\s*and\b/gi, '$1 ($2) and');
+    
+    // 3. Fix double periods around citations (e.g., "citizens. (Aytac, 2022)." -> "citizens (Aytac, 2022).")
+    result = result.replace(/\b([a-zA-Z]+)\s*\.\s*\(\s*([^)]+)\s*\)\s*\./gi, '$1 ($2).');
+    
+    // 4. Fix double punctuation or repeating patterns
     result = result.replace(/\s+([.,;:!?])/g, '$1');
     result = result.replace(/,([a-zA-Z])/g, ', $1');
     result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\.{2,}/g, '.');
     result = result.replace(/,{2,}/g, ',');
     
+    // 5. Native English Grammar & spacing
     result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
     result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    
     result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
     result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
     
