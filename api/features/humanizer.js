@@ -437,7 +437,7 @@ function postProcess(text) {
 }
 
 // ==========================================================================
-// MODULE 6: SAFE API HANDLER (UPGRADED)
+// MODULE 6: SAFE SEGMENTATION-FIRST API HANDLER (UPGRADED)
 // ==========================================================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -468,16 +468,11 @@ export default async function handler(req, res) {
         logs.push(`Input text size: ${text.length} characters.`);
         vercelLog('input_text_raw', text);
 
-        // Step 1: Pre-process citations & extract writing structure
-        const { processed: maskedText, citationsMap } = maskCitations(text);
-        logs.push(`Masked ${citationsMap.length} citations for protection.`);
-        vercelLog('masked_text_and_citations', { maskedText, citationsMap });
-
-        // Step 2: Classify Formality Level via Groq
+        // Step 1: Classify Formality Level via Groq on pristine original text
         logs.push("Running step 1: Formality classification and concept detection (Groq)...");
         let classResult;
         try {
-            classResult = await classifyText(maskedText, GROQ_KEY);
+            classResult = await classifyText(text, GROQ_KEY);
         } catch (classErr) {
             logs.push(`Critical error: classification pass failed. Falling back to semi-academic. Error: ${classErr.message}`);
             classResult = {
@@ -489,21 +484,27 @@ export default async function handler(req, res) {
         debugInfo.classification = classResult;
         logs.push(`Classification success. Formality: ${formality}. Core Idea: "${coreIdea}"`);
 
-        // Step 3: Segment document into balanced units
-        const sections = segmentText(maskedText, 8);
-        logs.push(`Segmented text into ${sections.length} balanced section(s).`);
+        // Step 2: Segment the pristine original text to ensure citations and periods remain united
+        const sections = segmentText(text, 8);
+        logs.push(`Segmented pristine text into ${sections.length} balanced section(s).`);
         vercelLog('segmented_sections', sections);
 
         const processedSections = [];
 
         // Loop through segments performing dual structural & lexical edits safely
         for (let i = 0; i < sections.length; i++) {
-            const currentSection = sections[i];
-            const previousSection = i > 0 ? sections[i - 1] : null;
+            const rawSection = sections[i];
             const styleVariation = SECTION_STYLES[i % SECTION_STYLES.length];
             
             logs.push(`Processing Section ${i + 1}/${sections.length} with style "${styleVariation.name}"`);
             
+            // Mask citations locally for this section to prevent global out-of-bounds leaks
+            const { processed: currentSection, citationsMap } = maskCitations(rawSection);
+            
+            const previousSectionRaw = i > 0 ? sections[i - 1] : null;
+            // Mask previous section locally for context safety
+            const previousSection = previousSectionRaw ? maskCitations(previousSectionRaw).processed : null;
+
             const sectionDiagnostics = {
                 sectionIndex: i,
                 originalText: currentSection,
@@ -531,7 +532,7 @@ export default async function handler(req, res) {
                 }
             } catch (err) {
                 logs.push(`Warning: Structural restructuring failed on Section ${i + 1}. Falling back to default section text.`);
-                structuralMap = {}; // Reset to safe empty state
+                structuralMap = {}; // Safe empty state
                 sectionDiagnostics.structural = { error: err.message };
             }
 
@@ -556,23 +557,24 @@ export default async function handler(req, res) {
                 }
             } catch (err) {
                 logs.push(`Warning: Lexical substitution failed on Section ${i + 1}. Falling back to clean structural state.`);
-                lexicalMap = {}; // Reset to safe empty state
+                lexicalMap = {}; // Safe empty state
                 sectionDiagnostics.lexical = { error: err.message };
             }
 
             let finalizedSection = applyLexicalReplacements(restructuredSection, lexicalMap);
-            vercelLog(`section_${i}_finalized_result`, finalizedSection);
             
-            sectionDiagnostics.finalText = finalizedSection;
+            // Restore citations locally inside the section boundary
+            let restoredSection = restoreCitations(finalizedSection, citationsMap);
+            vercelLog(`section_${i}_finalized_result_restored`, restoredSection);
+            
+            sectionDiagnostics.finalText = restoredSection;
             debugInfo.sections.push(sectionDiagnostics);
             
-            processedSections.push(finalizedSection);
+            processedSections.push(restoredSection);
         }
 
-        // Combine segments and restore citations
+        // Combine segments
         let resultText = processedSections.join(' ');
-        resultText = restoreCitations(resultText, citationsMap);
-        logs.push("Citations restored successfully.");
 
         // Post-processing cleanup
         resultText = postProcess(resultText);
