@@ -258,93 +258,36 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
     }
 }
 
-// ==========================================================================
-// MODULE 4: PIPELINE CONTEXT TRANSFORMATIONS (UPGRADED)
-// ==========================================================================
-
-/**
- * Step 2.1: Sentence structural restructuring.
- */
 async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
     const guidelines = FORMALITY_GUIDELINES[formality];
 
-    const prompt = `You are a professional editor performing sentence restructuring on a draft.
+    const prompt = `You are an expert academic editor restructuring a draft.
 Goal of Text: ${coreIdea}
 Formality Level: ${formality} (${guidelines.tone})
-Style Directive: ${sectionStyle.directive}
+Style Variation: ${sectionStyle.directive}
 
 ${contextStr}CURRENT SECTION TO REWRITE:
 "${currentSection}"
 
+STRICT COMPATIBILITY RULE:
+You must synthesize the "Formality Level" with the "Style Variation". 
+While executing sentence reordering, SVO flips, or sentence splitting, do NOT drop below the established "${formality}" register. Under no circumstances should you use overly conversational, simplified, or grade-school expressions (such as "help us talk" or "how we think as voters") if the target register is academic or semi-academic. Maintain intellectual rigor.
+
 INSTRUCTIONS:
-1. Identify 40% to 50% of the sentences in the CURRENT SECTION that sound structurally robotic, formulaic, or overly structured.
-2. Completely restructure them. Flip Subject-Verb-Object (SVO) structures, transform passive to active, or break winding sentences down.
+1. Identify 40% to 50% of the sentences in the CURRENT SECTION that sound structurally robotic or formulaic.
+2. Completely restructure them to create asymmetric clause structures and human variance.
 3. Ensure the sentence flows seamlessly with the PREVIOUS SECTION (if provided).
-4. CITATION REQUIREMENT: If the original sentence contains a citation token like [CITE_x], you MUST place that EXACT [CITE_x] token inside your restructured sentence, positioned naturally before the final period (e.g., "...with social media driving division [CITE_0]."). Do not append it outside the sentence or drop it.
+4. All CITATION placeholders (like [CITE_x]) must remain in the exact sentences they originated in.
 5. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark) so they can be parsed correctly.
 
-Respond with ONLY a valid raw JSON object. Do not include markdown or conversational introductions. Match this format exactly:
+Respond with ONLY a valid raw JSON object. Match this format exactly:
 {
   "Verbatim original sentence here.": "Restructured, elegant, and natural replacement sentence here."
 }`;
 
-    vercelLog('structural_restructure_prompt', prompt);
-
     const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
-    vercelLog('structural_restructure_raw_response', rawResponse);
-
-    try {
-        const parsed = parseJSONResponse(rawResponse.trim());
-        vercelLog('structural_restructure_parsed', parsed);
-        return { prompt, rawResponse, parsed };
-    } catch (err) {
-        vercelLog('structural_restructure_parse_error', err.message);
-        throw err;
-    }
-}
-
-/**
- * Step 2.2: Lexical substitutions.
- * Strictly configured to avoid overwriting structural passes or isolating citations.
- */
-async function getLexicalSubstitutions(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
-    const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
-    const guidelines = FORMALITY_GUIDELINES[formality];
-
-    const prompt = `You are a copyeditor replacing robotic words or short phrases with natural equivalents.
-Goal of Text: ${coreIdea}
-Formality Level: ${formality} (${guidelines.tone})
-Style Directive: ${sectionStyle.directive}
-
-${contextStr}CURRENT SECTION TO EDIT:
-"${currentSection}"
-
-INSTRUCTIONS:
-1. Locate stiff, overly formal words or repetitive writing patterns common in AI text.
-2. Replace them with fitting alternatives based on the "${formality}" style.
-3. STRICT WORD-LEVEL REQUIREMENT: You must ONLY match and replace INDIVIDUAL WORDS or SHORT PHRASES (maximum 3 words). Do NOT match or replace full clauses, complete sentences, or segments containing punctuation or citation tokens like [CITE_x]. 
-4. Do not overwrite the sentence structures built in the previous pass. Only map small terms (e.g., "facilitate" -> "drive", "utilize" -> "employ", "delving into" -> "exploring", "testament" -> "proof").
-5. Output ONLY a valid JSON object mapping the exact word/phrase to its replacement.
-
-Format:
-{
-  "robotic word": "natural word"
-}`;
-
-    vercelLog('lexical_substitutions_prompt', prompt);
-
-    const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
-    vercelLog('lexical_substitutions_raw_response', rawResponse);
-
-    try {
-        const parsed = parseJSONResponse(rawResponse.trim());
-        vercelLog('lexical_substitutions_parsed', parsed);
-        return { prompt, rawResponse, parsed };
-    } catch (err) {
-        vercelLog('lexical_substitutions_parse_error', err.message);
-        throw err;
-    }
+    return parseJSONResponse(rawResponse.trim());
 }
 
 // ==========================================================================
@@ -409,34 +352,28 @@ function applySurfaceVariation(text) {
  */
 function conservativeCleanup(text) {
     let result = text;
-    
-    // 1. Fix punctuation immediately preceding parenthetical citations (e.g., "fracturing., (Zuiderveen)" -> "fracturing, (Zuiderveen)")
-    result = result.replace(/\.,\s*\(/g, ', (');
-    result = result.replace(/,\.\s*\(/g, ', (');
-    result = result.replace(/\s*,\s*,\s*\(/g, ', (');
-    
-    // 2. Fix citations trailing outside sentence periods (e.g., "debate. (Aytac, 2022) and consensus." -> "debate (Aytac, 2022) and consensus.")
-    result = result.replace(/\b([a-zA-Z]+)\s*\.\s*\(\s*([^)]+)\s*\)\s*and\b/gi, '$1 ($2) and');
-    
-    // 3. Fix double periods around citations (e.g., "citizens. (Aytac, 2022)." -> "citizens (Aytac, 2022).")
-    result = result.replace(/\b([a-zA-Z]+)\s*\.\s*\(\s*([^)]+)\s*\)\s*\./gi, '$1 ($2).');
-    
-    // 4. Fix double punctuation or repeating patterns
+
+    // 1. HEAL FRACTURED SENTENCES:
+    // If a period is followed by a parenthetical citation and a lowercase letter (e.g., "...debate. (Aytac, 2022) and..."),
+    // it means the sentence was incorrectly split. This removes the rogue period.
+    result = result.replace(/\b([a-zA-Z]+)\.\s*(\([^)]+\))\s+([a-z])/g, "$1 $2 $3");
+
+    // 2. HEAL DOUBLE PERIODS:
+    // If there is a period before AND after a parenthetical citation (e.g., "citizens. (Aytac, 2022)."),
+    // remove the first one to keep normal citation structure.
+    result = result.replace(/\b([a-zA-Z]+)\.\s*(\([^)]+\))\s*\./g, "$1 $2.");
+
+    // 3. HEAL CLASHING CLAUSTRAL PUNCTUATION:
+    // Resolves rogue period-comma boundaries (e.g., "fracturing., (Zuiderveen)") by converting them 
+    // to a unified trailing citation structure.
+    result = result.replace(/\b([a-zA-Z]+)\.,\s*(\([^)]+\))/g, "$1 $2.");
+
+    // 4. CLEANUP DOUBLE PUNCTUATION & SPACES:
     result = result.replace(/\s+([.,;:!?])/g, '$1');
-    result = result.replace(/,([a-zA-Z])/g, ', $1');
-    result = result.replace(/\.([a-zA-Z])/g, '. $1');
     result = result.replace(/\.{2,}/g, '.');
     result = result.replace(/,{2,}/g, ',');
-    
-    // 5. Native English Grammar & spacing
-    result = result.replace(/\ba ([aeiouAEIOU])/g, 'an $1');
-    result = result.replace(/\ban ([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])/g, 'a $1');
-    result = result.replace(/([.!?]\s+)([a-z])/g, (m, punct, letter) => `${punct}${letter.toUpperCase()}`);
-    result = result.replace(/^([a-z])/, (m, letter) => letter.toUpperCase());
-    
     result = result.replace(/\s{2,}/g, ' ');
-    result = result.replace(/\s+([)\]])/g, '$1');
-    
+
     return result.trim();
 }
 
