@@ -315,7 +315,7 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
 
 /**
  * Step 2.1: Sentence structural restructuring.
- * Now includes strict rules to eliminate parenthetical appositives and split passive modifiers.
+ * Now includes strict rules to vary sentence length (burstiness) and diversify transitions.
  */
 async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
@@ -329,12 +329,13 @@ Style Directive: ${sectionStyle.directive}
 ${contextStr}CURRENT SECTION TO REWRITE:
 "${currentSection}"
 
-STRICT SYNTAX RULES:
-1. ELIMINATE PASSIVE APPOSITIVES AND PARTICIPIAL CLAUSES. Do not use parenthetical description traps separated by commas (e.g., "X, once largely confined to Y, has permeated Z..."). Instead, split these into direct, active, sequential clauses (e.g., "X used to be limited to Y, but today it has worked its way into Z.").
-2. NO SENTENCE-INTERRUPTING MODIFIERS. Do not interrupt the logical flow of a sentence with mid-sentence descriptions. Keep sentences moving forward.
-3. VARY RHYTHM. Break complex, winding academic sentences down into clear, single-concept sentences mixed with longer, natural compound clauses.
-4. CITATION REQUIREMENT: If the original sentence contains a citation token like [CITE_x], you MUST place that EXACT [CITE_x] token inside your restructured sentence, positioned naturally before the final period (e.g., "...with social media driving division [CITE_0]."). Do not append it outside the sentence or drop it.
-5. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark).
+STRICT SYNTAX & CADENCE RULES:
+1. MAXIMIZE SENTENCE-LENGTH DIVERSITY (BURSTINESS). Do not write sentences of uniform length. Mix very short sentences (4-8 words) with longer compound-complex sentences (25-35 words) to establish a natural narrative rhythm.
+2. VARY SENTENCE OPENERS. Do not start consecutive sentences with the same pattern (avoid multiple sentences in a row starting with the subject like "This environment...", "These platforms...", "They frequently..."). Start some sentences with subordinate clauses, prepositional phrases, or active gerunds.
+3. ELIMINATE PASSIVE APPOSITIVES. Do not use parenthetical description traps separated by commas (e.g., "X, once largely confined to Y, has permeated Z..."). Instead, split these into direct, active, sequential clauses (e.g., "X used to be limited to Y, but today it has worked its way into Z.").
+4. DIVERSIFY TRANSITIONS. Avoid starting sentences with repetitive AI transitional markers like "Yet,", "Therefore,", "Furthermore,", or "However,". Instead, integrate the contrast naturally or use multi-word transitional phrases like "At the same time,", "But here's the catch,", or simply remove the transition entirely.
+5. CITATION REQUIREMENT: If the original sentence contains a citation token like [CITE_x], you MUST place that EXACT [CITE_x] token inside your restructured sentence, positioned naturally before the final period (e.g., "...with social media driving division [CITE_0]."). Do not append it outside the sentence or drop it.
+6. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark).
 
 Respond with ONLY a valid raw JSON object. Match this format exactly:
 {
@@ -408,7 +409,7 @@ Format:
 }
 
 // ==========================================================================
-// MODULE 5: STOCHASTIC POST-PROCESSING & CLEANUP (UPGRADED)
+// MODULE 5: STOCHASTIC POST-PROCESSING & CLEANUP (UPGRADED SYNTAX RECOVERY)
 // ==========================================================================
 
 function applyStochasticTransitions(text, replacementProbability = 0.25) {
@@ -465,27 +466,35 @@ function applySurfaceVariation(text) {
 
 /**
  * Upgraded recovery engine to systematically clean up formatting errors,
- * trailing commas/periods, and orphaned syntax chunks near citations.
+ * double citations, missing spaces, and orphaned syntax chunks.
  */
 function conservativeCleanup(text) {
     let result = text;
 
-    // 1. HEAL FRACTURED SENTENCES:
-    // If a period is followed by a parenthetical citation and a lowercase letter (e.g., "...debate. (Aytac, 2022) and..."),
-    // it means the sentence was incorrectly split. This removes the rogue period.
+    // 1. ELIMINATE DOUBLE CITATIONS:
+    // Identifies and cleans consecutive duplicate citation placeholders or parentheticals
+    result = result.replace(/(\([^)]+\))\s*(?:\.\s*)?\1/g, "$1");
+    result = result.replace(/(\[[A-Z0-9_]+\])\s*(?:\.\s*)?\1/g, "$1");
+
+    // 2. HEAL FRACTURED SENTENCES:
+    // If a period is followed by a parenthetical citation and a lowercase letter, remove the period.
     result = result.replace(/\b([a-zA-Z]+)\.\s*(\([^)]+\))\s+([a-z])/g, "$1 $2 $3");
 
-    // 2. HEAL DOUBLE PERIODS:
-    // If there is a period before AND after a parenthetical citation (e.g., "citizens. (Aytac, 2022)."),
-    // remove the first one to keep normal citation structure.
+    // 3. HEAL DOUBLE PERIODS:
+    // Removes the period preceding a citation if it is followed by a trailing period.
     result = result.replace(/\b([a-zA-Z]+)\.\s*(\([^)]+\))\s*\./g, "$1 $2.");
 
-    // 3. HEAL CLASHING CLAUSTRAL PUNCTUATION:
-    // Resolves rogue period-comma boundaries (e.g., "fracturing., (Zuiderveen)") by converting them 
-    // to a unified trailing citation structure.
+    // 4. HEAL CLASHING CLAUSTRAL PUNCTUATION:
+    // Resolves period-comma boundaries around citation elements.
     result = result.replace(/\b([a-zA-Z]+)\.,\s*(\([^)]+\))/g, "$1 $2.");
 
-    // 4. CLEANUP DOUBLE PUNCTUATION & SPACES:
+    // 5. REPAIR MISSING PUNCTUATION SPACING:
+    // Ensures spaces exist after punctuation marks and citation brackets
+    result = result.replace(/\.([a-zA-Z])/g, '. $1');
+    result = result.replace(/\)([a-zA-Z])/g, ') $1');
+    result = result.replace(/\]([a-zA-Z])/g, '] $1');
+
+    // 6. GENERAL PUNCTUATION & SPACING CLEANUP:
     result = result.replace(/\s+([.,;:!?])/g, '$1');
     result = result.replace(/\.{2,}/g, '.');
     result = result.replace(/,{2,}/g, ',');
