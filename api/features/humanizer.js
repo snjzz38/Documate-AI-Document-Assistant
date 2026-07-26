@@ -84,7 +84,7 @@ const TRANSITION_POOLS = {
 };
 
 // ==========================================================================
-// MODULE 2: TEXT UTILITIES & SEGMENTATION (UPGRADED)
+// MODULE 2: SAFE TEXT UTILITIES & SEGMENTATION (UPGRADED)
 // ==========================================================================
 
 /**
@@ -107,19 +107,16 @@ function parseJSONResponse(text) {
 }
 
 /**
- * Smarter balanced segmenter to ensure we do not leave orphaned single sentences
- * in a tail section, which leads to repetitive AI summaries.
+ * Balanced segmenter to prevent orphaned single-sentence blocks.
  */
 function segmentText(text, targetSentenceCount = 8) {
     const sentences = text.match(/[^.!?]+[.!?]+(?:["'”’]?\s*|$)/g) || [text];
     const totalSentences = sentences.length;
     
-    // If the text is short enough, process it as a single coherent section
     if (totalSentences <= targetSentenceCount + 2) {
         return [text.trim()];
     }
     
-    // Balanced chunk distribution
     const numChunks = Math.ceil(totalSentences / targetSentenceCount);
     const sentencesPerChunk = Math.ceil(totalSentences / numChunks);
     
@@ -131,10 +128,17 @@ function segmentText(text, targetSentenceCount = 8) {
 }
 
 /**
- * Replaces exact sentences inside a text block, ignoring minor whitespace or spacing variations.
+ * Safe sentence-replacement helper with defensive safeguards against invalid maps.
  */
 function applySentenceReplacements(text, replacementMap) {
     let result = text;
+    
+    // Defensive Guard: Bypass gracefully if the map is null, undefined, or an array
+    if (!replacementMap || typeof replacementMap !== 'object' || Array.isArray(replacementMap)) {
+        vercelLog('apply_sentence_replacements_bypass', 'Bypassing structural replacements due to null or invalid map object.');
+        return result;
+    }
+    
     for (const [original, replacement] of Object.entries(replacementMap)) {
         if (!original || !replacement || original.trim() === replacement.trim()) continue;
         
@@ -148,10 +152,17 @@ function applySentenceReplacements(text, replacementMap) {
 }
 
 /**
- * Replaces specific words or short phrases, ignoring minor spacing variations.
+ * Safe word-replacement helper with defensive safeguards against invalid maps.
  */
 function applyLexicalReplacements(text, replacementMap) {
     let result = text;
+    
+    // Defensive Guard: Bypass gracefully if the map is null, undefined, or an array
+    if (!replacementMap || typeof replacementMap !== 'object' || Array.isArray(replacementMap)) {
+        vercelLog('apply_lexical_replacements_bypass', 'Bypassing lexical replacements due to null or invalid map object.');
+        return result;
+    }
+    
     for (const [original, replacement] of Object.entries(replacementMap)) {
         if (!original || !replacement || original.trim() === replacement.trim()) continue;
 
@@ -386,7 +397,7 @@ function postProcess(text) {
 }
 
 // ==========================================================================
-// MODULE 6: API HANDLER
+// MODULE 6: SAFE API HANDLER (UPGRADED)
 // ==========================================================================
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -424,24 +435,28 @@ export default async function handler(req, res) {
 
         // Step 2: Classify Formality Level via Groq
         logs.push("Running step 1: Formality classification and concept detection (Groq)...");
-        const classResult = await classifyText(maskedText, GROQ_KEY);
-        const { formality, coreIdea } = classResult.parsed;
+        let classResult;
+        try {
+            classResult = await classifyText(maskedText, GROQ_KEY);
+        } catch (classErr) {
+            logs.push(`Critical error: classification pass failed. Falling back to semi-academic. Error: ${classErr.message}`);
+            classResult = {
+                parsed: { formality: "semi-academic", coreIdea: "Academic draft about societal polarization and digital spaces" }
+            };
+        }
         
-        debugInfo.classification = {
-            prompt: classResult.prompt,
-            rawResponse: classResult.rawResponse,
-            parsed: classResult.parsed
-        };
+        const { formality, coreIdea } = classResult.parsed;
+        debugInfo.classification = classResult;
         logs.push(`Classification success. Formality: ${formality}. Core Idea: "${coreIdea}"`);
 
-        // Step 3: Segment document into ~10 sentence units
-        const sections = segmentText(maskedText, 10);
-        logs.push(`Segmented text into ${sections.length} distinct section(s).`);
+        // Step 3: Segment document into balanced units
+        const sections = segmentText(maskedText, 8);
+        logs.push(`Segmented text into ${sections.length} balanced section(s).`);
         vercelLog('segmented_sections', sections);
 
         const processedSections = [];
 
-        // Loop through each segment performing dual structural & lexical JSON-driven modifications
+        // Loop through segments performing dual structural & lexical edits safely
         for (let i = 0; i < sections.length; i++) {
             const currentSection = sections[i];
             const previousSection = i > 0 ? sections[i - 1] : null;
@@ -458,7 +473,7 @@ export default async function handler(req, res) {
                 finalText: null
             };
 
-            // Step 2.1: Structural Restructure
+            // Step 2.1: Structural Restructure with safety fallback
             let structuralMap = {};
             try {
                 const structResult = await getStructuralRestructuring(
@@ -469,21 +484,21 @@ export default async function handler(req, res) {
                     styleVariation,
                     GEMINI_KEY
                 );
-                structuralMap = structResult.parsed;
-                sectionDiagnostics.structural = {
-                    prompt: structResult.prompt,
-                    rawResponse: structResult.rawResponse,
-                    parsed: structResult.parsed
-                };
+                
+                if (structResult && structResult.parsed) {
+                    structuralMap = structResult.parsed;
+                    sectionDiagnostics.structural = structResult;
+                }
             } catch (err) {
-                logs.push(`Warning: Structural restructuring failed on Section ${i + 1}. Detail: ${err.message}`);
+                logs.push(`Warning: Structural restructuring failed on Section ${i + 1}. Falling back to default section text.`);
+                structuralMap = {}; // Reset to safe empty state
                 sectionDiagnostics.structural = { error: err.message };
             }
 
             let restructuredSection = applySentenceReplacements(currentSection, structuralMap);
             vercelLog(`section_${i}_restructured_result`, restructuredSection);
 
-            // Step 2.2: Lexical substitutions
+            // Step 2.2: Lexical substitutions with safety fallback
             let lexicalMap = {};
             try {
                 const lexResult = await getLexicalSubstitutions(
@@ -494,14 +509,14 @@ export default async function handler(req, res) {
                     styleVariation,
                     GEMINI_KEY
                 );
-                lexicalMap = lexResult.parsed;
-                sectionDiagnostics.lexical = {
-                    prompt: lexResult.prompt,
-                    rawResponse: lexResult.rawResponse,
-                    parsed: lexResult.parsed
-                };
+                
+                if (lexResult && lexResult.parsed) {
+                    lexicalMap = lexResult.parsed;
+                    sectionDiagnostics.lexical = lexResult;
+                }
             } catch (err) {
-                logs.push(`Warning: Lexical substitution failed on Section ${i + 1}. Detail: ${err.message}`);
+                logs.push(`Warning: Lexical substitution failed on Section ${i + 1}. Falling back to clean structural state.`);
+                lexicalMap = {}; // Reset to safe empty state
                 sectionDiagnostics.lexical = { error: err.message };
             }
 
@@ -543,7 +558,7 @@ export default async function handler(req, res) {
             success: true,
             result: resultText,
             logs,
-            debug: debugInfo, // Programmatic diagnostic payload for client review
+            debug: debugInfo,
             humanizer: pipelineStats
         });
 
