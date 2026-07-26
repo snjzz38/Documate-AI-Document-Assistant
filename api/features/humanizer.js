@@ -309,38 +309,6 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
     }
 }
 
-async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
-    const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
-    const guidelines = FORMALITY_GUIDELINES[formality];
-
-    const prompt = `You are an expert academic editor restructuring a draft.
-Goal of Text: ${coreIdea}
-Formality Level: ${formality} (${guidelines.tone})
-Style Variation: ${sectionStyle.directive}
-
-${contextStr}CURRENT SECTION TO REWRITE:
-"${currentSection}"
-
-STRICT COMPATIBILITY RULE:
-You must synthesize the "Formality Level" with the "Style Variation". 
-While executing sentence reordering, SVO flips, or sentence splitting, do NOT drop below the established "${formality}" register. Under no circumstances should you use overly conversational, simplified, or grade-school expressions (such as "help us talk" or "how we think as voters") if the target register is academic or semi-academic. Maintain intellectual rigor.
-
-INSTRUCTIONS:
-1. Identify 40% to 50% of the sentences in the CURRENT SECTION that sound structurally robotic or formulaic.
-2. Completely restructure them to create asymmetric clause structures and human variance.
-3. Ensure the sentence flows seamlessly with the PREVIOUS SECTION (if provided).
-4. All CITATION placeholders (like [CITE_x]) must remain in the exact sentences they originated in.
-5. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark) so they can be parsed correctly.
-
-Respond with ONLY a valid raw JSON object. Match this format exactly:
-{
-  "Verbatim original sentence here.": "Restructured, elegant, and natural replacement sentence here."
-}`;
-
-    const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
-    return parseJSONResponse(rawResponse.trim());
-}
-
 // ==========================================================================
 // MODULE 4: PIPELINE CONTEXT TRANSFORMATIONS (UPGRADED REGISTER CONTROL)
 // ==========================================================================
