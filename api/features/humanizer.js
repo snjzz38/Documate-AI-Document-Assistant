@@ -197,6 +197,20 @@ function restoreCitations(text, citationsMap) {
 // ==========================================================================
 
 /**
+ * Cleanly prints structured debug payloads to Vercel's stdout.
+ * Prefixed with [HUMANIZER_DEBUG] for easy filtering in the Vercel console.
+ */
+function vercelLog(label, payload) {
+    console.log(`[HUMANIZER_DEBUG] >>> START: ${label.toUpperCase()} <<<`);
+    if (payload && typeof payload === 'object') {
+        console.log(JSON.stringify(payload, null, 2));
+    } else {
+        console.log(payload);
+    }
+    console.log(`[HUMANIZER_DEBUG] <<< END: ${label.toUpperCase()} >>>\n`);
+}
+
+/**
  * Request 1: Assess text formality level and summarize its core theme.
  */
 async function classifyText(text, apiKey) {
@@ -211,13 +225,24 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
   "coreIdea": "A brief summary of the core thesis, claims, and goals of this text"
 }`;
 
+    vercelLog('groq_classification_prompt', prompt);
+
     const rawResponse = await GroqAPI.chat(
         [{ role: 'user', content: prompt }],
         apiKey,
         false
     );
     
-    return parseJSONResponse(rawResponse.trim());
+    vercelLog('groq_classification_raw_response', rawResponse);
+
+    try {
+        const parsed = parseJSONResponse(rawResponse.trim());
+        vercelLog('groq_classification_parsed', parsed);
+        return { prompt, rawResponse, parsed };
+    } catch (err) {
+        vercelLog('groq_classification_parse_error', err.message);
+        throw err;
+    }
 }
 
 // ==========================================================================
@@ -226,7 +251,7 @@ Respond with ONLY a valid raw JSON object. Do not include markdown codeblocks or
 
 /**
  * Step 2.1: Sentence structural restructuring.
- * Returns a mapping of original verbatim sentences to transformed sentences.
+ * Returns both the generated prompts/outputs and the structured mapping.
  */
 async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
@@ -252,13 +277,24 @@ Respond with ONLY a valid raw JSON object. Do not include markdown or conversati
   "Verbatim original sentence here.": "Restructured, elegant, and natural replacement sentence here."
 }`;
 
+    vercelLog('structural_restructure_prompt', prompt);
+
     const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
-    return parseJSONResponse(rawResponse.trim());
+    vercelLog('structural_restructure_raw_response', rawResponse);
+
+    try {
+        const parsed = parseJSONResponse(rawResponse.trim());
+        vercelLog('structural_restructure_parsed', parsed);
+        return { prompt, rawResponse, parsed };
+    } catch (err) {
+        vercelLog('structural_restructure_parse_error', err.message);
+        throw err;
+    }
 }
 
 /**
  * Step 2.2: Lexical substitutions.
- * Returns a mapping of clinical words or phrases to natural/fitting alternatives.
+ * Returns both the generated prompts/outputs and the structured mapping.
  */
 async function getLexicalSubstitutions(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
     const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
@@ -285,8 +321,19 @@ Format:
   "robotic Word Or Phrase": "natural replacement"
 }`;
 
+    vercelLog('lexical_substitutions_prompt', prompt);
+
     const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
-    return parseJSONResponse(rawResponse.trim());
+    vercelLog('lexical_substitutions_raw_response', rawResponse);
+
+    try {
+        const parsed = parseJSONResponse(rawResponse.trim());
+        vercelLog('lexical_substitutions_parsed', parsed);
+        return { prompt, rawResponse, parsed };
+    } catch (err) {
+        vercelLog('lexical_substitutions_parse_error', err.message);
+        throw err;
+    }
 }
 
 // ==========================================================================
@@ -387,6 +434,10 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const logs = [];
+    const debugInfo = {
+        classification: null,
+        sections: []
+    };
     const startTime = Date.now();
     
     resetGeminiUsage();
@@ -402,20 +453,29 @@ export default async function handler(req, res) {
         if (!GROQ_KEY) throw new Error("No Groq API key configured.");
 
         logs.push(`Input text size: ${text.length} characters.`);
+        vercelLog('input_text_raw', text);
 
         // Step 1: Pre-process citations & extract writing structure
         const { processed: maskedText, citationsMap } = maskCitations(text);
         logs.push(`Masked ${citationsMap.length} citations for protection.`);
+        vercelLog('masked_text_and_citations', { maskedText, citationsMap });
 
         // Step 2: Classify Formality Level via Groq
         logs.push("Running step 1: Formality classification and concept detection (Groq)...");
-        const classification = await classifyText(maskedText, GROQ_KEY);
-        const { formality, coreIdea } = classification;
+        const classResult = await classifyText(maskedText, GROQ_KEY);
+        const { formality, coreIdea } = classResult.parsed;
+        
+        debugInfo.classification = {
+            prompt: classResult.prompt,
+            rawResponse: classResult.rawResponse,
+            parsed: classResult.parsed
+        };
         logs.push(`Classification success. Formality: ${formality}. Core Idea: "${coreIdea}"`);
 
         // Step 3: Segment document into ~10 sentence units
         const sections = segmentText(maskedText, 10);
         logs.push(`Segmented text into ${sections.length} distinct section(s).`);
+        vercelLog('segmented_sections', sections);
 
         const processedSections = [];
 
@@ -426,11 +486,20 @@ export default async function handler(req, res) {
             const styleVariation = SECTION_STYLES[i % SECTION_STYLES.length];
             
             logs.push(`Processing Section ${i + 1}/${sections.length} with style "${styleVariation.name}"`);
+            
+            const sectionDiagnostics = {
+                sectionIndex: i,
+                originalText: currentSection,
+                styleUsed: styleVariation.name,
+                structural: null,
+                lexical: null,
+                finalText: null
+            };
 
             // Step 2.1: Structural Restructure
             let structuralMap = {};
             try {
-                structuralMap = await getStructuralRestructuring(
+                const structResult = await getStructuralRestructuring(
                     currentSection,
                     previousSection,
                     formality,
@@ -438,16 +507,24 @@ export default async function handler(req, res) {
                     styleVariation,
                     GEMINI_KEY
                 );
+                structuralMap = structResult.parsed;
+                sectionDiagnostics.structural = {
+                    prompt: structResult.prompt,
+                    rawResponse: structResult.rawResponse,
+                    parsed: structResult.parsed
+                };
             } catch (err) {
-                logs.push(`Warning: Structural restructuring failed on Section ${i + 1}. Skipping restructure. Detail: ${err.message}`);
+                logs.push(`Warning: Structural restructuring failed on Section ${i + 1}. Detail: ${err.message}`);
+                sectionDiagnostics.structural = { error: err.message };
             }
 
             let restructuredSection = applySentenceReplacements(currentSection, structuralMap);
+            vercelLog(`section_${i}_restructured_result`, restructuredSection);
 
             // Step 2.2: Lexical substitutions
             let lexicalMap = {};
             try {
-                lexicalMap = await getLexicalSubstitutions(
+                const lexResult = await getLexicalSubstitutions(
                     restructuredSection,
                     previousSection,
                     formality,
@@ -455,11 +532,23 @@ export default async function handler(req, res) {
                     styleVariation,
                     GEMINI_KEY
                 );
+                lexicalMap = lexResult.parsed;
+                sectionDiagnostics.lexical = {
+                    prompt: lexResult.prompt,
+                    rawResponse: lexResult.rawResponse,
+                    parsed: lexResult.parsed
+                };
             } catch (err) {
-                logs.push(`Warning: Lexical substitution failed on Section ${i + 1}. Skipping replacements. Detail: ${err.message}`);
+                logs.push(`Warning: Lexical substitution failed on Section ${i + 1}. Detail: ${err.message}`);
+                sectionDiagnostics.lexical = { error: err.message };
             }
 
             let finalizedSection = applyLexicalReplacements(restructuredSection, lexicalMap);
+            vercelLog(`section_${i}_finalized_result`, finalizedSection);
+            
+            sectionDiagnostics.finalText = finalizedSection;
+            debugInfo.sections.push(sectionDiagnostics);
+            
             processedSections.push(finalizedSection);
         }
 
@@ -471,6 +560,7 @@ export default async function handler(req, res) {
         // Post-processing cleanup
         resultText = postProcess(resultText);
         logs.push("Post-processing variations and cleanups applied.");
+        vercelLog('final_output_text', resultText);
 
         const totalTimeMs = Date.now() - startTime;
         const geminiUsage = getGeminiUsage();
@@ -491,17 +581,20 @@ export default async function handler(req, res) {
             success: true,
             result: resultText,
             logs,
+            debug: debugInfo, // Programmatic diagnostic payload for client review
             humanizer: pipelineStats
         });
 
     } catch (error) {
         const totalTimeMs = Date.now() - startTime;
         logs.push(`CRITICAL RUNTIME ERROR: ${error.message}`);
+        vercelLog('critical_pipeline_error', { message: error.message, stack: error.stack });
         
         return res.status(500).json({
             success: false,
             error: error.message,
             logs,
+            debug: debugInfo,
             humanizer: {
                 executionTimeMs: totalTimeMs,
                 status: "pipeline_failure"
