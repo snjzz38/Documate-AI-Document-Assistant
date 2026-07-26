@@ -84,8 +84,40 @@ const TRANSITION_POOLS = {
 };
 
 // ==========================================================================
-// MODULE 2: SAFE TEXT UTILITIES & SEGMENTATION (UPGRADED)
+// MODULE 2: SAFE TEXT UTILITIES, SEGMENTATION & FUZZY MATCHING (UPGRADED)
 // ==========================================================================
+
+/**
+ * Normalizes text to alphanumeric characters for resilient structural matching.
+ */
+function normalizeForMatching(str) {
+    if (!str) return '';
+    return str.toLowerCase().replace(/[^a-z0-9]/gi, '').trim();
+}
+
+/**
+ * Scans sentences to find the closest match based on alphanumeric density,
+ * resolving minor whitespace, quotation, or citation token variations.
+ */
+function findClosestSentence(key, originalSentences) {
+    const normalizedKey = normalizeForMatching(key);
+    if (!normalizedKey) return null;
+
+    // 1. First Pass: Look for exact normalized matches
+    for (const sent of originalSentences) {
+        const normalizedSent = normalizeForMatching(sent);
+        if (normalizedSent === normalizedKey) return sent;
+    }
+
+    // 2. Second Pass: Look for substring overlaps (handles citation position changes)
+    for (const sent of originalSentences) {
+        const normalizedSent = normalizeForMatching(sent);
+        if (normalizedSent.includes(normalizedKey) || normalizedKey.includes(normalizedSent)) {
+            return sent;
+        }
+    }
+    return null;
+}
 
 /**
  * Parses raw JSON output from model responses, handling potential markdown wrapping.
@@ -128,36 +160,44 @@ function segmentText(text, targetSentenceCount = 8) {
 }
 
 /**
- * Safe sentence-replacement helper with defensive safeguards against invalid maps.
+ * Resilient sentence-replacement helper using fuzzy matching logic.
  */
 function applySentenceReplacements(text, replacementMap) {
     let result = text;
     
-    // Defensive Guard: Bypass gracefully if the map is null, undefined, or an array
     if (!replacementMap || typeof replacementMap !== 'object' || Array.isArray(replacementMap)) {
         vercelLog('apply_sentence_replacements_bypass', 'Bypassing structural replacements due to null or invalid map object.');
         return result;
     }
     
-    for (const [original, replacement] of Object.entries(replacementMap)) {
-        if (!original || !replacement || original.trim() === replacement.trim()) continue;
+    // Split the text into individual sentences to locate the closest logical matches
+    const originalSentences = text.match(/[^.!?]+[.!?]+(?:["'”’]?\s*|$)/g) || [text];
+    
+    for (const [originalKey, replacement] of Object.entries(replacementMap)) {
+        if (!originalKey || !replacement || originalKey.trim() === replacement.trim()) continue;
         
-        let escapedOriginal = original.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        escapedOriginal = escapedOriginal.replace(/\s+/g, '\\s+');
+        // Find the closest matched sentence in the source text
+        const actualSentence = findClosestSentence(originalKey, originalSentences);
         
-        const regex = new RegExp(escapedOriginal, 'g');
-        result = result.replace(regex, replacement);
+        if (actualSentence) {
+            let escapedSentence = actualSentence.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+            escapedSentence = escapedSentence.replace(/\s+/g, '\\s+');
+            
+            const regex = new RegExp(escapedSentence, 'g');
+            result = result.replace(regex, replacement);
+        } else {
+            vercelLog('sentence_match_failed_warning', `Could not find a safe match for: "${originalKey.substring(0, 50)}..."`);
+        }
     }
     return result;
 }
 
 /**
- * Safe word-replacement helper with defensive safeguards against invalid maps.
+ * Safe word-replacement helper.
  */
 function applyLexicalReplacements(text, replacementMap) {
     let result = text;
     
-    // Defensive Guard: Bypass gracefully if the map is null, undefined, or an array
     if (!replacementMap || typeof replacementMap !== 'object' || Array.isArray(replacementMap)) {
         vercelLog('apply_lexical_replacements_bypass', 'Bypassing lexical replacements due to null or invalid map object.');
         return result;
