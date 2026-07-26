@@ -342,6 +342,104 @@ Respond with ONLY a valid raw JSON object. Match this format exactly:
 }
 
 // ==========================================================================
+// MODULE 4: PIPELINE CONTEXT TRANSFORMATIONS (UPGRADED REGISTER CONTROL)
+// ==========================================================================
+
+/**
+ * Step 2.1: Sentence structural restructuring.
+ * Now includes strict rules to eliminate parenthetical appositives and split passive modifiers.
+ */
+async function getStructuralRestructuring(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
+    const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
+    const guidelines = FORMALITY_GUIDELINES[formality];
+
+    const prompt = `You are an expert editor restructuring a draft to make it sound organically human.
+Goal of Text: ${coreIdea}
+Formality Level: ${formality} (${guidelines.tone})
+Style Directive: ${sectionStyle.directive}
+
+${contextStr}CURRENT SECTION TO REWRITE:
+"${currentSection}"
+
+STRICT SYNTAX RULES:
+1. ELIMINATE PASSIVE APPOSITIVES AND PARTICIPIAL CLAUSES. Do not use parenthetical description traps separated by commas (e.g., "X, once largely confined to Y, has permeated Z..."). Instead, split these into direct, active, sequential clauses (e.g., "X used to be limited to Y, but today it has worked its way into Z.").
+2. NO SENTENCE-INTERRUPTING MODIFIERS. Do not interrupt the logical flow of a sentence with mid-sentence descriptions. Keep sentences moving forward.
+3. VARY RHYTHM. Break complex, winding academic sentences down into clear, single-concept sentences mixed with longer, natural compound clauses.
+4. CITATION REQUIREMENT: If the original sentence contains a citation token like [CITE_x], you MUST place that EXACT [CITE_x] token inside your restructured sentence, positioned naturally before the final period (e.g., "...with social media driving division [CITE_0]."). Do not append it outside the sentence or drop it.
+5. Keep original keys VERBATIM, including the terminal punctuation (period, exclamation, or question mark).
+
+Respond with ONLY a valid raw JSON object. Match this format exactly:
+{
+  "Verbatim original sentence here.": "Restructured, elegant, active, and appositive-free replacement sentence here."
+}`;
+
+    vercelLog('structural_restructure_prompt', prompt);
+
+    const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
+    vercelLog('structural_restructure_raw_response', rawResponse);
+
+    try {
+        const parsed = parseJSONResponse(rawResponse.trim());
+        vercelLog('structural_restructure_parsed', parsed);
+        return { prompt, rawResponse, parsed };
+    } catch (err) {
+        vercelLog('structural_restructure_parse_error', err.message);
+        throw err;
+    }
+}
+
+/**
+ * Step 2.2: Lexical substitutions.
+ * Explicitly targets and strips out "complexity creep" and bloated academic jargon.
+ */
+async function getLexicalSubstitutions(currentSection, previousSection, formality, coreIdea, sectionStyle, apiKey) {
+    const contextStr = previousSection ? `PREVIOUS SECTION CONTEXT:\n"${previousSection}"\n\n` : '';
+    const guidelines = FORMALITY_GUIDELINES[formality];
+
+    const prompt = `You are a copyeditor stripping out "complexity creep" and over-inflated AI words from an academic draft.
+Goal of Text: ${coreIdea}
+Formality Level: ${formality} (${guidelines.tone})
+Style Directive: ${sectionStyle.directive}
+
+${contextStr}CURRENT SECTION TO EDIT:
+"${currentSection}"
+
+STRICT VOCABULARY INSTRUCTIONS:
+1. ELIMINATE AI CLICHÉS AND INFLATED JARGON. Replace overly stuffy words with clear, precise, and approachable terms suitable for a highly competent writer.
+2. SPECIFIC REPLACEMENTS TO ENFORCE:
+   - "exacerbate" -> "worsen", "deepen", "make things worse", "feed"
+   - "inflammatory content" -> "angry posts", "provocative posts", "toxic content"
+   - "facilitate" -> "drive", "help", "ease"
+   - "permeate the daily social fabric" -> "worked its way into everyday life"
+   - "profound paradox" -> "strange contradiction", "double-edged sword"
+   - "affective hostility" -> "growing bitterness", "emotional anger", "visceral hostility"
+   - "democratic deliberation" -> "open debate", "democratic discussion"
+   - "disenfranchise" -> "limit their voice" or "silence"
+   - "political agency" -> "political choices" or "freedom of choice"
+3. WORD-LEVEL LIMIT: You must ONLY replace individual words or short phrases (maximum 3 words). Do NOT overwrite sentence structures or replace entire clauses containing citation placeholders like [CITE_x].
+4. Output ONLY a valid JSON object mapping the exact terms to replace.
+
+Format:
+{
+  "robotic Word": "natural replacement"
+}`;
+
+    vercelLog('lexical_substitutions_prompt', prompt);
+
+    const rawResponse = await GeminiAPI.chat(prompt, apiKey, 0.7);
+    vercelLog('lexical_substitutions_raw_response', rawResponse);
+
+    try {
+        const parsed = parseJSONResponse(rawResponse.trim());
+        vercelLog('lexical_substitutions_parsed', parsed);
+        return { prompt, rawResponse, parsed };
+    } catch (err) {
+        vercelLog('lexical_substitutions_parse_error', err.message);
+        throw err;
+    }
+}
+
+// ==========================================================================
 // MODULE 5: STOCHASTIC POST-PROCESSING & CLEANUP (UPGRADED)
 // ==========================================================================
 
